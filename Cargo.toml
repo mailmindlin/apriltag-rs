@@ -1,0 +1,19 @@
+[package]
+name = "tagpose-rs"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+cpython = ["dep:cpython"]
+jni = ["dep:jni"]
+cffi = []
+
+default=["cpython", "jni", "cffi"]
+
+[dependencies]
+cpython = { version = "0.7.1", optional = true }
+jni = { version = "0.20.0", optional = true }
+lock_api = "0.4.9"
+nalgebra = "0.32.1"
+rand = "0.8.5"
+rayon = "1.6.1"
