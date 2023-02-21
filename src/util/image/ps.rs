@@ -1,19 +1,11 @@
 use std::io::{self, Write};
 
 
-pub struct PostScriptWriter<W: io::Write> {
-    inner: W,
+pub struct PostScriptWriter<'a, W: io::Write> {
+    inner: &'a mut W,
 }
 
-impl<W: Write> From<W> for PostScriptWriter<W> {
-    fn from(value: W) -> Self {
-        Self {
-            inner: value,
-        }
-    }
-}
-
-impl<W: Write> Write for PostScriptWriter<W> {
+impl<'a, W: Write> Write for PostScriptWriter<'a, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.inner.write(buf)
     }
@@ -23,6 +15,8 @@ impl<W: Write> Write for PostScriptWriter<W> {
     }
 }
 
-impl<W: io::Write> PostScriptWriter<W> {
-    
+impl<'a, W: io::Write> PostScriptWriter<'a, W> {
+    pub fn new(inner: &'a mut W) -> Self {
+        Self { inner }
+    }
 }

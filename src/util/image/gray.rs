@@ -66,7 +66,7 @@ impl Image<u8> {
             let swidth = width / 3 * 2;
             let sheight = height / 3 * 2;
 
-            let dst = Self::create(swidth, sheight);
+            let mut dst = Self::create(swidth, sheight);
 
             let mut y = 0;
             for sy in (0..sheight).step_by(2) {
@@ -103,7 +103,7 @@ impl Image<u8> {
             let swidth = 1 + (width - 1) / factor;
             let sheight = 1 + (height - 1) / factor;
 
-            let decim = Self::create(swidth, sheight);
+            let mut decim = Self::create(swidth, sheight);
             let mut sy = 0;
             for y in (0..height).step_by(factor) {
                 let mut sx = 0;
@@ -128,7 +128,7 @@ impl Image<u8> {
             for y in 0..self.height {
                 let row = &mut self[(.., y)];
                 row_buf.copy_from_slice(row);
-                convolve(&row_buf, &mut row, kernel);
+                convolve(&row_buf, row, kernel);
             }
         }
 
@@ -162,7 +162,7 @@ impl Image<u8> {
 
         // build the kernel.
         let kernel = {
-            let dk = vec![0f64; kernel_size];
+            let mut dk = vec![0f64; kernel_size];
 
             // for kernel of length 5:
             // dk[0] = f(-2), dk[1] = f(-1), dk[2] = f(0), dk[3] = f(1), dk[4] = f(2)

@@ -18,7 +18,7 @@ impl Image<[u8; 3]> {
         match pnm.format {
             PNMFormat::Binary => todo!("Support binary files"),
             PNMFormat::Gray => {
-                let im = Self::create(pnm.width, pnm.height);
+                let mut im = Self::create(pnm.width, pnm.height);
 
                 for y in 0..im.height {
                     for x in 0..im.width {
@@ -29,7 +29,7 @@ impl Image<[u8; 3]> {
                 Ok(im)
             },
             PNMFormat::RGB => {
-                let im = Self::create(pnm.width, pnm.height);
+                let mut im = Self::create(pnm.width, pnm.height);
 
                 for y in 0..im.height {
                     for x in 0..im.width {
@@ -54,7 +54,6 @@ impl ImageWritePNM for Image<[u8; 3]> {
         writeln!(f, "P6")?;
         writeln!(f, "{} {}", self.width, self.height)?;
         writeln!(f, "255")?;
-        let linesz = self.width * 3;
         for y in 0..self.height {
             let row = &self[(.., y)];
             f.write_all(row.flatten())?;

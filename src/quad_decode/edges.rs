@@ -1,9 +1,9 @@
-use crate::{detector::ApriltagDetector, util::{Image, math::Vec2, geom::Point2D}};
+use crate::{detector::AprilTagParams, util::{Image, math::Vec2, geom::Point2D}};
 
 use super::Quad;
 
 impl Quad {
-    pub(super) fn refine_edges(&mut self, td: &ApriltagDetector, im_orig: &Image) {
+    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &Image) {
         let mut lines: [(Vec2, Vec2); 4]; // for each line, [E,n]
 
         for edge in 0..4 {
@@ -55,7 +55,7 @@ impl Quad {
                 // search on another pixel in the first place. Likewise,
                 // for very small tags, we don't want the range to be too
                 // big.
-                let range = td.params.quad_decimate as f64 + 1.;
+                let range = det_params.quad_decimate as f64 + 1.;
 
                 // XXX tunable step size.
                 let step_size = 0.25;

@@ -7,7 +7,7 @@ use std::{fs::OpenOptions, f64::consts as f64c, io::{Write}};
 
 use rand::thread_rng;
 
-use crate::{detector::ApriltagDetector, util::{Image, mem::calloc, color::RandomColor, image::ImageWritePNM}, quad_decode::Quad};
+use crate::{detector::ApriltagDetector, util::{Image, mem::calloc, color::RandomColor, image::ImageWritePNM, TimeProfile}, quad_decode::Quad};
 
 use self::{uf::connected_components, grad_cluster::gradient_clusters, quadfit::fit_quads};
 
@@ -121,14 +121,14 @@ impl unionfind_task {
     }
 }*/
 
-pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
+pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Image) -> Vec<Quad> {
     ////////////////////////////////////////////////////////
     // step 1. threshold the image, creating the edge image.
 
     let w = im.width;
     let h = im.height;
 
-    let threshim = threshold::threshold(&td.qtp, &mut td.tp, im);
+    let threshim = threshold::threshold(&td.qtp, tp, im);
 
     if td.params.generate_debug_image() {
         threshim.save_to_pnm("debug_threshold.pnm").unwrap();
@@ -170,7 +170,7 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
         d.save_to_pnm("debug_segmentation.pnm").unwrap();
     }
 
-    td.tp.stamp("unionfind");
+    tp.stamp("unionfind");
 
     let clusters = gradient_clusters(td, &threshim, &uf);
     
@@ -190,7 +190,7 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
     }
 
     std::mem::drop(threshim);
-    td.tp.stamp("make clusters");
+    tp.stamp("make clusters");
 
     ////////////////////////////////////////////////////////
     // step 3. process each connected component.
@@ -231,7 +231,7 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
         }
     }
 
-    td.tp.stamp("fit quads to clusters");
+    tp.stamp("fit quads to clusters");
 
     std::mem::drop(uf);
     std::mem::drop(clusters);

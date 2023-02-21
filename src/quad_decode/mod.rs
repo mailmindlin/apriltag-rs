@@ -4,7 +4,7 @@ mod sharpening;
 
 use std::{f64::consts::FRAC_PI_2, sync::Arc};
 
-use crate::{detector::ApriltagDetector, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::{homography_project}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
+use crate::{detector::{ApriltagDetector, AprilTagParams}, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
 
 use greymodel::Graymodel;
 
@@ -115,7 +115,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
 
 impl Quad {
     /// returns the decision margin. Return < 0 if the detection should be rejected.
-    pub fn decode(&self, detector: &ApriltagDetector, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&mut Image>) -> Option<(f32, QuickDecodeEntry)> {
+    pub fn decode(&self, det_params: &AprilTagParams, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&mut Image>) -> Option<(f32, QuickDecodeEntry)> {
         // decode the tag binary contents by sampling the pixel
         // closest to the center of each bit cell.
 
@@ -270,7 +270,7 @@ impl Quad {
             }
         }
 
-        sharpening::sharpen(&mut values, detector.params.decode_sharpening, family.total_width as usize);
+        sharpening::sharpen(&mut values, det_params.decode_sharpening, family.total_width as usize);
 
         let mut rcode = 0u64;
         for (bitx, bity) in family.bits {
@@ -293,8 +293,8 @@ impl Quad {
         Some((score, entry))
     }
 
-    fn decode_family(&mut self, info: QuadDecodeInfo, family: Arc<AprilTagFamily>, qd: &QuickDecode) -> Option<ApriltagDetection> {
-        let (decision_margin, entry) = self.decode(info.detector, &family, qd, info.im, info.im_samples)?;
+    fn decode_family(&mut self, info: &QuadDecodeInfo, family: Arc<AprilTagFamily>, qd: &QuickDecode) -> Option<ApriltagDetection> {
+        let (decision_margin, entry) = self.decode(&info.detector.params, &family, qd, info.im, info.im_samples)?;
 
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
@@ -341,12 +341,12 @@ impl Quad {
         Some(det)
     }
 
-    pub fn decode_task(&mut self, info: QuadDecodeInfo) -> Vec<ApriltagDetection> {
+    pub fn decode_task(&mut self, info: &QuadDecodeInfo) -> Vec<ApriltagDetection> {
         // refine edges is not dependent upon the tag family, thus
         // apply this optimization BEFORE the other work.
         //if (td->quad_decimate > 1 && td->refine_edges) {
         if info.detector.params.refine_edges {
-            self.refine_edges(info.detector, info.im);
+            self.refine_edges(&info.detector.params, info.im);
         }
 
         // make sure the homographies are computed...
@@ -355,7 +355,7 @@ impl Quad {
         }
 
         let result = Vec::new();
-        for (family, ref qd) in info.detector.tag_families {
+        for (family, qd) in info.detector.tag_families.iter() {
             if family.reversed_border != self.reversed_border {
                 continue;
             }
@@ -364,7 +364,7 @@ impl Quad {
             // optimization process over with the original quad.
             let mut quad = self.clone();
 
-            if let Some(det) = quad.decode_family(info, family, qd) {
+            if let Some(det) = quad.decode_family(info, family.to_owned(), qd) {
                 result.push(det);
             }
         }

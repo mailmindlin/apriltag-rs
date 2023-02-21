@@ -7,7 +7,7 @@ pub(crate) trait RandomColor {
     fn gen_color_rgb<T>(&mut self, bias: T) -> [T; 3]
         where
             Range<T>: SampleRange<T>,
-            T: Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform;
+            T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform;
     
     fn gen_color_gray<T>(&mut self, bias: T) -> T
         where
@@ -19,12 +19,13 @@ impl<R: Rng> RandomColor for R {
     fn gen_color_rgb<T>(&mut self, bias: T) -> [T; 3]
         where
             Range<T>: SampleRange<T>,
-            T: Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform {
-        // RNG range
-        let range = T::from(0)..(T::from(255) - bias);
+            T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform {
         
         let rgb: [T; 3];
         for i in 0..3 {
+            // RNG range
+            let range = T::from(0)..(T::from(255) - bias);
+
             let random_part = self.gen_range(range);
             rgb[i] = bias + random_part;
         }
@@ -45,7 +46,7 @@ impl<R: Rng> RandomColor for R {
 pub(crate) fn random_color<T>(bias: T) -> [T; 3]
     where
         Range<T>: SampleRange<T>,
-        T: Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform
+        T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform
 {
     let mut rng = thread_rng();
 

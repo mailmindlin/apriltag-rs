@@ -1,10 +1,10 @@
 use std::{fs::{File, OpenOptions}, io::Write, cmp::Ordering, sync::Arc};
 
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 
-use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript}}, families::AprilTagFamily, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
+use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript, PostScriptWriter}}, families::AprilTagFamily, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
 
 pub struct AprilTagParams {
 	/// How many threads should be used?
@@ -69,12 +69,10 @@ pub struct ApriltagDetector {
 	pub(crate) qtp: ApriltagQuadThreshParams,
 
 	///////////////////////////////////////////////////////////////
-	// Statistics relating to last processed frame
-	pub(crate) tp: TimeProfile,
+	// pub(crate) tp: TimeProfile,
 
 	nedges: u32,
 	nsegments: u32,
-	nquads: u32,
 
 	///////////////////////////////////////////////////////////////
 	// Internal variables below
@@ -88,17 +86,13 @@ pub struct ApriltagDetector {
 	pub(crate) wp: ThreadPool,
 }
 
-
-
 impl Default for ApriltagDetector {
     fn default() -> Self {
         Self {
 			params: AprilTagParams::default(),
 			qtp: ApriltagQuadThreshParams::default(),
-			tp: Default::default(),
 			nedges: 0,
 			nsegments: 0,
-			nquads: 0,
 			tag_families: Vec::new(),
 			// NB: defer initialization of self.wp so that the user can
 			// override self.nthreads.
@@ -126,22 +120,24 @@ impl ApriltagDetector {
 		self.tag_families.clear();
 	}
 
-	pub fn detect(&self, im_orig: &Image) -> Vec<ApriltagDetection> {
+	pub fn detect(&self, im_orig: &Image) -> DetectionResult {
 		if self.tag_families.len() == 0 {
 			println!("AprilTag: No tag families enabled.");
-			return Vec::new();
+			return DetectionResult::default();
 		}
 
-		self.tp.clear();
-		self.tp.stamp("init");
+		// Statistics relating to last processed frame
+		let mut tp = TimeProfile::default();
+
+		tp.stamp("init");
 
 		///////////////////////////////////////////////////////////
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
-		let quad_im = if self.params.quad_decimate > 1. {
+		let mut quad_im = if self.params.quad_decimate > 1. {
 			let quad_im = im_orig.decimate(self.params.quad_decimate);
 
-			self.tp.stamp("decimate");
+			tp.stamp("decimate");
 			quad_im
 		} else {
 			//TODO: can we not copy here?
@@ -161,9 +157,11 @@ impl ApriltagDetector {
 			let sigma = f32::abs(self.params.quad_sigma);
 
 			let ksz = (4. * sigma) as usize; // 2 std devs in each direction
-			if (ksz & 1) == 0 {
-				ksz += 1;
-			}
+			let ksz = if (ksz & 1) == 0 {
+				ksz + 1
+			} else {
+				ksz
+			};
 
 			if ksz > 1 {
 				if self.params.quad_sigma > 0. {
@@ -189,14 +187,14 @@ impl ApriltagDetector {
 			}
 		}
 
-		self.tp.stamp("blur/sharp");
+		tp.stamp("blur/sharp");
 
 		if self.params.debug {
 			quad_im.save_to_pnm("debug_preprocess.pnm");
 		}
 
 	//    zarray_t *quads = apriltag_quad_gradient(td, im_orig);
-		let quads = apriltag_quad_thresh(self, &quad_im);
+		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
 
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
@@ -212,9 +210,9 @@ impl ApriltagDetector {
 
 		let mut detections = Vec::<ApriltagDetection>::new();
 
-		self.nquads = quads.len().try_into().unwrap();
+		let nquads: u32 = quads.len().try_into().unwrap();
 
-		self.tp.stamp("quads");
+		tp.stamp("quads");
 
 		if self.params.debug {
 			let mut im_quads = im_orig.clone();
@@ -223,7 +221,7 @@ impl ApriltagDetector {
 
 			let mut rng = thread_rng();
 
-			for quad in quads {
+			for quad in quads.iter() {
 				let color = rng.gen_color_gray(100);
 
 				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
@@ -238,20 +236,20 @@ impl ApriltagDetector {
 		////////////////////////////////////////////////////////////////
 		// Step 2. Decode tags from each quad.
 		if true {
-			let im_samples = if self.params.debug { Some(im_orig.clone()) } else { None };
+			let mut im_samples = if self.params.debug { Some(im_orig.clone()) } else { None };
 
 			// let chunksize = 1 + quads.len() / (APRILTAG_TASKS_PER_THREAD_TARGET * self.nthreads);
 
-			let detections = self.wp.scope(|sc| {
+			let detections = self.wp.scope(|_sc| {
 				let info = QuadDecodeInfo {
 					detector: self,
 					im: im_orig,
 					im_samples: if let Some(im) = &mut im_samples { Some(im) } else { None },
 				};
 
-				quads.into_par_iter()
+				quads.par_iter_mut()
 					.flat_map(|quad| {
-						quad.decode_task(info)
+						quad.decode_task(&info)
 					})
 					.collect::<Vec<_>>()
 			});
@@ -263,13 +261,13 @@ impl ApriltagDetector {
 		}
 
 		if self.params.debug {
-			let im_quads = im_orig.clone();
+			let mut im_quads = im_orig.clone();
 			im_quads.darken();
 			im_quads.darken();
 
 			let mut rng = thread_rng();
 
-			for quad in quads {
+			for quad in quads.iter() {
 				let color = rng.gen_color_gray(100);
 
 				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
@@ -282,7 +280,7 @@ impl ApriltagDetector {
 			im_quads.save_to_pnm("debug_quads_fixed.pnm");
 		}
 
-		self.tp.stamp("decode+refinement");
+		tp.stamp("decode+refinement");
 
 		////////////////////////////////////////////////////////////////
 		// Step 3. Reconcile detections--- don't report the same tag more
@@ -355,15 +353,15 @@ impl ApriltagDetector {
 
 			if !drop_idxs.is_empty() {
 				detections = detections
-					.iter()
+					.into_iter()
 					.enumerate()
 					.filter(|(idx, _)| !drop_idxs.contains(idx))
-					.map(|(idx, det)| *det)
+					.map(|(_idx, det)| det)
 					.collect::<Vec<_>>();
 			}
 		}
 
-		self.tp.stamp("reconcile");
+		tp.stamp("reconcile");
 
 		let mut rng = thread_rng();
 
@@ -372,9 +370,9 @@ impl ApriltagDetector {
 		if self.params.debug {
 
 			// assume letter, which is 612x792 points.
-			let f = File::create("debug_output.ps").unwrap();
+			let mut f = File::create("debug_output.ps").unwrap();
 			{
-				let darker = im_orig.clone();
+				let mut darker = im_orig.clone();
 				darker.darken();
 				darker.darken();
 
@@ -384,10 +382,10 @@ impl ApriltagDetector {
 				writeln!(f, "0 {} translate", darker.height).unwrap();
 				writeln!(f, "1 -1 scale").unwrap();
 				
-				darker.write_postscript(&mut f.into()).unwrap();
+				darker.write_postscript(&mut PostScriptWriter::new(&mut f)).unwrap();
 			}
 
-			for det in detections {
+			for det in detections.iter() {
 				let rgb = rng.gen_color_rgb(100.);
 
 				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255., rgb[1]/255., rgb[2]/255.).unwrap();
@@ -403,24 +401,19 @@ impl ApriltagDetector {
 		}
 
 		if self.params.debug {
-			let darker = im_orig.clone();
+			let mut darker = im_orig.clone();
 			darker.darken();
 			darker.darken();
 
-			let out = Image::<[u8;3]>::create(darker.width, darker.height);
+			let mut out = Image::<[u8;3]>::create(darker.width, darker.height);
 			for y in 0..im_orig.height {
 				for x in 0..im_orig.width {
 					*out.cell_mut(x, y) = [*darker.cell(x, y); 3];
 				}
 			}
 
-			for det in detections {
-				let rgb: [f32; 3];
-				let bias = 100f32;
-
-				for i in 0..3 {
-					rgb[i] = bias + rng.gen_range(0f32..(255f32-bias));
-				}
+			for det in detections.iter() {
+				let rgb = rng.gen_color_rgb(100.);
 
 				for j in 0..4 {
 					let k = (j + 1) & 3;
@@ -443,8 +436,10 @@ impl ApriltagDetector {
 				.unwrap();
 			write!(f, "%%!PS\n\n").unwrap();
 
+			let mut rng = thread_rng();
+
 			{
-				let darker = im_orig.clone();
+				let mut darker = im_orig.clone();
 				darker.darken();
 				darker.darken();
 
@@ -454,16 +449,11 @@ impl ApriltagDetector {
 				writeln!(f, "0 {} translate", darker.height).unwrap();
 				writeln!(f, "1 -1 scale").unwrap();
 
-				darker.write_postscript(&mut f.into());
+				darker.write_postscript(&mut PostScriptWriter::new(&mut f));
 			}
 
-			for q in quads {
-				let rgb: [f32; 3];
-				let bias = 100f32;
-
-				for i in 0..3 {
-					rgb[i] = bias + rng.gen_range(0f32..(255f32-bias));
-				}
+			for q in quads.iter() {
+				let rgb = rng.gen_color_rgb(100f32);
 
 				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0);
 				write!(f, "{} {} moveto {} {} lineto {} {} lineto {} {} lineto {} {} lineto stroke\n",
@@ -477,14 +467,18 @@ impl ApriltagDetector {
 			write!(f, "showpage\n");
 		}
 
-		self.tp.stamp("debug output");
+		tp.stamp("debug output");
 		std::mem::drop(quads);
 
 		detections.sort_by(|a, b| Ord::cmp(&a.id, &b.id));
 
-		self.tp.stamp("cleanup");
+		tp.stamp("cleanup");
 
-		detections
+		DetectionResult {
+			tp,
+			nquads,
+			detections,
+		}
 	}
 }
 
@@ -524,4 +518,12 @@ pub struct ApriltagDetection {
 	// The corners of the tag in image pixel coordinates. These always
 	// wrap counter-clock wise around the tag.
 	pub corners: [Point2D; 4],
+}
+
+#[derive(Default)]
+pub struct DetectionResult {
+	tp: TimeProfile,
+	nquads: u32,
+	detections: Vec<ApriltagDetection>,
+
 }

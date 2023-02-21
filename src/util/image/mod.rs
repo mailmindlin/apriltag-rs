@@ -45,7 +45,7 @@ impl<T> Image<T> {
         return &mut self.buf[x + y * self.stride];
     }
 
-    pub fn draw_line(&mut self, p0: Point2D, p1: Point2D, color: &T, width: usize) {
+    pub fn draw_line(&mut self, p0: Point2D, p1: Point2D, color: &T, width: usize) where T: Copy {
         let dist = p0.distance_to(&p1);
         let delta = 0.5 / dist;
         let num_steps = f64::ceil(dist * 2.) as usize;

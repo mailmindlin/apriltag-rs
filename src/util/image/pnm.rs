@@ -25,14 +25,14 @@ impl PNM {
             .read(true)
             .open(path)?;
         
-        let br = BufReader::new(f);
+        let mut br = BufReader::new(f);
 
         // will be 3 when we're all done.
         let mut format = None;
         let mut params = Vec::new();
 
         while params.len() < 3 && !(format == Some(PNMFormat::Binary) && params.len() == 2) {
-            let tmp = {
+            let mut tmp = {
                 let mut tmp = String::new();
                 br.read_line(&mut tmp)?;
                 tmp
