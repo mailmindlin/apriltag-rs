@@ -32,11 +32,9 @@ impl PNM {
         let mut params = Vec::new();
 
         while params.len() < 3 && !(format == Some(PNMFormat::Binary) && params.len() == 2) {
-            let mut tmp = {
-                let mut tmp = String::new();
-                br.read_line(&mut tmp)?;
-                tmp
-            }.chars().peekable();
+            let mut line = String::new();
+            br.read_line(&mut line)?;
+            let mut tmp = line.chars().peekable();
 
             match tmp.peek() {
                 // skip comments
