@@ -46,7 +46,7 @@ impl Vec2 {
 
     /// Vector dot product
     #[inline]
-    pub const fn dot(&self, other: &Vec2) -> f64 {
+    pub fn dot(&self, other: &Vec2) -> f64 {
         self.0 * other.0 + self.1 * other.1
     }
 
