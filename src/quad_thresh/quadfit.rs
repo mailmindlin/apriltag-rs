@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 use rayon::prelude::*;
 
-use crate::{util::{Image, mem::calloc}, ApriltagDetector, quad_decode::Quad};
+use crate::{util::{Image, mem::calloc, geom::Point2D}, ApriltagDetector, quad_decode::Quad};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self, LineFitData}};
 
@@ -14,55 +14,19 @@ struct Segment {
     is_vertex: bool,
 }
 
-struct RemoveVertex {
-    /// which vertex to remove?
-    i: usize,
-    /// left vertex
-    left: usize,
-    /// right vertex
-    right: usize,
-    err: f64,
-}
-
-// Implement ordering for MaxHeap
-impl PartialEq for RemoveVertex {
-    fn eq(&self, other: &Self) -> bool {
-        self.i == other.i && self.left == other.left && self.right == other.right && self.err == other.err
-    }
-}
-
-impl Eq for RemoveVertex {
-    fn assert_receiver_is_total_eq(&self) {}
-}
-
-impl PartialOrd for RemoveVertex {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
-    }
-}
-
-impl Ord for RemoveVertex {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        return f64::total_cmp(&self.err, &other.err).reverse()
-    }
-}
-
-/*
-
-  1. Identify A) white points near a black point and B) black points near a white point.
-
-  2. Find the connected components within each of the classes above,
-  yielding clusters of "white-near-black" and
-  "black-near-white". (These two classes are kept separate). Each
-  segment has a unique id.
-
-  3. For every pair of "white-near-black" and "black-near-white"
-  clusters, find the set of points that are in one and adjacent to the
-  other. In other words, a "boundary" layer between the two
-  clusters. (This is actually performed by iterating over the pixels,
-  rather than pairs of clusters.) Critically, this helps keep nearby
-  edges from becoming connected.
-*/
+/// 1. Identify A) white points near a black point and B) black points near a white point.
+///
+/// 2. Find the connected components within each of the classes above,
+/// yielding clusters of "white-near-black" and
+/// "black-near-white". (These two classes are kept separate). Each
+/// segment has a unique id.
+///
+/// 3. For every pair of "white-near-black" and "black-near-white"
+/// clusters, find the set of points that are in one and adjacent to the
+/// other. In other words, a "boundary" layer between the two
+/// clusters. (This is actually performed by iterating over the pixels,
+/// rather than pairs of clusters.) Critically, this helps keep nearby
+/// edges from becoming connected.
 fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
     let sz = cluster.len();
 
@@ -81,7 +45,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
 
     // can't fit a quad if there are too few points.
     if ksz < 2 {
-        return 0;
+        return None;
     }
 
 //    printf("sz %5d, ksz %3d\n", sz, ksz);
@@ -145,7 +109,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
 
     // if we didn't get at least 4 maxima, we can't fit a quad.
     if maxima.len() < 4 {
-        return 0;
+        return None;
     }
 
     // select only the best maxima if we have too many
@@ -236,11 +200,39 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
     Some(best_indices)
 }
 
+struct RemoveVertex {
+    /// which vertex to remove?
+    i: usize,
+    /// left vertex
+    left: usize,
+    /// right vertex
+    right: usize,
+    err: f64,
+}
+
+// Implement ordering for MaxHeap
+impl PartialEq for RemoveVertex {
+    fn eq(&self, other: &Self) -> bool {
+        self.i == other.i && self.left == other.left && self.right == other.right && self.err == other.err
+    }
+}
+impl Eq for RemoveVertex {
+    fn assert_receiver_is_total_eq(&self) {}
+}
+impl PartialOrd for RemoveVertex {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
+    }
+}
+impl Ord for RemoveVertex {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        return f64::total_cmp(&self.err, &other.err).reverse()
+    }
+}
+
 /// returns false if the cluster looks bad.
 fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
-    let sz = cluster.len();
-
-    let mut heap: BinaryHeap<RemoveVertex> = BinaryHeap::new();
+    let mut heap = BinaryHeap::<RemoveVertex>::new();
 
     // We will initially allocate sz rvs. We then have two types of
     // iterations: some iterations that are no-ops in terms of
@@ -264,19 +256,22 @@ fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]
 
         let rv = RemoveVertex { i, left, right, err };
 
-        heap.push(rv);
+        heap.push(RemoveVertex {
+            i,
+            left,
+            right,
+            err
+        });
 
         segs.push(Segment {
-            left: rv.left,
-            right: rv.right,
+            left,
+            right,
             is_vertex: true,
         });
     }
 
-    let mut nvertices = sz;
+    let mut nvertices = cluster.len();
     while nvertices > 4 {
-        assert!(rvalloc_pos < rvalloc_size);
-
         let rv = heap.pop()?;
 
         // is this remove_vertex valid? (Or has one of the left/right
@@ -327,6 +322,9 @@ fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]
         .map(|(idx, _seg)| idx)
         .collect::<Vec<_>>();
 
+    let indices = indices
+        .try_into()
+        .expect("Indices length mismatch");
     Some(indices)
 }
 
@@ -373,9 +371,8 @@ fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
 }
 
 // return 1 if the quad looks okay, 0 if it should be discarded
-fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usize, normal_border: bool, reversed_border: bool) -> Option<Quad> {
-    let sz = cluster.len();
-    if sz < 24 {// Synchronize with later check.
+fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width: usize, normal_border: bool, reversed_border: bool) -> Option<Quad> {
+    if cluster.len() < 24 {// Synchronize with later check.
         return None;
     }
 
@@ -388,36 +385,39 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
 
     // compute a bounding box so that we can order the points
     // according to their angle WRT the center.
-    let p1 = &cluster[0];
-    let mut xmax = p1.x;
-    let mut xmin = p1.x;
-    let mut ymax = p1.y;
-    let mut ymin = p1.y;
-    for p in cluster.iter().skip(1) {
-        if p.x > xmax {
-            xmax = p.x;
-        } else if p.x < xmin {
-            xmin = p.x;
+    let (cx, cy) = {
+        let p1 = &cluster[0];
+        let mut xmax = p1.x;
+        let mut xmin = p1.x;
+        let mut ymax = p1.y;
+        let mut ymin = p1.y;
+        for p in cluster.iter().skip(1) {
+            if p.x > xmax {
+                xmax = p.x;
+            } else if p.x < xmin {
+                xmin = p.x;
+            }
+
+            if p.y > ymax {
+                ymax = p.y;
+            } else if p.y < ymin {
+                ymin = p.y;
+            }
         }
 
-        if p.y > ymax {
-            ymax = p.y;
-        } else if p.y < ymin {
-            ymin = p.y;
+        if ((xmax - xmin) as usize) * ((ymax - ymin) as usize) < tag_width {
+            return None;
         }
-    }
 
-    if (xmax - xmin)*(ymax - ymin) < tag_width {
-        return None;
-    }
-
-    // add some noise to (cx,cy) so that pixels get a more diverse set
-    // of theta estimates. This will help us remove more points.
-    // (Only helps a small amount. The actual noise values here don't
-    // matter much at all, but we want them [-1, 1]. (XXX with
-    // fixed-point, should range be bigger?)
-    let cx: f32 = (xmin + xmax) * 0.5 + 0.05118;
-    let cy: f32 = (ymin + ymax) * 0.5 + -0.028581;
+        // add some noise to (cx,cy) so that pixels get a more diverse set
+        // of theta estimates. This will help us remove more points.
+        // (Only helps a small amount. The actual noise values here don't
+        // matter much at all, but we want them [-1, 1]. (XXX with
+        // fixed-point, should range be bigger?)
+        let cx: f32 = (xmin + xmax) as f32 * 0.5 + 0.05118;
+        let cy: f32 = (ymin + ymax) as f32 * 0.5 + -0.028581;
+        (cx, cy)
+    };
 
     let quadrants: [[f32; 2]; 2] = [
         [-1.*(2 << 15) as f32, 0.],
@@ -431,14 +431,14 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
 
         dot += dx*p.gx as f32 + dy*p.gy as f32;
 
-        let quadrant = quadrants[dy > 0][dx > 0];
-        let (dx, dy) = if dy < 0 {
+        let quadrant = quadrants[if dy > 0. { 1 } else { 0 }][if dx > 0. { 1 } else { 0 }];
+        let (dx, dy) = if dy < 0. {
             (-dx, -dy)
         } else {
             (dx, dy)
         };
 
-        let (dx, dy) = if dx < 0 {
+        let (dx, dy) = if dx < 0. {
             (dy, -dx)
         } else {
             (dx, dy)
@@ -448,11 +448,11 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
     }
 
     // Ensure that the black border is inside the white border.
-    quad.reversed_border = dot < 0.;
-    if !reversed_border && quad.reversed_border {
+    let q_reversed_border = dot < 0.;
+    if !reversed_border && q_reversed_border {
         return None;
     }
-    if !normal_border && !quad.reversed_border {
+    if !normal_border && !q_reversed_border {
         return None;
     }
 
@@ -463,43 +463,21 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
 
         // remove duplicate points. (A byproduct of our segmentation system.)
         if true {
-            let mut outpos = 1;
-
-            let mut last = &cluster[0];
-            for p in cluster.iter().skip(1) {
-                if p.x != last.x || p.y != last.y {
-                    if i != outpos  {
-                        struct pt *out;
-                        zarray_get_volatile(cluster, outpos, &out);
-                        memcpy(out, p, sizeof(struct pt));
-                    }
-
-                    outpos++;
-                }
-
-                last = p;
-            }
-
-            cluster.size = outpos;
-            sz = outpos;
+            cluster.dedup_by(|u, v| u.x == v.x && u.y == v.y);
         }
-
     }
 
-    if sz < 24 {
+    if cluster.len() < 24 {
         return None;
     }
 
     let lfps = compute_lfps(cluster, im);
 
-    int indices[4];
-    if true {
-        if (!quad_segment_maxima(td, cluster, lfps, indices))
-            goto finish;
+    let indices = if true {
+        quad_segment_maxima(td, cluster, &lfps)?
     } else {
-        if (!quad_segment_agg(td, cluster, lfps, indices))
-            goto finish;
-    }
+        quad_segment_agg(td, cluster, &lfps)?
+    };
 
 
     let mut lines: [[f64; 4]; 4];
@@ -510,40 +488,39 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
         let line = fit_line(&lfps, i0, i1);
         lines[i] = line.lineparm;
 
-        if (line.err > td.qtp.max_line_fit_mse) {
+        if line.err > td.qtp.max_line_fit_mse as f64 {
             return None;
         }
     }
 
-    for i in 0..4 {
-        // solve for the intersection of lines (i) and (i+1)&3.
-        // p0 + lambda0*u0 = p1 + lambda1*u1, where u0 and u1
-        // are the line directions.
-        //
-        // lambda0*u0 - lambda1*u1 = (p1 - p0)
-        //
-        // rearrange (solve for lambdas)
-        //
-        // [u0_x   -u1_x ] [lambda0] = [ p1_x - p0_x ]
-        // [u0_y   -u1_y ] [lambda1]   [ p1_y - p0_y ]
-        //
-        // remember that lines[i][0,1] = p, lines[i][2,3] = NORMAL vector.
-        // We want the unit vector, so we need the perpendiculars. Thus, below
-        // we have swapped the x and y components and flipped the y components.
-
-        let A00 =  lines[i][3];
-        let A01 = -lines[(i+1)&3][3];
-        let A10 =  -lines[i][2];
-        let A11 = lines[(i+1)&3][2];
-        let B0 = -lines[i][0] + lines[(i+1)&3][0];
-        let B1 = -lines[i][1] + lines[(i+1)&3][1];
+    /// solve for the intersection of lines (i) and (i+1)&3.
+    /// p0 + lambda0*u0 = p1 + lambda1*u1, where u0 and u1
+    /// are the line directions.
+    ///
+    /// lambda0*u0 - lambda1*u1 = (p1 - p0)
+    ///
+    /// rearrange (solve for lambdas)
+    ///
+    /// [u0_x   -u1_x ] [lambda0] = [ p1_x - p0_x ]
+    /// [u0_y   -u1_y ] [lambda1]   [ p1_y - p0_y ]
+    ///
+    /// remember that line1[0,1] = p, line1[2,3] = NORMAL vector.
+    /// We want the unit vector, so we need the perpendiculars. Thus, below
+    /// we have swapped the x and y components and flipped the y components.
+    fn quad_corner(line1: &[f64; 4], line2: &[f64; 4]) -> Option<Point2D> {
+        let A00 =  line1[3];
+        let A01 = -line2[3];
+        let A10 =  -line1[2];
+        let A11 = line2[2];
+        let B0 = -line1[0] + line2[0];
+        let B1 = -line1[1] + line2[1];
 
         let det = A00 * A11 - A10 * A01;
 
         // inverse.
         let W00 = A11 / det;
         let W01 = -A01 / det;
-        if (det.abs() < 0.001) {
+        if det.abs() < 0.001 {
             return None;
         }
 
@@ -551,10 +528,17 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
         let L0 = W00*B0 + W01*B1;
 
         // compute intersection
-        quad.corners[i][0] = lines[i][0] + L0*A00;
-        quad.corners[i][1] = lines[i][1] + L0*A10;
+        Some(Point2D::of(
+            line1[0] + L0*A00,
+            line1[1] + L0*A10
+        ))
+    }
 
-        res = 1;
+    let mut corners: [Point2D; 4];
+    for i in 0..4 {
+        let line1 = &lines[i];
+        let line2 = &lines[(i + 1) % 4];
+        corners[i] = quad_corner(line1, line2)?;
     }
 
     // reject quads that are too small
@@ -562,30 +546,33 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
         let mut area = 0.;
 
         // get area of triangle formed by points 0, 1, 2, 0
-        let mut length: [f64; 3];
-        for i in 0..3 {
-            let idxa = i; // 0, 1, 2,
-            let idxb = (i+1) % 3; // 1, 2, 0
-            length[i] = (sq(quad.corners[idxb][0] - quad.corners[idxa][0]) +
-                            sq(quad.corners[idxb][1] - quad.corners[idxa][1])).sqrt();
-        }
-        let p = (length[0] + length[1] + length[2]) / 2.;
+        {
+            let mut length: [f64; 3];
+            for i in 0..3 {
+                let idxa = i; // 0, 1, 2,
+                let idxb = (i+1) % 3; // 1, 2, 0
+                length[i] = (&corners[idxb] - &corners[idxa]).mag();
+            }
+            let p = (length[0] + length[1] + length[2]) / 2.;
 
-        area += (p*(p-length[0])*(p-length[1])*(p-length[2])).sqrt();
+            area += (p*(p-length[0])*(p-length[1])*(p-length[2])).sqrt();
+        }
 
         // get area of triangle formed by points 2, 3, 0, 2
-        for i in 0..3 {
-            let idxs = [ 2, 3, 0, 2 ];
-            let idxa = idxs[i];
-            let idxb = idxs[i+1];
-            length[i] = (sq(quad.corners[idxb][0] - quad.corners[idxa][0]) +
-                            sq(quad.corners[idxb][1] - quad.corners[idxa][1])).sqrt();
+        {
+            let length: [f64; 3];
+            const idxs: [usize; 4] = [ 2, 3, 0, 2 ];
+            for i in 0..3 {
+                let corner1 = &corners[idxs[i]];
+                let corner2 = &corners[idxs[i + 1]];
+                length[i] = corner1.distance_to(corner2);
+            }
+            let p = (length[0] + length[1] + length[2]) / 2.;
+    
+            area += (p*(p-length[0])*(p-length[1])*(p-length[2])).sqrt();
         }
-        let p = (length[0] + length[1] + length[2]) / 2.;
 
-        area += (p*(p-length[0])*(p-length[1])*(p-length[2])).sqrt();
-
-        if (area < tag_width*tag_width) {
+        if area < (tag_width as f64)*(tag_width as f64) {
             return None;
         }
     }
@@ -593,22 +580,25 @@ fn fit_quad(td: ApriltagDetector, im: &Image, cluster: &mut [Pt], tag_width: usi
     // reject quads whose cumulative angle change isn't equal to 2PI
     if true {
         for i in 0..4 {
-            let i0 = i;
-            let i1 = (i+1)&3;
-            let i2 = (i+2)&3;
+            let corner0 = &corners[i];
+            let corner1 = &corners[(i + 1) % 4];
+            let corner2 = &corners[(i + 2) % 4];
 
-            let dx1 = quad.corners[i1][0] - quad.corners[i0][0];
-            let dy1 = quad.corners[i1][1] - quad.corners[i0][1];
-            let dx2 = quad.corners[i2][0] - quad.corners[i1][0];
-            let dy2 = quad.corners[i2][1] - quad.corners[i1][1];
-            let cos_dtheta = (dx1*dx2 + dy1*dy2)/sqrt((dx1*dx1 + dy1*dy1)*(dx2*dx2 + dy2*dy2));
+            let d1 = corner1 - corner0;
+            let d2 = corner2 - corner1;
+            let cos_dtheta = d1.dot(&d2) / f64::sqrt(d1.dot(&d1) * d2.dot(&d2));
 
-            if ((cos_dtheta > td.qtp.cos_critical_rad || cos_dtheta < -td.qtp.cos_critical_rad) || dx1*dy2 < dy1*dx2) {
+            if (cos_dtheta > td.qtp.cos_critical_rad as f64 || cos_dtheta < -td.qtp.cos_critical_rad as f64) || (d1.x() * d2.y() < d1.y() * d2.x()) {
                 return None;
             }
         }
     }
-    res
+    Some(Quad {
+        reversed_border: q_reversed_border,
+        corners,
+        H: None,
+        Hinv: None,
+    })
 }
 /*
 // return true if the quad looks okay, false if it should be discarded
@@ -944,7 +934,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut [pt], tag_width: us
     return res;
 }
 */
-pub(super) fn fit_quads(td: &ApriltagDetector, w: usize, h: usize, clusters: &[Vec<Pt>], im: &Image) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &ApriltagDetector, clusters: &[Vec<Pt>], im: &Image) -> Vec<Quad> {
     let mut normal_border = false;
     let mut reversed_border = false;
     let mut min_tag_width = 1000000;
@@ -954,12 +944,12 @@ pub(super) fn fit_quads(td: &ApriltagDetector, w: usize, h: usize, clusters: &[V
         normal_border |= !family.reversed_border;
         reversed_border |= family.reversed_border;
     }
-    let min_tag_width = std::cmp::max(min_tag_width / td.params.quad_decimate, 3);
+    let min_tag_width = std::cmp::max((min_tag_width as f32 / td.params.quad_decimate) as usize, 3);
 
     // let chunksize = 1 + clusters.len() / (APRILTAG_TASKS_PER_THREAD_TARGET * td.params.nthreads);
 
     let quads = clusters
-        .into_par_iter()
+        .par_iter_mut()
         .filter(|cluster| {
             if cluster.len() < td.qtp.min_cluster_pixels as usize {
                 return false;
@@ -970,7 +960,7 @@ pub(super) fn fit_quads(td: &ApriltagDetector, w: usize, h: usize, clusters: &[V
             // fit quads to.) A typical point along an edge is added three
             // times (because it has 3 neighbors). The maximum perimeter
             // is 2w+2h.
-            if cluster.len() > 3*(2*w+2*h) {
+            if cluster.len() > 3*(2*im.width+2*im.height) {
                 return false;
             }
             true

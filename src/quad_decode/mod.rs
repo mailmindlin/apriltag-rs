@@ -4,7 +4,7 @@ mod sharpening;
 
 use std::{f64::consts::FRAC_PI_2, sync::Arc};
 
-use crate::{detector::ApriltagDetector, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::{homography_project, homography_compute, HomographyMode}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
+use crate::{detector::ApriltagDetector, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::{homography_project}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
 
 use greymodel::Graymodel;
 
@@ -12,9 +12,9 @@ use greymodel::Graymodel;
 pub(crate) struct Quad {
     pub(crate) corners: [Point2D; 4],
     /// Tag coordinates ([-1,1] at the black corners) to pixels
-    pub(crate) H: Mat,
+    pub(crate) H: Option<Mat>,
     /// Pixels to tag
-    pub(crate) Hinv: Mat,
+    pub(crate) Hinv: Option<Mat>,
     pub(crate) reversed_border: bool,
 }
 
@@ -43,6 +43,74 @@ pub(crate) struct QuadDecodeInfo<'a> {
     detector: &'a ApriltagDetector,
     im: &'a Image,
     im_samples: Option<&'a mut Image>,
+}
+
+fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
+    let mut A = [
+            c[0][0], c[0][1], 1.,      0.,      0., 0., -c[0][0]*c[0][2], -c[0][1]*c[0][2], c[0][2],
+                 0.,      0., 0., c[0][0], c[0][1], 1., -c[0][0]*c[0][3], -c[0][1]*c[0][3], c[0][3],
+            c[1][0], c[1][1], 1.,      0.,      0., 0., -c[1][0]*c[1][2], -c[1][1]*c[1][2], c[1][2],
+                 0.,      0., 0., c[1][0], c[1][1], 1., -c[1][0]*c[1][3], -c[1][1]*c[1][3], c[1][3],
+            c[2][0], c[2][1], 1.,      0.,      0., 0., -c[2][0]*c[2][2], -c[2][1]*c[2][2], c[2][2],
+                 0.,      0., 0., c[2][0], c[2][1], 1., -c[2][0]*c[2][3], -c[2][1]*c[2][3], c[2][3],
+            c[3][0], c[3][1], 1.,      0.,      0., 0., -c[3][0]*c[3][2], -c[3][1]*c[3][2], c[3][2],
+                 0.,      0., 0., c[3][0], c[3][1], 1., -c[3][0]*c[3][3], -c[3][1]*c[3][3], c[3][3],
+    ];
+
+    const epsilon: f64 = 1e-10;
+
+    // Eliminate.
+    for col in 0..8 {
+        // Find best row to swap with.
+        let mut max_val = 0.;
+        let mut max_val_idx = None;
+        for row in col..8 {
+            let val = A[row*9 + col].abs();
+            if val > max_val {
+                max_val = val;
+                max_val_idx = Some(row);
+            }
+        }
+
+        if max_val < epsilon {
+            //TODO
+            // debug_print("WRN: Matrix is singular.\n");
+            return None;
+        }
+        let max_val_idx = max_val_idx.unwrap();
+
+        // Swap to get best row.
+        if max_val_idx != col {
+            for i in col..9 {
+                let tmp = A[col*9 + i];
+                A[col*9 + i] = A[max_val_idx*9 + i];
+                A[max_val_idx*9 + i] = tmp;
+            }
+        }
+
+        // Do eliminate.
+        for i in (col+1)..8 {
+            let f = A[i*9 + col]/A[col*9 + col];
+            A[i*9 + col] = 0.;
+            for j in (col+1)..9 {
+                A[i*9 + j] -= f*A[col*9 + j];
+            }
+        }
+    }
+
+    // Back solve.
+    for col in (0..=7).rev() {
+        let mut sum = 0.;
+        for i in (col+1)..8 {
+            sum += A[col*9 + i]*A[i*9 + 8];
+        }
+        A[col*9 + 8] = (A[col*9 + 8] - sum)/A[col*9 + col];
+    }
+    Some(Mat::create(3, 3, &[
+        A[8], A[17], A[26],
+        A[35], A[44], A[53],
+        A[62], A[71], 1.
+    ]))
 }
 
 impl Quad {
@@ -128,7 +196,7 @@ impl Quad {
 
                 let tag = (tag01 - 0.5) * 2.;
 
-                let p = homography_project(&self.H, tag.x(), tag.y());
+                let p = homography_project(self.H.as_ref().unwrap(), tag.x(), tag.y());
 
                 // don't round
                 let ix = p.x() as isize;
@@ -186,7 +254,7 @@ impl Quad {
 
             // scale to [-1, 1]
             let tag = (tag01 - &half) * 2.;
-            let p = homography_project(&self.H, tag.x(), tag.y());
+            let p = homography_project(self.H.as_ref().unwrap(), tag.x(), tag.y());
             let v = match value_for_pixel(im, p) {
                 Some(v) => v,
                 None => continue,
@@ -244,7 +312,7 @@ impl Quad {
             R[(1, 1)] = c;
             R[(2, 2)] = 1.;
 
-            Mat::op("M*M", &[&self.H, &R]).unwrap()
+            Mat::op("M*M", &[self.H.as_ref().unwrap(), &R]).unwrap()
         };
 
         let center = homography_project(&H, 0., 0.);
@@ -287,7 +355,7 @@ impl Quad {
         }
 
         let result = Vec::new();
-        for (ref family, ref qd) in info.detector.tag_families {
+        for (family, ref qd) in info.detector.tag_families {
             if family.reversed_border != self.reversed_border {
                 continue;
             }
@@ -305,31 +373,26 @@ impl Quad {
 
     /// returns non-zero if an error occurs (i.e., H has no inverse)
     fn update_homographies(&mut self) -> Result<(), ()> {
-        let correspondences = Vec::<[f64; 4]>::new();
-
+        let corr_arr: [[f64; 4]; 4];
         for i in 0..4 {
-            let mut corr: [f64; 4];
-
-            // At this stage of the pipeline, we have not attempted to decode the
-            // quad into an oriented tag. Thus, just act as if the quad is facing
-            // "up" with respect to our desired corners. We'll fix the rotation
-            // later.
-            // [-1, -1], [1, -1], [1, 1], [-1, 1]
-            corr[0] = if i==0 || i==3 { -1. } else { 1. };
-            corr[1] = if i==0 || i==1 { -1. } else { 1. };
-
-            corr[2] = self.corners[i].x();
-            corr[3] = self.corners[i].y();
-
-            correspondences.push(corr);
+            let c01 = if i == 0 || i == 3 { -1. } else { 1. };
+            corr_arr[i] = [
+                c01,
+                c01,
+                self.corners[i].x(),
+                self.corners[i].y(),
+            ];
         }
 
         // XXX Tunable
-        self.H = homography_compute(&correspondences, HomographyMode::SVD);
+        self.H = homography_compute2(corr_arr);
 
-        self.Hinv = match self.H.inv() {
-            Some(Hinv) => Hinv,
-            None => return Err(()),
+        self.Hinv = match self.H.and_then(|H| H.inv()) {
+            Some(Hinv) => Some(Hinv),
+            None => {
+                self.H = None;
+                return Err(());
+            }
         };
 
         Ok(())

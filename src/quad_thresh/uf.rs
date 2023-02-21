@@ -1,11 +1,34 @@
 use crate::{ApriltagDetector, util::Image, quad_thresh::APRILTAG_TASKS_PER_THREAD_TARGET};
 use rayon::prelude::*;
 
+pub(super) type UnionFindId = u32;
+
 pub(super) struct UnionFind {
-	maxid: u32,
+	maxid: UnionFindId,
 	data: Vec<UnionFindNode>,
 }
 
+pub(super) struct RepGroup<'a> {
+	uf: &'a UnionFind,
+	idx: UnionFindId,
+}
+
+impl<'a> RepGroup<'a> {
+	fn node(&self) -> &'a UnionFindNode {
+		&self.uf.data[self.idx as usize]
+	}
+
+	pub(super) fn idx(&self) -> UnionFindId {
+		self.idx
+	}
+
+	pub(super) fn get_set_size(&self) -> u32 {
+		self.node().size
+	}
+}
+
+/// Single-element node in UnionFind
+#[derive(Debug)]
 struct UnionFindNode {
 	/// the parent of this node. If a node's parent is its own index,
 	/// then it is a root.
@@ -16,7 +39,8 @@ struct UnionFindNode {
 }
 
 impl UnionFind {
-	pub fn create(maxid: u32) -> Self {
+	/// Create new UnionFind with given capacity
+	pub fn create(maxid: UnionFindId) -> Self {
 		let result = UnionFind {
 			maxid,
 			data: Vec::with_capacity(maxid as usize),
@@ -32,12 +56,14 @@ impl UnionFind {
 		result
 	}
 
+	/// Get node for ID
 	#[inline]
-	fn get(&self, id: u32) -> &mut UnionFindNode {
+	fn get(&mut self, id: UnionFindId) -> &mut UnionFindNode {
 		&mut self.data[id as usize]
 	}
 
-	pub fn get_representative(&mut self, id: u32) -> u32 {
+	// Get UnionFind group for id
+	pub fn get_representative<'a>(&'a mut self, id: UnionFindId) -> RepGroup<'a> {
 		let mut root = id;
 	
 		// chase down the root
@@ -65,19 +91,19 @@ impl UnionFind {
 			current = parent;
 		}
 	
-		root
+		RepGroup { uf: self, idx: root }
 	}
 
 	pub(crate) fn get_set_size(&mut self, id: u32) -> u32 {
 		let repid = self.get_representative(id);
-		self.get(repid).size
+		repid.get_set_size()
 	}
 
-	pub(crate) fn connect(&mut self, aid: u32, bid: u32) -> u32 {
+	pub(crate) fn connect<'a>(&'a mut self, aid: u32, bid: u32) -> RepGroup<'a> {
 		let aroot = self.get_representative(aid);
 		let broot = self.get_representative(bid);
 	
-		if aroot == broot {
+		if aroot.idx == broot.idx {
 			return aroot;
 		}
 	
@@ -88,8 +114,8 @@ impl UnionFind {
 		// for rank.  In my testing, it's often *faster* to use size than
 		// rank, perhaps because the rank of the tree isn't that critical
 		// if there are very few nodes in it.
-		let asize = self.get(aroot).size;
-		let bsize = self.get(broot).size;
+		let asize = aroot.get_set_size();
+		let bsize = broot.get_set_size();
 	
 		// optimization idea: We could shortcut some or all of the tree
 		// that is grafted onto the other tree. Pro: u32hose nodes were just
@@ -97,34 +123,106 @@ impl UnionFind {
 		// wasted effort -- the tree might be grafted onto another tree in
 		// a moment!
 		if asize > bsize {
-			self.get(broot).parent = aroot;
-			self.get(aroot).size += bsize;
+			self.data[broot.idx as usize].parent = aroot.idx as UnionFindId;
+			self.data[aroot.idx as usize].size += bsize;
 			aroot
 		} else {
-			self.get(aroot).parent = broot;
-			self.get(broot).size += asize;
+			self.data[aroot.idx as usize].parent = broot.idx as UnionFindId;
+			self.data[broot.idx as usize].size += asize;
 			broot
 		}
 	}
 }
 
+pub(crate) struct UnionFind2D {
+	width: u32,
+	#[cfg(debug_assertions)]
+	height: u32,
+	inner: UnionFind,
+}
 
-fn do_unionfind_first_line(uf: &mut UnionFind, im: &Image) {
-	let w = im.width;
-	for x in 1..(w-1) {
-		let v = im[(x, 0)];
-        if v == 127 {
-            continue;
+impl UnionFind2D {
+	pub fn new(width: usize, height: usize) -> Self {
+		let len = usize::checked_mul(width, height)
+			.expect("Dimension overflow")
+			.try_into()
+			.expect("Dimension overflow");
+		let width = width.try_into().unwrap();
+		#[cfg(debug_assertions)]
+		let height = height.try_into().unwrap();
+		Self {
+			width,
+			#[cfg(debug_assertions)]
+			height,
+			inner: UnionFind::create(len)
+		}
+	}
+
+	fn index_to_id<T>(&self, idx: (T, T)) -> UnionFindId where UnionFindId: TryFrom<T> {
+		fn force_from<T>(src: T) -> UnionFindId where UnionFindId: TryFrom<T> {
+			match UnionFindId::try_from(src) {
+				Ok(v) => v,
+				Err(_) => panic!("Index out-of-bounds")
+			}
 		}
 
-		if im[(x - 1, 0)] == v {
-			uf.connect(x as u32, x as u32 - 1);
+		let x = force_from(idx.0);
+		debug_assert!(x < self.width);
+		let y = force_from(idx.1);
+		debug_assert!(y < self.height);
+		(y * self.width) + x
+	}
+
+	fn connect<T>(&mut self, a: (T, T), b: (T, T)) -> RepGroup where UnionFindId: TryFrom<T> {
+		let aid = self.index_to_id(a);
+		let bid = self.index_to_id(a);
+		self.inner.connect(aid, bid)
+	}
+
+	fn index_to_id_checked<T>(&self, idx: (T, T)) -> Result<UnionFindId, <UnionFindId as TryFrom<T>>::Error> where UnionFindId: TryFrom<T> {
+		let x = UnionFindId::try_from(idx.0)?;
+		debug_assert!(x < self.width);
+		let y = UnionFindId::try_from(idx.1)?;
+		debug_assert!(y < self.height);
+		Ok((y * self.width) + x)
+	}
+
+	fn connect_checked<T>(&mut self, a: (T, T), b: (T, T)) -> Result<RepGroup, <UnionFindId as TryFrom<T>>::Error> where UnionFindId: TryFrom<T> {
+		let aid = self.index_to_id_checked(a)?;
+		let bid = self.index_to_id_checked(b)?;
+		let joined_id = self.inner.connect(aid, bid);
+		Ok(joined_id)
+	}
+
+	pub fn get_representative<T>(&mut self, x: T, y: T) -> RepGroup where UnionFindId: TryFrom<T> {
+		let id = self.index_to_id((x, y));
+		self.inner.get_representative(id)
+	}
+
+	pub fn get_set_size(&mut self, id: UnionFindId) -> usize {
+		self.inner.get_set_size(id) as usize
+	}
+}
+
+
+fn do_unionfind_first_line(uf: &mut UnionFind2D, im: &Image) {
+	let w = im.width;
+	for x in 1..(w-1) {
+		let v0 = im[(x, 0)];
+        if v0 == 127 {
+            continue;
+		}
+		let v1 = im[(x - 1, 0)];
+		if v0 == v1 {
+			uf.connect((x, 0), (x - 1, 0));
 		}
     }
 }
 
-fn do_unionfind_line2(uf: &mut UnionFind, im: &Image, y: usize) {
+fn do_unionfind_line2(uf: &mut UnionFind2D, im: &Image, y: usize) {
     assert!(y > 0);
+	assert_eq!(im.width, uf.width as usize);
+	debug_assert_eq!(im.height, uf.height as usize);
 
     let mut v_0_m1 = im[(0, y-1)];
     let mut v_1_m1 = im[(1, y-1)];
@@ -147,33 +245,33 @@ fn do_unionfind_line2(uf: &mut UnionFind, im: &Image, y: usize) {
         // (-1, -1)    (0, -1)    (1, -1)
         // (-1, 0)    (REFERENCE)
 		if im[(x - 1, y)] == v {
-			uf.connect((y*w + x) as u32, (y*w + x - 1) as u32);
+			uf.connect((x, y), (x - 1, y));
 		}
 
         if x == 1 || !((v_m1_0 == v_m1_m1) && (v_m1_m1 == v_0_m1)) {
 			if im[(x, y - 1)] == v {
-				uf.connect((y*w + x) as u32, ((y - 1)*w + x) as u32);
+				uf.connect((x, y), (x, y - 1));
 			}
         }
 
         if v == 255 {
             if x == 1 || !(v_m1_0 == v_m1_m1 || v_0_m1 == v_m1_m1) {
 				if im[(x - 1, y - 1)] == v {
-					uf.connect((y*w + x) as u32, ((y - 1)*w + x - 1) as u32);
+					uf.connect((x, y), (x - 1, y - 1));
 				}
             }
-            if !(v_0_m1 == v_1_m1) {
+            if v_0_m1 != v_1_m1 {
 				if im[(x + 1, y - 1)] == v {
-					uf.connect((y*w + x) as u32, ((y - 1)*w + x + 1) as u32);
+					uf.connect((x, y), (x + 1, y - 1));
 				}
             }
         }
     }
 }
 
-pub(super) fn connected_components(td: &ApriltagDetector, threshim: &Image) -> UnionFind {
+pub(super) fn connected_components(td: &ApriltagDetector, threshim: &Image) -> UnionFind2D {
 	let ts = threshim.stride;
-    let mut uf = UnionFind::create(threshim.len() as u32);
+    let mut uf = UnionFind2D::new(threshim.width, threshim.height);
 
     if td.params.nthreads <= 1 {
         do_unionfind_first_line(&mut uf, threshim);
