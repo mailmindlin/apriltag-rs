@@ -282,7 +282,7 @@ pub(super) fn connected_components(td: &ApriltagDetector, threshim: &Image) -> U
         do_unionfind_first_line(&mut uf, threshim);
 
         let chunksize = 1 + threshim.height / (APRILTAG_TASKS_PER_THREAD_TARGET * td.params.nthreads);
-		td.wp.scope(|sc| {
+		td.wp.install(|| {
 			(1..threshim.height).into_par_iter()
 				.step_by(chunksize)
 				.for_each(|i| {

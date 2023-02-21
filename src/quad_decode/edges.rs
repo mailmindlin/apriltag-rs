@@ -27,8 +27,6 @@ impl Quad {
 
             // stats for fitting a line...
             let mut M = Vec2::zero();
-            let mut Mx = 0.;
-            let mut My = 0.;
             let mut Mxx = 0.;
             let mut Mxy = 0.;
             let mut Myy = 0.;

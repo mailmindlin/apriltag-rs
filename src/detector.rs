@@ -240,7 +240,7 @@ impl ApriltagDetector {
 
 			// let chunksize = 1 + quads.len() / (APRILTAG_TASKS_PER_THREAD_TARGET * self.nthreads);
 
-			let detections = self.wp.scope(|_sc| {
+			let detections = self.wp.install(|| {
 				let info = QuadDecodeInfo {
 					detector: self,
 					im: im_orig,
