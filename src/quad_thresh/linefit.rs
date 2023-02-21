@@ -21,60 +21,10 @@ impl Pt {
     }
 }
 
-fn sort_stack_big(pts: &mut [Pt], tmp: &mut [Pt]) {
-    let sz = pts.len();
-
-    let (As, Bs) = tmp.split_at_mut(sz / 2);
-
-    ptsort(As);
-    ptsort(Bs);
-
-    fn merge_step(pts: &mut [Pt], As: &[Pt], Bs: &[Pt], apos: &mut usize, bpos: &mut usize, outpos: &mut usize) {
-        if Pt::compare_angle(&As[*apos], &Bs[*bpos]).is_lt() {
-            pts[*outpos] = As[*apos];
-            *outpos += 1;
-            *apos += 1;
-        } else {
-            pts[*outpos] = Bs[*bpos];
-            *outpos += 1;
-            *bpos += 1;
-        }
-    }
-
-    let mut apos = 0;
-    let mut bpos = 0;
-    let mut outpos = 0;
-    while apos + 8 < As.len() && bpos + 8 < Bs.len() {
-        // 8 steps
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-    }
-
-    while apos < As.len() && bpos < Bs.len() {
-        merge_step(pts, As, Bs, &mut apos, &mut bpos, &mut outpos);
-    }
-
-    if apos < As.len() {
-        let count = As.len() - apos;
-        pts[outpos..outpos + count].copy_from_slice(&As[apos..]);
-    }
-    if bpos < Bs.len() {
-        let count = Bs.len() - bpos;
-        pts[outpos..outpos + count].copy_from_slice(&Bs[bpos..]);
-    }
-}
-
 #[inline]
 pub(super) fn ptsort(pts: &mut [Pt]) {
     #[inline(always)]
     fn MAYBE_SWAP(arr: &mut [Pt], apos: usize, bpos: usize) {
-        let pt1 = arr[apos];
         if Pt::compare_angle(&arr[apos], &arr[bpos]).is_gt() {
             arr.swap(apos, bpos);
         }
@@ -121,15 +71,9 @@ pub(super) fn ptsort(pts: &mut [Pt]) {
             MAYBE_SWAP(pts, 1, 2);
             return;
         }
-        // a merge sort with temp storage.
-        sz => {
-            let mut tmp = {
-                let mut tmp = Box::<[Pt]>::new_uninit_slice(sz);
-                tmp.copy_from_slice(pts);
-                unsafe { tmp.assume_init() }
-            };
-
-            sort_stack_big(pts, &mut tmp)
+        _ => {
+            // Fall back to merge sort
+            pts.sort_unstable_by(Pt::compare_angle);
         }
     }
 }
