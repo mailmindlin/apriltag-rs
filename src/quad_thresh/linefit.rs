@@ -103,9 +103,9 @@ pub(super) struct LineFitData {
 /// fit a line to the points [i0, i1] (inclusive). i0, i1 are both [0,
 /// sz) if i1 < i0, we treat this as a wrap around.
 pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitData {
-    let sz = lfps.len();
-    assert_ne!(i0, i1);
-    assert!(i0 >= 0 && i1 >= 0 && i0 < sz && i1 < sz);
+    assert_ne!(i0, i1, "i0 and i1 equal");
+    assert!(i0 < lfps.len(), "i0 out of bounds");
+    assert!(i1 < lfps.len(), "i0 out of bounds");
 
     let Mx;
     let My;
@@ -133,26 +133,22 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
             Myy -= lfps[i0-1].Myy;
             W   -= lfps[i0-1].W;
         }
-
     } else {
         // i0 > i1, e.g. [15, 2]. Wrap around.
         assert!(i0 > 0);
 
-        Mx  = lfps[sz-1].Mx   - lfps[i0-1].Mx;
-        My  = lfps[sz-1].My   - lfps[i0-1].My;
-        Mxx = lfps[sz-1].Mxx  - lfps[i0-1].Mxx;
-        Mxy = lfps[sz-1].Mxy  - lfps[i0-1].Mxy;
-        Myy = lfps[sz-1].Myy  - lfps[i0-1].Myy;
-        W   = lfps[sz-1].W    - lfps[i0-1].W;
+        let pt_last = lfps.last().unwrap();
+        let pt_i0 = &lfps[i0 - 1];
+        let pt_i1 = &lfps[i1 - 1];
 
-        Mx  += lfps[i1].Mx;
-        My  += lfps[i1].My;
-        Mxx += lfps[i1].Mxx;
-        Mxy += lfps[i1].Mxy;
-        Myy += lfps[i1].Myy;
-        W   += lfps[i1].W;
+        Mx  = pt_last.Mx   - pt_i0.Mx   + pt_i1.Mx;
+        My  = pt_last.My   - pt_i0.My   + pt_i1.My;
+        Mxx = pt_last.Mxx  - pt_i0.Mxx  + pt_i1.Mxx;
+        Mxy = pt_last.Mxy  - pt_i0.Mxy  + pt_i1.Mxy;
+        Myy = pt_last.Myy  - pt_i0.Myy  + pt_i1.Myy;
+        W   = pt_last.W    - pt_i0.W    + pt_i1.W;
 
-        N = sz - i0 + i1 + 1;
+        N = lfps.len() - i0 + i1 + 1;
     }
 
     assert!(N >= 2);
