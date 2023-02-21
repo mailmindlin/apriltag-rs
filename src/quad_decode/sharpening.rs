@@ -27,7 +27,7 @@ pub(super) fn sharpen(values: &mut [f64], sharpening: f64, size: usize) {
                     acc += values[cy*size + cx]*kernel[i*3 + j];
                 }
             }
-            values[y * size + x] = acc;
+            sharpened[y * size + x] = acc;
         }
     }
 

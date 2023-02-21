@@ -187,8 +187,8 @@ impl Quad {
             // XXX double-counts the corners.
         ];
 
-        let whitemodel = Graymodel::init();
-        let blackmodel = Graymodel::init();
+        let mut whitemodel = Graymodel::init();
+        let mut blackmodel = Graymodel::init();
 
         for pattern in patterns {
             for i in 0..family.width_at_border {
@@ -218,9 +218,9 @@ impl Quad {
                 }
 
                 let model = if pattern.is_white {
-                    &whitemodel
+                    &mut whitemodel
                 } else {
-                    &blackmodel
+                    &mut blackmodel
                 };
                 model.add(tag.x(), tag.y(), v as f64);
             }
@@ -387,7 +387,7 @@ impl Quad {
         // XXX Tunable
         self.H = homography_compute2(corr_arr);
 
-        self.Hinv = match self.H.and_then(|H| H.inv()) {
+        self.Hinv = match self.H.as_ref().and_then(|H| H.inv()) {
             Some(Hinv) => Some(Hinv),
             None => {
                 self.H = None;

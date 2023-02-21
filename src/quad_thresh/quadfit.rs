@@ -242,7 +242,7 @@ fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]
 
     // let mut rvalloc_pos = 0;
     // let rvalloc_size = 3*sz;
-    let segs = Vec::<Segment>::new();
+    let mut segs = Vec::<Segment>::new();
 
     // populate with initial entries
     for i in 0..cluster.len() {
@@ -375,8 +375,6 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
     if cluster.len() < 24 {// Synchronize with later check.
         return None;
     }
-
-    let mut res = false;
 
     /////////////////////////////////////////////////////////////
     // Step 1. Sort points so they wrap around the center of the
@@ -551,7 +549,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
             for i in 0..3 {
                 let idxa = i; // 0, 1, 2,
                 let idxb = (i+1) % 3; // 1, 2, 0
-                length[i] = (&corners[idxb] - &corners[idxa]).mag();
+                length[i] = corners[idxb].distance_to(&corners[idxa]);
             }
             let p = (length[0] + length[1] + length[2]) / 2.;
 
@@ -934,7 +932,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut [pt], tag_width: us
     return res;
 }
 */
-pub(super) fn fit_quads(td: &ApriltagDetector, clusters: &[Vec<Pt>], im: &Image) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &ApriltagDetector, mut clusters: Vec<Vec<Pt>>, im: &Image) -> Vec<Quad> {
     let mut normal_border = false;
     let mut reversed_border = false;
     let mut min_tag_width = 1000000;
@@ -966,7 +964,7 @@ pub(super) fn fit_quads(td: &ApriltagDetector, clusters: &[Vec<Pt>], im: &Image)
             true
         })
         .filter_map(|cluster| {
-            fit_quad(td, im, &mut cluster, min_tag_width, normal_border, reversed_border)
+            fit_quad(td, im, cluster, min_tag_width, normal_border, reversed_border)
         })
         .collect::<Vec<_>>();
     quads

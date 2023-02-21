@@ -8,25 +8,6 @@ pub(super) struct UnionFind {
 	data: Vec<UnionFindNode>,
 }
 
-pub(super) struct RepGroup<'a> {
-	uf: &'a UnionFind,
-	idx: UnionFindId,
-}
-
-impl<'a> RepGroup<'a> {
-	fn node(&self) -> &'a UnionFindNode {
-		&self.uf.data[self.idx as usize]
-	}
-
-	pub(super) fn idx(&self) -> UnionFindId {
-		self.idx
-	}
-
-	pub(super) fn get_set_size(&self) -> u32 {
-		self.node().size
-	}
-}
-
 /// Single-element node in UnionFind
 #[derive(Debug)]
 struct UnionFindNode {
@@ -41,7 +22,7 @@ struct UnionFindNode {
 impl UnionFind {
 	/// Create new UnionFind with given capacity
 	pub fn create(maxid: UnionFindId) -> Self {
-		let result = UnionFind {
+		let mut result = UnionFind {
 			maxid,
 			data: Vec::with_capacity(maxid as usize),
 		};
@@ -63,9 +44,7 @@ impl UnionFind {
 	}
 
 	// Get UnionFind group for id
-	pub fn get_representative<'a>(&'a mut self, id: UnionFindId) -> RepGroup<'a> {
-		let mut root = id;
-	
+	pub fn get_representative<'a>(&'a mut self, id: UnionFindId) -> UnionFindId {
 		// chase down the root
 		let root = {
 			let mut root = id;
@@ -91,20 +70,20 @@ impl UnionFind {
 			current = parent;
 		}
 	
-		RepGroup { uf: self, idx: root }
+		root
 	}
 
 	pub(crate) fn get_set_size(&mut self, id: u32) -> u32 {
 		let repid = self.get_representative(id);
-		repid.get_set_size()
+		self.data[repid as usize].size
 	}
 
-	pub(crate) fn connect<'a>(&'a mut self, aid: u32, bid: u32) -> RepGroup<'a> {
-		let aroot = self.get_representative(aid);
-		let broot = self.get_representative(bid);
+	pub(crate) fn connect<'a>(&'a mut self, aid: u32, bid: u32) -> UnionFindId {
+		let a_idx = self.get_representative(aid);
+		let b_idx = self.get_representative(bid);
 	
-		if aroot.idx == broot.idx {
-			return aroot;
+		if a_idx == b_idx {
+			return a_idx;
 		}
 	
 		// we don't perform "union by rank", but we perform a similar
@@ -114,22 +93,23 @@ impl UnionFind {
 		// for rank.  In my testing, it's often *faster* to use size than
 		// rank, perhaps because the rank of the tree isn't that critical
 		// if there are very few nodes in it.
-		let asize = aroot.get_set_size();
-		let bsize = broot.get_set_size();
-	
 		// optimization idea: We could shortcut some or all of the tree
 		// that is grafted onto the other tree. Pro: u32hose nodes were just
 		// read and so are probably in cache. Con: it might end up being
 		// wasted effort -- the tree might be grafted onto another tree in
 		// a moment!
-		if asize > bsize {
-			self.data[broot.idx as usize].parent = aroot.idx as UnionFindId;
-			self.data[aroot.idx as usize].size += bsize;
-			aroot
+		let a_size = self.data[a_idx as usize].size;
+		let b_size = self.data[b_idx as usize].size;
+
+		if a_size > b_size {
+			self.data[b_idx as usize].parent = a_idx as UnionFindId;
+			self.data[a_idx as usize].size += b_size;
+			// aroot
+			a_idx
 		} else {
-			self.data[aroot.idx as usize].parent = broot.idx as UnionFindId;
-			self.data[broot.idx as usize].size += asize;
-			broot
+			self.data[a_idx as usize].parent = b_idx as UnionFindId;
+			self.data[b_idx as usize].size += a_size;
+			b_idx
 		}
 	}
 }
@@ -173,9 +153,9 @@ impl UnionFind2D {
 		(y * self.width) + x
 	}
 
-	fn connect<T>(&mut self, a: (T, T), b: (T, T)) -> RepGroup where UnionFindId: TryFrom<T> {
+	fn connect<T>(&mut self, a: (T, T), b: (T, T)) -> UnionFindId where UnionFindId: TryFrom<T> {
 		let aid = self.index_to_id(a);
-		let bid = self.index_to_id(a);
+		let bid = self.index_to_id(b);
 		self.inner.connect(aid, bid)
 	}
 
@@ -187,20 +167,20 @@ impl UnionFind2D {
 		Ok((y * self.width) + x)
 	}
 
-	fn connect_checked<T>(&mut self, a: (T, T), b: (T, T)) -> Result<RepGroup, <UnionFindId as TryFrom<T>>::Error> where UnionFindId: TryFrom<T> {
+	fn connect_checked<T>(&mut self, a: (T, T), b: (T, T)) -> Result<UnionFindId, <UnionFindId as TryFrom<T>>::Error> where UnionFindId: TryFrom<T> {
 		let aid = self.index_to_id_checked(a)?;
 		let bid = self.index_to_id_checked(b)?;
 		let joined_id = self.inner.connect(aid, bid);
 		Ok(joined_id)
 	}
 
-	pub fn get_representative<T>(&mut self, x: T, y: T) -> RepGroup where UnionFindId: TryFrom<T> {
+	pub fn get_representative<T>(&mut self, x: T, y: T) -> UnionFindId where UnionFindId: TryFrom<T> {
 		let id = self.index_to_id((x, y));
 		self.inner.get_representative(id)
 	}
 
-	pub fn get_set_size(&mut self, id: UnionFindId) -> usize {
-		self.inner.get_set_size(id) as usize
+	pub fn get_set_size(&mut self, id: UnionFindId) -> u32 {
+		self.inner.get_set_size(id)
 	}
 }
 
@@ -270,7 +250,6 @@ fn do_unionfind_line2(uf: &mut UnionFind2D, im: &Image, y: usize) {
 }
 
 pub(super) fn connected_components(td: &ApriltagDetector, threshim: &Image) -> UnionFind2D {
-	let ts = threshim.stride;
     let mut uf = UnionFind2D::new(threshim.width, threshim.height);
 
     if td.params.nthreads <= 1 {

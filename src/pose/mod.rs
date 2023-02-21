@@ -44,7 +44,7 @@ fn orthogonal_iteration(v: &[Mat], p: &[Mat], t: &mut Mat, R: &mut Mat, n_points
             avg_F += &F[i];
         }
         avg_F *= 1. / (n_points as f64);
-        let M1 = I3 - &avg_F;
+        let M1 = &I3 - &avg_F;
         let M1_inv = M1.inv().unwrap();
         (F, M1_inv)
     };
@@ -262,7 +262,7 @@ fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: us
     // 5. Get poses for minima.
     if minima.len() == 1 {
         let t = minima[0];
-        let R_beta = M2.clone();
+        let mut R_beta = M2.clone();
         R_beta *= t;
         R_beta += &M1;
         R_beta *= t;
@@ -312,14 +312,14 @@ fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPos
         fix.matmul(&M_H)
     };
 
-    let R = Mat::zeroes(3, 3);
+    let mut R = Mat::zeroes(3, 3);
     for i in 0..3 {
         for j in 0..3 {
             R[(i, j)] = initial_pose[(i, j)];
         }
     }
 
-    let t = Mat::zeroes(3, 1);
+    let mut t = Mat::zeroes(3, 1);
     for i in 0..3 {
         t[(i, 0)] = initial_pose[(i, 3)];
     }
@@ -349,8 +349,8 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters:
     let mut pose1 = estimate_pose_for_tag_homography(info);
     let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, 4, n_iters);
     
-    let solution2 = if let Some(R) = fix_pose_ambiguities(&v, &p, &mut pose1.t, &pose1.R, 4) {
-        let t = Mat::zeroes(3, 1);
+    let solution2 = if let Some(mut R) = fix_pose_ambiguities(&v, &p, &mut pose1.t, &pose1.R, 4) {
+        let mut t = Mat::zeroes(3, 1);
         let err2 = orthogonal_iteration(&v, &p, &mut t, &mut R, 4, n_iters);
         let solution2 = ApriltagPose {
             R,
@@ -369,13 +369,15 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters:
 
 /// Estimate tag pose.
 pub fn estimate_tag_pose(info: &ApriltagDetectionInfo) -> (ApriltagPose, f64) {
-    let ortho_res = estimate_tag_pose_orthogonal_iteration(info,50);
-    let (pose1, err1) = ortho_res.solution1;
+    let OrthogonalIteraionResult {
+        solution1,
+        solution2
+    } = estimate_tag_pose_orthogonal_iteration(info,50);
 
-    if let Some((ref pose2, err2)) = ortho_res.solution2 {
-        if err2 < err1 {
-            return (*pose2, err2)
+    if let Some((pose2, err2)) = solution2 {
+        if err2 < solution1.1 {
+            return (pose2, err2)
         }
     }
-    return ortho_res.solution1;
+    solution1
 }

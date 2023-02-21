@@ -67,7 +67,7 @@ impl AprilTagFamily {
 
         let code = self.codes[idx];
 
-        let im = Image::<u8>::create(self.total_width as usize, self.total_width as usize);
+        let mut im = Image::<u8>::create(self.total_width as usize, self.total_width as usize);
 
         let white_border_width = self.width_at_border as usize + if self.reversed_border { 0 } else { 2 };
         let white_border_start = (self.total_width as usize - white_border_width)/2;

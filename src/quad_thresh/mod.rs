@@ -149,12 +149,12 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
             for x in 0..w {
                 let v = uf.get_representative(x, y);
 
-                if v.get_set_size() < td.qtp.min_cluster_pixels {
+                if uf.get_set_size(v) < td.qtp.min_cluster_pixels {
                     continue;
                 }
 
                 d[(x, y)] = {
-                    let color_ref = &mut colors[v.idx() as usize];
+                    let color_ref = &mut colors[v as usize];
 
                     if let Some(color) = color_ref {
                         *color
@@ -172,12 +172,12 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
 
     tp.stamp("unionfind");
 
-    let clusters = gradient_clusters(td, &threshim, &uf);
+    let clusters = gradient_clusters(td, &threshim, &mut uf);
     
     if td.params.generate_debug_image() {
         let mut d = Image::<[u8; 3]>::create(w, h);
-        let rng = thread_rng();
-        for cluster in clusters {
+        let mut rng = thread_rng();
+        for cluster in clusters.iter() {
             let color = rng.gen_color_rgb(50u8);
             for p in cluster.iter() {
                 let x = (p.x / 2) as usize;
@@ -194,7 +194,7 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
 
     ////////////////////////////////////////////////////////
     // step 3. process each connected component.
-    let quads = fit_quads(td, &clusters, im);
+    let quads = fit_quads(td, clusters, im);
 
     if td.params.generate_debug_image() {
         let mut f = OpenOptions::new()

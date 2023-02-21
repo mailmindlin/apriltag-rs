@@ -9,7 +9,7 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
     assert!(w < 32768);
     assert!(h < 32768);
 
-    let threshim = Image::<u8>::create_alignment(im.width, im.height, im.stride);
+    let mut threshim = Image::<u8>::create_alignment(im.width, im.height, im.stride);
     assert_eq!(threshim.stride, im.stride);
 
     // The idea is to find the maximum and minimum values in a
@@ -228,12 +228,12 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
 // basically the same as threshold(), but assumes the input image is a
 // bayer image. It collects statistics separately for each 2x2 block
 // of pixels. NOT WELL TESTED.
-pub(super) fn threshold_bayer(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Image) -> Image {
+pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &Image) -> Image {
     let w = im.width;
     let h = im.height;
     let s = im.stride;
 
-    let threshim = Image::<u8>::create_alignment(w, h, s);
+    let mut threshim = Image::<u8>::create_alignment(w, h, s);
     assert_eq!(threshim.stride, s);
 
     let tilesz = 32;
