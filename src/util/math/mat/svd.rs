@@ -439,18 +439,15 @@ impl MatSVD {
 
             // find the largest off-diagonal element of B, and put its
             // coordinates in maxi, maxj.
-            let mut maxi: usize;
-            let mut maxj;
-
-            match find_max_method {
+            let (maxi, maxj) = match find_max_method {
                 FindMaxMethod::Fast => {
                     // method 1 is the "smarter" method which does at least
                     // 4*ncols work. More work might be needed (up to
                     // ncols*ncols), depending on data. Thus, this might be a
                     // bit slower than the default method for very small
                     // matrices.
-                    maxi = -1;
-                    maxv = -1.;
+                    let mut maxi: Option<usize> = None;
+                    let mut maxv = -1.;
 
                     // every iteration, we must deal with the fact that rows
                     // and columns lastmaxi and lastmaxj have been
@@ -470,7 +467,7 @@ impl MatSVD {
                             thismaxv = B[(rowi, maxrowidx[rowi])].abs();
                             if thismaxv > maxv {
                                 maxv = thismaxv;
-                                maxi = rowi;
+                                maxi = Some(rowi);
                             }
                             continue;
                         }
@@ -484,7 +481,7 @@ impl MatSVD {
                             thismaxv = B[(rowi, maxrowidx[rowi])].abs();
                             if thismaxv > maxv {
                                 maxv = thismaxv;
-                                maxi = rowi;
+                                maxi = Some(rowi);
                             }
                             continue;
                         }
@@ -518,12 +515,11 @@ impl MatSVD {
                         // does this row have the largest value we've seen so far?
                         if thismaxv > maxv {
                             maxv = thismaxv;
-                            maxi = rowi;
+                            maxi = Some(rowi);
                         }
                     }
-
-                    assert!(maxi >= 0);
-                    maxj = maxrowidx[maxi];
+                    let maxi = maxi.unwrap();
+                    let maxj = maxrowidx[maxi];
 
                     // save these for the next iteration.
                     lastmaxi = maxi;
@@ -532,10 +528,14 @@ impl MatSVD {
                     if maxv < tol {
                         break;
                     }
+                    (maxi, maxj)
                 },
                 FindMaxMethod::Reference => {
                     // brute-force (reference) version.
                     maxv = -1.;
+
+                    let mut maxi;
+                    let mut maxj;
 
                     // only search top "square" portion
                     for i in 0..B.cols() {
@@ -558,8 +558,9 @@ impl MatSVD {
                     if maxv < tol {
                         break;
                     }
+                    (maxi, maxj)
                 }
-            }
+            };
 
     //        printf(">>> %5d %3d, %3d %15g\n", maxi, maxj, iter, maxv);
 

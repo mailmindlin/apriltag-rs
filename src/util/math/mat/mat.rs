@@ -648,6 +648,7 @@ impl Add<&Mat> for Mat {
 }
 
 impl AddAssign<&Mat> for Mat {
+	/// Elementwise addition
     fn add_assign(&mut self, rhs: &Mat) {
         assert_eq!(self.dims, rhs.dims, "Dimension mismatch");
 
@@ -725,6 +726,7 @@ impl Mul<f64> for Mat {
 }
 
 impl MulAssign<f64> for Mat {
+	/// Scale all elements inplace
     fn mul_assign(&mut self, rhs: f64) {
         self.scale_inplace(rhs);
     }

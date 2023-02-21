@@ -72,15 +72,15 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
     // over larger areas. This reduces artifacts due to abrupt changes
     // in the threshold value.
     if true {
-        let im_max_tmp = Image::<u8>::create(tw, th);
-        let im_min_tmp = Image::<u8>::create(tw, th);
+        let mut im_max_tmp = Image::<u8>::create_stride(tw, th, tw);
+        let mut im_min_tmp = Image::<u8>::create_stride(tw, th, tw);
 
         for ty in 0..th {
             for tx in 0..tw {
                 let mut max = u8::MIN;
                 let mut min = u8::MAX;
 
-                for dy in -1i32..=1i32 {
+                for dy in -1isize..=1isize {
                     let y = ty as isize + dy;
                     if y < 0 {
                         continue;
@@ -108,8 +108,8 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
                 im_min_tmp[(tx, ty)] = min;
             }
         }
-        im_max = im_max_tmp;
-        im_min = im_min_tmp;
+        im_max = im_max_tmp.buf;
+        im_min = im_min_tmp.buf;
     }
 
     for ty in 0..th {
@@ -242,8 +242,13 @@ pub(super) fn threshold_bayer(td: &ApriltagDetector, im: &Image) -> Image {
     let tw = w/tilesz + 1;
     let th = h/tilesz + 1;
 
-    let mut im_min = [calloc::<u8>(tw * th); 4];
-    let mut im_max = [calloc::<u8>(tw * th); 4];
+    let mut im_min: [Box<[u8]>; 4];
+    let mut im_max: [Box<[u8]>; 4];
+    for i in 0..4 {
+        im_min[i] = calloc(tw * th);
+        im_max[i] = calloc(tw * th);
+    }
+
     for ty in 0..th {
         for tx in 0..tw {
             let mut max = [u8::MIN; 4];

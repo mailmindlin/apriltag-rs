@@ -39,7 +39,7 @@ impl Quad {
                 // sampling *right* at the corners, since those points are
                 // the least reliable.
                 let alpha = (1.0 + s as f64) / (nsamples as f64 + 1.);
-                let p0 = (self.corners[a].vec() * alpha) + (self.corners[b].vec() * (1. - alpha));
+                let p0 = (self.corners[a].vec() * alpha) + &(self.corners[b].vec() * (1. - alpha));
 
                 // search along the normal to this line, looking at the
                 // gradients along the way. We're looking for a strong

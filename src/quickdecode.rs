@@ -48,7 +48,7 @@ fn rotate90(w: u64, d: u32) -> u64 {
 		p = d as u64 - 1;
 		l = 1;
     }
-    let mut w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/ 4 + l) << l) | (w & l);
+    let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/ 4 + l) << l) | (w & l);
     w & (1u64 << d) - 1
 }
 
@@ -145,7 +145,7 @@ impl QuickDecode {
 	
 			// This accounting code doesn't check the last possible run that
 			// occurs at the wrap-around. That's pretty insignificant.
-			for ref entry in qd.entries {
+			for entry in qd.entries.iter() {
 				if entry.rcode == u64::MAX {
 					if run > 0 {
 						run_sum += run;
@@ -165,11 +165,13 @@ impl QuickDecode {
 	}
 
 	pub fn add(&mut self, code: u64, id: usize, hamming: u8) {
-		let bucket = (code as usize) % self.entries.len();
-
-		while self.entries[bucket].rcode != u64::MAX {
-			bucket = (bucket + 1) % self.entries.len();
-		}
+		let bucket = {
+			let mut bucket = (code as usize) % self.entries.len();
+			while self.entries[bucket].rcode != u64::MAX {
+				bucket = (bucket + 1) % self.entries.len();
+			}
+			bucket
+		};
 		let entry = &mut self.entries[bucket];
 	
 		entry.rcode = code;
@@ -177,7 +179,7 @@ impl QuickDecode {
 		entry.hamming = hamming;
 	}
 
-	pub fn decode_codeword(&self, tf: &AprilTagFamily, rcode: u64) -> Option<QuickDecodeEntry> {
+	pub fn decode_codeword(&self, tf: &AprilTagFamily, mut rcode: u64) -> Option<QuickDecodeEntry> {
 		for ridx in 0..4 {
 			let mut bucket = (rcode as usize) % self.entries.len();
 			loop {
@@ -187,7 +189,7 @@ impl QuickDecode {
 				}
 
 				if self.entries[bucket].rcode == rcode {
-					let result = self.entries[bucket].clone();
+					let mut result = self.entries[bucket].clone();
 					result.rotation = ridx;
 					return Some(result);
 				}

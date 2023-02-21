@@ -3,9 +3,11 @@ mod linefit;
 mod quadfit;
 mod grad_cluster;
 mod threshold;
-use std::{fs::OpenOptions, f64::consts as f64c, io::{BufWriter, Write}, path::PathBuf};
+use std::{fs::OpenOptions, f64::consts as f64c, io::{Write}};
 
-use crate::{detector::ApriltagDetector, util::{Image, mem::calloc, color::random_color}, quad_decode::Quad};
+use rand::thread_rng;
+
+use crate::{detector::ApriltagDetector, util::{Image, mem::calloc, color::RandomColor, image::ImageWritePNM}, quad_decode::Quad};
 
 use self::{uf::connected_components, grad_cluster::gradient_clusters, quadfit::fit_quads};
 
@@ -45,11 +47,12 @@ pub(crate) struct ApriltagQuadThreshParams {
 
 impl Default for ApriltagQuadThreshParams {
     fn default() -> Self {
+        #[allow(deprecated)]
         Self {
             min_cluster_pixels: 5,
             max_nmaxima: 10,
             critical_rad: Default::default(),
-            cos_critical_rad: (10. * f64c::PI / 180.).cos(),
+            cos_critical_rad: (10. * f64c::PI / 180.).cos() as f32,
             max_line_fit_mse: 10.,
             min_white_black_diff: 5,
             deglitch: false,
@@ -127,8 +130,8 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
 
     let threshim = threshold::threshold(&td.qtp, &mut td.tp, im);
 
-    if td.params.debug {
-        threshim.write_pnm(&PathBuf::from("debug_threshold.pnm")).unwrap();
+    if td.params.generate_debug_image() {
+        threshim.save_to_pnm("debug_threshold.pnm").unwrap();
     }
 
     ////////////////////////////////////////////////////////
@@ -137,52 +140,53 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
     let mut uf = connected_components(td, &threshim);
 
     // make segmentation image.
-    if td.params.debug {
+    if td.params.generate_debug_image() {
         let mut d = Image::<[u8; 3]>::create(w, h);
+        let mut rng = thread_rng();
 
-        let colors = calloc::<u32>(w * h);
+        let mut colors = calloc::<Option<[u8;3]>>(w * h);
         for y in 0..h {
             for x in 0..w {
-                let v = uf.get_representative(y*w + x);
+                let v = uf.get_representative(x, y);
 
-                if uf.get_set_size(v) < td.qtp.min_cluster_pixels {
+                if v.get_set_size() < td.qtp.min_cluster_pixels {
                     continue;
                 }
 
-                let color = colors[v as usize];
-                if color == 0 {
-                    let c = random_color(50i16);
-                    colors[v] = (c[0] << 16) | (c[1] << 8) | c[2];
-                }
+                d[(x, y)] = {
+                    let color_ref = &mut colors[v.idx() as usize];
 
-                let r = (0xFF & (color >> 16)) as u8;
-                let g = (0xFF & (color >> 8)) as u8;
-                let b = (0xFF & (color)) as u8;
-
-                d[(x, y)] = [r, g, b];
+                    if let Some(color) = color_ref {
+                        *color
+                    } else {
+                        let color = rng.gen_color_rgb(50u8);
+                        *color_ref = Some(color);
+                        color
+                    }
+                };
             }
         }
 
-        d.write_pnm(&PathBuf::from("debug_segmentation.pnm")).unwrap();
+        d.save_to_pnm("debug_segmentation.pnm").unwrap();
     }
 
     td.tp.stamp("unionfind");
 
     let clusters = gradient_clusters(td, &threshim, &uf);
     
-    if td.params.debug {
+    if td.params.generate_debug_image() {
         let mut d = Image::<[u8; 3]>::create(w, h);
-
+        let rng = thread_rng();
         for cluster in clusters {
-            let color = random_color(50);
+            let color = rng.gen_color_rgb(50u8);
             for p in cluster.iter() {
-                let x = p.x / 2;
-                let y = p.y / 2;
+                let x = (p.x / 2) as usize;
+                let y = (p.y / 2) as usize;
                 d[(x, y)] = color;
             }
         }
 
-        d.write_pnm(&PathBuf::from("debug_clusters.pnm")).unwrap();
+        d.save_to_pnm("debug_clusters.pnm").unwrap();
     }
 
     std::mem::drop(threshim);
@@ -190,9 +194,9 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
 
     ////////////////////////////////////////////////////////
     // step 3. process each connected component.
-    let quads = fit_quads(td, w, h, clusters, im);
+    let quads = fit_quads(td, &clusters, im);
 
-    if td.params.debug {
+    if td.params.generate_debug_image() {
         let mut f = OpenOptions::new()
             .create(true)
             .write(true)
@@ -205,15 +209,17 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, im: &Image) -> Vec<Quad> {
         im2.darken();
 
         // assume letter, which is 612x792 points.
-        let scale = std::cmp::min(612.0/im.width as f32, 792.0/im2.height as f32);
+        let scale = f32::min(612.0/im.width as f32, 792.0/im2.height as f32);
         write!(f, "{:.15} {:.15} scale\n", scale, scale);
         write!(f, "0 {} translate\n", im2.height);
         write!(f, "1 -1 scale\n");
 
-        im.write_postscript(&mut f);
+        // im.write_postscript(&mut f); //FIXME
+
+        let mut rng = thread_rng();
 
         for q in quads.iter() {
-            let rgb = random_color::<f32>(100.);
+            let rgb = rng.gen_color_rgb::<f32>(100.);
 
             write!(f, "{} {} {} setrgbcolor\n", rgb[0]/255.0f32, rgb[1]/255.0f32, rgb[2]/255.0f32);
             write!(f, "{:.15} {:.15} moveto {:.15} {:.15} lineto {:.15} {:.15} lineto {:.15} {:.15} lineto {:.15} {:.15} lineto stroke\n",
