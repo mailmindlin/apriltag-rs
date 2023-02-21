@@ -1,16 +1,19 @@
-
+/// Polynomial (of degree > 0)
 pub(crate) struct Poly {
+    /// Coefficients, in order
     coefs: Vec<f64>,
 }
 
 impl Poly {
+    /// Create new polynomial from coefficients
     pub fn new(coefs: &[f64]) -> Self {
-        assert!(coefs.len() > 1);
+        assert!(coefs.len() > 1, "Cannot create polynomial of degree zero");
         Self {
             coefs: coefs.to_vec(),
         }
     }
     
+    /// Get polynomial degree
     fn degree(&self) -> usize {
         self.coefs.len() - 1
     }
@@ -126,6 +129,47 @@ impl Poly {
         }
 
         roots
+    }
+}
 
+#[cfg(test)]
+mod test {
+    use super::Poly;
+
+    macro_rules! assert_close {
+        ($a: expr, $b: expr) => {
+            {
+                let (a, b) = ($a, $b);
+                const EPS: f64 = 1e-6;
+                if f64::abs(a - b) >= EPS {
+                    // Delegate 
+                    assert_eq!(a, b);
+                }
+            }
+        };
+    }
+
+    #[test]
+    #[should_panic]
+    fn disallow_empty() {
+        Poly::new(&[]);
+    }
+
+    #[test]
+    fn eval_1d() {
+        let line = Poly::new(&[1., 2.]);
+        assert_close!(line.eval(0.), 1.);
+        assert_close!(line.eval(1.), 3.);
+        assert_close!(line.eval(-1.), -1.);
+    }
+
+    #[test]
+    fn eval_2d() {
+        let parabola = Poly::new(&[1., 2., 3.,]);
+        assert_close!(parabola.eval(0.), 1.);
+        assert_close!(parabola.eval(1.), 6.);
+        assert_close!(parabola.eval(2.), 17.);
+        assert_close!(parabola.eval(-1.), 2.);
+        assert_close!(parabola.eval(-2.), 9.);
     }
 }
