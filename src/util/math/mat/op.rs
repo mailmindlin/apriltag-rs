@@ -1,4 +1,4 @@
-use std::{str::Chars, iter::Peekable, ops::Deref};
+use std::{str::Chars, iter::Peekable, borrow::Cow};
 
 use super::Mat;
 
@@ -9,6 +9,7 @@ fn count_args(expr: &str) -> usize {
             'M' | 'F' => {
                 nargs += 1;
             }
+            _ => {}
         }
     }
     nargs
@@ -25,6 +26,7 @@ enum BinaryOpKind {
     Subtract,
     Multiply,
 }
+
 enum MatdExpression {
     NextArg,
     Literal {
@@ -39,22 +41,6 @@ enum MatdExpression {
         lhs: Box<MatdExpression>,
         rhs: Box<MatdExpression>,
     },
-}
-
-enum MaybeRef<'a, T> {
-    Ref(&'a T),
-    Val(T),
-}
-
-impl<'a, T> Deref for MaybeRef<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &'a Self::Target {
-        match self {
-            MaybeRef::Ref(r) => *r,
-            MaybeRef::Val(v) => v,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,19 +58,19 @@ impl MatdExpression {
         //TODO: non-recursive version?
         match self {
             MatdExpression::NextArg => 1,
-            MatdExpression::Literal { value } => 0,
+            MatdExpression::Literal { .. } => 0,
             MatdExpression::UnaryOp { inner, .. } => inner.nargs(),
             MatdExpression::BinaryOp { lhs, rhs, .. } => lhs.nargs() + rhs.nargs(),
         }
     }
 
-    fn eval_inner<'a>(&self, args: &mut impl Iterator<Item=&'a Mat>) -> Result<MaybeRef<'a, Mat>, EvalError> {
+    fn eval_inner<'a>(&self, args: &mut impl Iterator<Item=&'a Mat>) -> Result<Cow<'a, Mat>, EvalError> {
         #[inline]
-        fn scale_inplace<'a>(lhs: MaybeRef<'a, Mat>, scalar: f64) -> Mat {
+        fn scale_inplace<'a>(lhs: Cow<'a, Mat>, scalar: f64) -> Mat {
             match lhs {
-                MaybeRef::Ref(lhs) => lhs.scale(scalar),
+                Cow::Borrowed(lhs) => lhs.scale(scalar),
                 // Optimization: skip copying
-                MaybeRef::Val(lhs) => {
+                Cow::Owned(mut lhs) => {
                     lhs.scale_inplace(scalar);
                     lhs
                 }
@@ -94,12 +80,12 @@ impl MatdExpression {
         match self {
             MatdExpression::NextArg => {
                 match args.next() {
-                    Some(arg) => Ok(MaybeRef::Ref(arg)),
+                    Some(arg) => Ok(Cow::Borrowed(arg)),
                     None => Err(EvalError::NotEnoughArguments),
                 }
             },
             MatdExpression::Literal { value } => {
-                Ok(MaybeRef::Val(Mat::scalar(*value)))
+                Ok(Cow::Owned(Mat::scalar(*value)))
             },
             MatdExpression::UnaryOp { kind, inner } => {
                 let inner = inner.eval_inner(args)?;
@@ -107,12 +93,12 @@ impl MatdExpression {
                 let result = match kind {
                     UnaryOpKind::Transpose =>
                         match inner {
-                            MaybeRef::Ref(inner) => inner.transpose(),
+                            Cow::Borrowed(inner) => inner.transpose(),
                             // Optimization: skip copying
-                            MaybeRef::Val(inner) => inner.transpose_inplace(),
+                            Cow::Owned(inner) => inner.transpose_inplace(),
                         },
                     UnaryOpKind::Inverse =>
-                        match inner.inv() {
+                        match inner.as_ref().inv() {
                             Some(inv) => inv,
                             // Singular matrix
                             None => return Err(EvalError::InvalidOperation),
@@ -120,7 +106,7 @@ impl MatdExpression {
                     UnaryOpKind::UnaryMinus => scale_inplace(inner, -1.),
                 };
 
-                Ok(MaybeRef::Val(result))
+                Ok(Cow::Owned(result))
             }
             MatdExpression::BinaryOp { kind, lhs, rhs } => {
                 let lhs = lhs.eval_inner(args)?;
@@ -129,30 +115,30 @@ impl MatdExpression {
                     BinaryOpKind::Add =>
                         // Try to reuse arguments
                         match lhs {
-                            MaybeRef::Val(lhs) => lhs + &*rhs,
-                            MaybeRef::Ref(lhs) => match rhs {
+                            Cow::Owned(lhs) => lhs + rhs.as_ref(),
+                            Cow::Borrowed(lhs) => match rhs {
                                 // Matrix addition is commutative
-                                MaybeRef::Val(rhs) => rhs + lhs,
-                                MaybeRef::Ref(rhs) => lhs + rhs, // Sometimes we just need to copy
+                                Cow::Owned(rhs) => rhs + lhs,
+                                Cow::Borrowed(rhs) => lhs + rhs, // Sometimes we just need to copy
                             },
                         },
                     BinaryOpKind::Subtract =>
                         match lhs {
-                            MaybeRef::Val(lhs) => lhs - &*rhs, // Reuse lhs
-                            MaybeRef::Ref(lhs) => lhs - &*rhs,
+                            Cow::Owned(lhs) => lhs - rhs.as_ref(), // Reuse lhs
+                            Cow::Borrowed(lhs) => lhs - rhs.as_ref(),
                         },
                     BinaryOpKind::Multiply => {
-                        if let Some(scalar) = lhs.as_scalar() {
+                        if let Some(scalar) = lhs.as_ref().as_scalar() {
                             scale_inplace(rhs, scalar)
-                        } else if let Some(scalar) = rhs.as_scalar() {
+                        } else if let Some(scalar) = rhs.as_ref().as_scalar() {
                             scale_inplace(lhs, scalar)
                         } else {
-                            lhs.matmul(&*rhs)
+                            lhs.as_ref().matmul(rhs.as_ref())
                         }
                     },
                 };
 
-                Ok(MaybeRef::Val(res))
+                Ok(Cow::Owned(res))
             }
         }
     }
@@ -160,8 +146,8 @@ impl MatdExpression {
         let mut iter = args.iter().copied();
         let res = self.eval_inner(&mut iter)?;
         Ok(match res {
-            MaybeRef::Ref(res) => *res,
-            MaybeRef::Val(res) => res,
+            Cow::Borrowed(res) => res.clone(),
+            Cow::Owned(res) => res,
         })
     }
 }
@@ -178,7 +164,7 @@ impl<'a> MatdExpressionParser<'a> {
     }
 
     pub fn parse(expr: &'a str) -> Box<MatdExpression> {
-        let parser = Self::new(expr);
+        let mut parser = Self::new(expr);
         parser.parse_recurse(None, false)
     }
 
