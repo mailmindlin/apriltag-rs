@@ -214,7 +214,7 @@ impl Mat {
 		if dim == 0 {
 			Self::scalar(1.)
 		} else {
-			let res = Self::zeroes(dim, dim);
+			let mut res = Self::zeroes(dim, dim);
 			for i in 0..dim {
 				res[(i,i)] = 1.;
 			}
@@ -297,7 +297,7 @@ impl Mat {
 		assert!(self.is_vector_len(3), "Cross product only defined for vectors of length 3");
 		assert!(rhs.is_vector_len(3), "Cross product only defined for vectors of length 3");
 
-		let res = Self::zeroes_like(self);
+		let mut res = Self::zeroes_like(self);
 		res.data[0] = self.data[1] * rhs.data[2] - self.data[2] * rhs.data[1];
 		res.data[1] = self.data[2] * rhs.data[0] - self.data[0] * rhs.data[2];
 		res.data[2] = self.data[0] * rhs.data[1] - self.data[1] * rhs.data[0];
@@ -441,7 +441,7 @@ impl Mat {
 
 				let invdet = det.recip();
 
-				let m = Self::zeroes_dim(self.dims);
+				let mut m = Self::zeroes_dim(self.dims);
 				m[(0,0)] = self[(1,1)] * invdet;
 				m[(0,1)] = self[(0,1)] * invdet;
 				m[(1,0)] = self[(1,0)] * invdet;
@@ -481,7 +481,7 @@ impl Mat {
 			return Self::scalar(scalar);
 		}
 
-		let res = Self::zeroes_dim(self.dims);
+		let mut res = Self::zeroes_dim(self.dims);
 		for i in 0..self.dims.rows {
 			for j in 0..self.dims.cols {
 				res[(j,i)] = self[(i,j)];
@@ -542,7 +542,7 @@ impl Mat {
 			return Self::scalar(me_scalar * scalar);
 		}
 
-		let result = Self::zeroes_like(self);
+		let mut result = Self::zeroes_like(self);
 		if scalar == 0. {
 			return result;
 		}
@@ -583,8 +583,8 @@ impl Mat {
 	pub fn max_idx(&self, row: usize, maxcol: usize) -> Result<usize, OutOfBoundsError> {
 		self.dims.assert_contains(&MatIndex { row, col: maxcol })?;
 		
-		let argmax = 0;
-		let max = MatElement::NEG_INFINITY;
+		let mut argmax = 0;
+		let mut max = MatElement::NEG_INFINITY;
 		for i in 0..maxcol {
 			if i == row {
 				continue;
@@ -641,7 +641,7 @@ impl Add<&Mat> for &Mat {
 impl Add<&Mat> for Mat {
     type Output = Mat;
 
-    fn add(self, rhs: &Mat) -> Self::Output {
+    fn add(mut self, rhs: &Mat) -> Self::Output {
         AddAssign::add_assign(&mut self, rhs);
 		self
     }
@@ -719,7 +719,7 @@ impl Mul<f64> for &Mat {
 impl Mul<f64> for Mat {
     type Output = Mat;
 
-    fn mul(self, rhs: f64) -> Self::Output {
+    fn mul(mut self, rhs: f64) -> Self::Output {
         self.scale_inplace(rhs);
 		self
     }

@@ -234,7 +234,6 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
     tp.stamp("fit quads to clusters");
 
     std::mem::drop(uf);
-    std::mem::drop(clusters);
 
     quads
 }

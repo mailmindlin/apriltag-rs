@@ -107,12 +107,12 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
     assert!(i0 < lfps.len(), "i0 out of bounds");
     assert!(i1 < lfps.len(), "i0 out of bounds");
 
-    let Mx;
-    let My;
-    let Mxx;
-    let Myy;
-    let Mxy;
-    let W;
+    let mut Mx;
+    let mut My;
+    let mut Mxx;
+    let mut Myy;
+    let mut Mxy;
+    let mut W;
     let N; // how many points are included in the set?
 
     if i0 < i1 {

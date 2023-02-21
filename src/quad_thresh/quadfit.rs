@@ -938,7 +938,7 @@ pub(super) fn fit_quads(td: &ApriltagDetector, clusters: &[Vec<Pt>], im: &Image)
     let mut normal_border = false;
     let mut reversed_border = false;
     let mut min_tag_width = 1000000;
-    for (ref family, _) in td.tag_families {
+    for (family, _) in td.tag_families.iter() {
         min_tag_width = std::cmp::min(min_tag_width, family.width_at_border);
 
         normal_border |= !family.reversed_border;

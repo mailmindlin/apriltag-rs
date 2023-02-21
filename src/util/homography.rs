@@ -47,7 +47,7 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
     // possibly make any difference given the dynamic range of IEEE
     // doubles.
 
-    let A = Mat::zeroes(9,9);
+    let mut A = Mat::zeroes(9,9);
     for c in correspondences {
         // (below world is "x", and image is "y")
         let worldx = c[0] - x_cx;
@@ -150,7 +150,7 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
         }
     }
 
-    let H = Mat::zeroes(3,3);
+    let mut H = Mat::zeroes(3,3);
 
     match mode {
         HomographyMode::INVERSE => {
@@ -214,13 +214,19 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
         }
     }
 
-    let Tx = Mat::identity(3);
-    Tx[(0,2)] = -x_cx;
-    Tx[(1,2)] = -x_cy;
+    let Tx = {
+        let mut Tx = Mat::identity(3);
+        Tx[(0,2)] = -x_cx;
+        Tx[(1,2)] = -x_cy;
+        Tx
+    };
 
-    let Ty = Mat::identity(3);
-    Ty[(0,2)] = -y_cx;
-    Ty[(1,2)] = -y_cy;
+    let Ty = {
+        let mut Ty = Mat::identity(3);
+        Ty[(0,2)] = -y_cx;
+        Ty[(1,2)] = -y_cy;
+        Ty
+    };
 
     Mat::op("M*M*M", &[&Ty, &H, &Tx]).unwrap()
 }
@@ -355,19 +361,19 @@ pub fn homography_to_model_view(H: &Mat, F: f64, G: f64, A: f64, B: f64, C: f64,
 
     // get sign of S by requiring the tag to be in front of the camera
     // (which is Z < 0) for our conventions.
-    if TZ > 0. {
-        s *= -1.;
-    }
+    let s = if TZ > 0. {
+        -s
+    } else { s };
 
-    R20 *= s;
-    R21 *= s;
-    TZ  *= s;
-    R00 *= s;
-    R01 *= s;
-    TX  *= s;
-    R10 *= s;
-    R11 *= s;
-    TY  *= s;
+    let R20 = s * R20;
+    let R21 = s * R21;
+    let TZ  = s * TZ;
+    let R00 = s * R00;
+    let R01 = s * R01;
+    let TX  = s * TX;
+    let R10 = s * R10;
+    let R11 = s * R11;
+    let TY  = s * TY;
 
     // now recover [R02 R12 R22] by noting that it is the cross product of the other two columns.
     let R02 = R10*R21 - R20*R11;

@@ -27,7 +27,7 @@ pub(crate) struct MatPLU {
 
 impl MatPLU {
     pub(super) fn new(a: &Mat) -> Self {
-        let piv = calloc::<u32>(a.rows());
+        let mut piv = calloc::<u32>(a.rows());
         let mut pivsign = 1;
         let mut singular = false;
 
@@ -68,10 +68,11 @@ impl MatPLU {
                 assert!(p > j); // I'm pretty sure this is true. If this assert fails, we'll have to add some more code in the row swapping part
 
                 let (row_j, row_p) = {
-                    let (left, right) = lu.data.split_at_mut(p * lu.cols());
-                    let j_start = j * lu.cols();
-                    let row_j = &mut left[j_start..j_start + lu.cols()];
-                    let row_p = &mut right[0..lu.cols()];
+                    let lu_cols = lu.cols();
+                    let (left, right) = lu.data.split_at_mut(p * lu_cols);
+                    let j_start = j * lu_cols;
+                    let row_j = &mut left[j_start..j_start + lu_cols];
+                    let row_p = &mut right[0..lu_cols];
                     (row_j, row_p)
                 };
                 row_j.swap_with_slice(row_p);
@@ -79,7 +80,7 @@ impl MatPLU {
                 pivsign = -pivsign;
             }
     
-            let LUjj = lu[(j,j)];
+            let mut LUjj = lu[(j,j)];
     
             // If our pivot is very small (which means the matrix is
             // singular or nearly singular), replace with a new pivot of the
@@ -126,7 +127,7 @@ impl MatPLU {
 
     pub fn p(&self) -> Mat {
         let ref lu = self.lu;
-        let P = Mat::zeroes(lu.rows(), lu.rows());
+        let mut P = Mat::zeroes(lu.rows(), lu.rows());
     
         for i in 0..lu.rows() {
             P[(self.piv[i] as usize, i)] = 1.;
@@ -138,7 +139,7 @@ impl MatPLU {
     pub fn lower(&self) -> Mat {
         let lu = &self.lu;
 
-        let L = Mat::zeroes_like(&lu);
+        let mut L = Mat::zeroes_like(&lu);
         for i in 0..lu.rows() {
             L[(i,i)] = 1.;
             for j in 0..i {
@@ -152,7 +153,7 @@ impl MatPLU {
     pub fn upper(&self) -> Mat {
         let lu = &self.lu;
 
-        let U = Mat::zeroes(lu.cols(), lu.cols());
+        let mut U = Mat::zeroes(lu.cols(), lu.cols());
         for i in 0..lu.cols() {
             for j in 0..lu.cols() {
                 if i <= j {

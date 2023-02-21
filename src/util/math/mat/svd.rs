@@ -663,7 +663,7 @@ impl MatSVD {
         // A bubble sort. Seriously.
         //TODO: better sort
         loop {
-            let changed = false;
+            let mut changed = false;
 
             for i in 0..(A.cols() - 1) {
                 if vals[i+1].abs() > vals[i].abs() {

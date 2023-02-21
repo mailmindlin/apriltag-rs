@@ -126,7 +126,7 @@ impl Poly2D {
             .min_by(|p, q| f64::total_cmp(&p.x(), &q.x()))
             .unwrap(); // cannot be None since there must be at least one point.
 
-        let hull = Poly2D::new();
+        let mut hull = Poly2D::new();
         hull.add(*pleft);
 
         // step 2. gift wrap. Keep searching for points that make the
@@ -134,7 +134,7 @@ impl Poly2D {
         // written to use only addition/subtraction/multiply. No division
         // or sqrts. This guarantees exact results for integer-coordinate
         // polygons (no rounding/precision problems).
-        let p = pleft;
+        let mut p = pleft;
         loop {
             let mut q = None;
             // the normal to the line (p, q) (not necessarily unit length).
@@ -144,7 +144,7 @@ impl Poly2D {
             // the right of" the other points. (i.e., every time we find a
             // point that is to the right of our current line, we change
             // lines.)
-            for ref thisq in self.0 {
+            for thisq in self.0.iter() {
                 if thisq == p {
                     continue;
                 }
@@ -197,7 +197,8 @@ impl Poly2D {
 
             // if it is colinear, overwrite the last one.
             if colinear {
-                hull.0[hull.len() - 1] = *q;
+                let len = hull.len();
+                hull.0[len - 1] = *q;
             } else {
                 hull.add(*q);
             }
@@ -400,7 +401,7 @@ impl Poly2D {
             Line2D::from_points(p0, p1)
         };
 
-        let x = Vec::new();
+        let mut x = Vec::new();
 
         for i in 0..sz {
             let p0 = &self[i];
@@ -412,7 +413,7 @@ impl Poly2D {
             }
         }
 
-        x.sort_by(f64::total_cmp);
+        x.sort_unstable_by(f64::total_cmp);
         x
     }
 }
