@@ -158,7 +158,7 @@ impl QuickDecode {
 				}
 			}
 	
-			println!("quick decode: longest run: {}, average run {:.3}\n", longest_run, (run_sum as f64) / (run_count as f64));
+			println!("quick decode: longest run: {}, average run {:.3}", longest_run, (run_sum as f64) / (run_count as f64));
 		}
 
 		Some(qd)
