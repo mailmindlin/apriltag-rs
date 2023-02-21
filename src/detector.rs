@@ -1,10 +1,10 @@
-use std::{fs::{File, OpenOptions}, io::Write, collections::HashSet, cmp::Ordering, sync::Arc, path::PathBuf};
+use std::{fs::{File, OpenOptions}, io::Write, cmp::Ordering, sync::Arc};
 
 use rand::{thread_rng, Rng};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 
-use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat}, families::AprilTagFamily, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
+use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript}}, families::AprilTagFamily, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
 
 pub struct AprilTagParams {
 	/// How many threads should be used?
@@ -57,6 +57,12 @@ impl Default for AprilTagParams {
     }
 }
 
+impl AprilTagParams {
+	pub(crate) fn generate_debug_image(&self) -> bool {
+		self.debug
+	}
+}
+
 pub struct ApriltagDetector {
 	pub params: AprilTagParams,
 
@@ -76,7 +82,7 @@ pub struct ApriltagDetector {
 	// Not freed on apriltag_destroy; a tag family can be shared
 	// between multiple users. The user should ultimately destroy the
 	// tag family passed into the constructor.
-	pub(crate) tag_families: Vec<(AprilTagFamily, Option<QuickDecode>)>,
+	pub(crate) tag_families: Vec<(Arc<AprilTagFamily>, QuickDecode)>,
 
 	// Used to manage multi-threading.
 	pub(crate) wp: ThreadPool,
@@ -104,13 +110,16 @@ impl Default for ApriltagDetector {
 impl ApriltagDetector {
 	pub fn remove_family(&mut self, fam: &AprilTagFamily) {
 		// quick_decode_uninit(fam);
-		if let Some(idx) = self.tag_families.iter().position(|(x, _)| x == fam) {
+		if let Some(idx) = self.tag_families.iter().position(|(x, _)| x.as_ref() == fam) {
 			self.tag_families.remove(idx);
 		}
 	}
 
-	pub fn add_family_bits(&mut self, fam: AprilTagFamily, bits_corrected: u16) {
-		self.tag_families.push((fam, QuickDecode::init(&fam, bits_corrected as usize)));
+	/// add a family to the apriltag detector. caller still "owns" the family.
+	/// a single instance should only be provided to one apriltag detector instance.
+	pub fn add_family_bits(&mut self, fam: Arc<AprilTagFamily>, bits_corrected: usize) {
+		let qd = QuickDecode::init(&fam, bits_corrected).unwrap();
+		self.tag_families.push((fam, qd));
 	}
 
 	pub fn clear_families(&mut self) {
@@ -159,11 +168,11 @@ impl ApriltagDetector {
 			if ksz > 1 {
 				if self.params.quad_sigma > 0. {
 					// Apply a blur
-					quad_im.gaussian_blur_mut(sigma as f64, ksz);
+					quad_im.gaussian_blur(sigma as f64, ksz);
 				} else {
 					// SHARPEN the image by subtracting the low frequency components.
 					let orig = quad_im.clone();
-					quad_im.gaussian_blur_mut(sigma as f64, ksz);
+					quad_im.gaussian_blur(sigma as f64, ksz);
 
 					for y in 0..orig.height {
 						for x in 0..orig.width {
@@ -183,7 +192,7 @@ impl ApriltagDetector {
 		self.tp.stamp("blur/sharp");
 
 		if self.params.debug {
-			quad_im.write_pnm(&PathBuf::from("debug_preprocess.pnm"));
+			quad_im.save_to_pnm("debug_preprocess.pnm");
 		}
 
 	//    zarray_t *quads = apriltag_quad_gradient(td, im_orig);
@@ -199,9 +208,7 @@ impl ApriltagDetector {
 			}
 		}
 
-		if quad_im != im_orig {
-			std::mem::drop(quad_im);
-		}
+		std::mem::drop(quad_im);
 
 		let mut detections = Vec::<ApriltagDetection>::new();
 
@@ -217,8 +224,7 @@ impl ApriltagDetector {
 			let mut rng = thread_rng();
 
 			for quad in quads {
-				const bias: u8 = 100;
-				let color = bias + (rng.gen() % (255-bias));
+				let color = rng.gen_color_gray(100);
 
 				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 				im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
@@ -226,7 +232,7 @@ impl ApriltagDetector {
 				im_quads.draw_line(quad.corners[3], quad.corners[0], &color, 1);
 			}
 
-			im_quads.write_pnm(&PathBuf::from("debug_quads_raw.pnm"));
+			im_quads.save_to_pnm("debug_quads_raw.pnm");
 		}
 
 		////////////////////////////////////////////////////////////////
@@ -251,7 +257,7 @@ impl ApriltagDetector {
 			});
 
 			if let Some(im_samples) = im_samples {
-				im_samples.write_pnm(&PathBuf::from("debug_samples.pnm"));
+				im_samples.save_to_pnm("debug_samples.pnm");
 				std::mem::drop(im_samples);
 			}
 		}
@@ -264,17 +270,16 @@ impl ApriltagDetector {
 			let mut rng = thread_rng();
 
 			for quad in quads {
-				const bias: u32 = 100;
-				let color = bias + (rng.gen() % (255-bias));
+				let color = rng.gen_color_gray(100);
 
-				im_quads.draw_line(quad.corners[0], quad.corners[1], color, 1);
-				im_quads.draw_line(quad.corners[1], quad.corners[2], color, 1);
-				im_quads.draw_line(quad.corners[2], quad.corners[3], color, 1);
-				im_quads.draw_line(quad.corners[3], quad.corners[0], color, 1);
+				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
+				im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
+				im_quads.draw_line(quad.corners[2], quad.corners[3], &color, 1);
+				im_quads.draw_line(quad.corners[3], quad.corners[0], &color, 1);
 
 			}
 
-			im_quads.write_pnm(&PathBuf::from("debug_quads_fixed.pnm"));
+			im_quads.save_to_pnm("debug_quads_fixed.pnm");
 		}
 
 		self.tp.stamp("decode+refinement");
@@ -283,7 +288,7 @@ impl ApriltagDetector {
 		// Step 3. Reconcile detections--- don't report the same tag more
 		// than once. (Allow non-overlapping duplicate detections.)
 		if true {
-			let mut drop_idxs = HashSet::new();
+			let mut drop_idxs = Vec::new();
 			'outer: for (i0, det0) in detections.iter().enumerate() {
 				if drop_idxs.contains(&i0) {
 					continue;
@@ -337,11 +342,11 @@ impl ApriltagDetector {
 
 						if pref.is_lt() {
 							// keep det0, destroy det1
-							drop_idxs.insert(i1);
+							drop_idxs.push(i1);
 							continue;
 						} else {
 							// keep det1, destroy det0
-							drop_idxs.insert(i0);
+							drop_idxs.push(i0);
 							continue 'outer;
 						}
 					}
@@ -379,16 +384,11 @@ impl ApriltagDetector {
 				writeln!(f, "0 {} translate", darker.height).unwrap();
 				writeln!(f, "1 -1 scale").unwrap();
 				
-				darker.write_postscript(&mut f).unwrap();
+				darker.write_postscript(&mut f.into()).unwrap();
 			}
 
 			for det in detections {
-				let rgb: [f32; 3];
-				let bias = 100f32;
-
-				for i in 0..3 {
-					rgb[i] = bias + rng.gen_range(0f32..(255f32-bias));
-				}
+				let rgb = rng.gen_color_rgb(100.);
 
 				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255., rgb[1]/255., rgb[2]/255.).unwrap();
 				writeln!(f, "{} {} moveto {} {} lineto {} {} lineto {} {} lineto {} {} lineto stroke",
@@ -431,7 +431,7 @@ impl ApriltagDetector {
 				}
 			}
 
-			out.write_pnm(&PathBuf::from("debug_output.pnm"));
+			out.save_to_pnm("debug_output.pnm").unwrap();
 		}
 
 		// deallocate
@@ -454,7 +454,7 @@ impl ApriltagDetector {
 				writeln!(f, "0 {} translate", darker.height).unwrap();
 				writeln!(f, "1 -1 scale").unwrap();
 
-				darker.write_postscript(&mut f);
+				darker.write_postscript(&mut f.into());
 			}
 
 			for q in quads {
