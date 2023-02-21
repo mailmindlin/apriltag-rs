@@ -20,6 +20,9 @@ fn calculate_F(v: &Mat) -> Mat {
 ///
 /// Implementation of Orthogonal Iteration from Lu, 2000.
 fn orthogonal_iteration(v: &[Mat], p: &[Mat], t: &mut Mat, R: &mut Mat, n_points: usize, n_steps: usize) -> f64 {
+    assert_eq!(v.len(), n_points);
+    assert_eq!(p.len(), n_points);
+
     let p_mean = p
         .iter()
         .fold(Mat::zeroes(3,1), |acc, e| acc + e)
@@ -95,7 +98,7 @@ fn orthogonal_iteration(v: &[Mat], p: &[Mat], t: &mut Mat, R: &mut Mat, n_points
 }
 
 /// Given a local minima of the pose error tries to find the other minima.
-fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: usize) -> Mat {
+fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: usize) -> Option<Mat> {
     let I3 = Mat::identity(3);
 
     // 1. Find R_t
@@ -130,33 +133,37 @@ fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: us
         hypotenuse = 1.;
     }
     let R_z = Mat::create(3, 3, &[
-            r31/hypotenuse, -r32/hypotenuse, 0.,
-            r32/hypotenuse, r31/hypotenuse, 0.,
-            0., 0., 1.]);
+        r31/hypotenuse, -r32/hypotenuse, 0.,
+        r32/hypotenuse, r31/hypotenuse, 0.,
+        0., 0., 1.
+    ]);
 
     // 3. Calculate parameters of Eos
-    let R_trans = R_1_prime.matmul(&R_z);
-    let sin_gamma = -R_trans[(0, 1)];
-    let cos_gamma = R_trans[(1, 1)];
-    let R_gamma = Mat::create(3, 3, &[
-            cos_gamma, -sin_gamma, 0.,
-            sin_gamma, cos_gamma, 0.,
-            0., 0., 1.]);
-
-    let sin_beta = -R_trans[(2, 0)];
-    let cos_beta = R_trans[(2, 2)];
-    let t_initial = f64::atan2(sin_beta, cos_beta);
-    std::mem::drop(R_trans);
+    let (R_gamma, t_initial) = {
+        let R_trans = R_1_prime.matmul(&R_z);
+        let sin_gamma = -R_trans[(0, 1)];
+        let cos_gamma = R_trans[(1, 1)];
+        let R_gamma = Mat::create(3, 3, &[
+                cos_gamma, -sin_gamma, 0.,
+                sin_gamma, cos_gamma, 0.,
+                0., 0., 1.]);
+    
+        let sin_beta = -R_trans[(2, 0)];
+        let cos_beta = R_trans[(2, 2)];
+        let t_initial = f64::atan2(sin_beta, cos_beta);
+        (R_gamma, t_initial)
+    };
 
     let mut v_trans = Vec::with_capacity(n_points);
     let mut p_trans = Vec::with_capacity(n_points);
     let mut F_trans = Vec::with_capacity(n_points);
     let mut avg_F_trans = Mat::zeroes(3, 3);
     for i in 0..n_points {
-        p_trans[i] = Mat::op("M'*M", &[&R_z, &p[i]]).unwrap();
-        v_trans[i] = Mat::op("M*M", &[&R_t, &v[i]]).unwrap();
-        F_trans[i] = calculate_F(&v_trans[i]);
-        avg_F_trans += &F_trans[i];
+        p_trans.push(Mat::op("M'*M", &[&R_z, &p[i]]).unwrap());
+        v_trans.push(Mat::op("M*M", &[&R_t, &v[i]]).unwrap());
+        let ft = calculate_F(&v_trans[i]);
+        avg_F_trans += &ft;
+        F_trans.push(ft);
     }
     avg_F_trans *= 1./(n_points as f64);
 
@@ -261,10 +268,12 @@ fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: us
         R_beta *= t;
         R_beta += &I3;
         R_beta *= 1./(1. + t*t);
-        return Mat::op("M'MMM'", &[&R_t, &R_gamma, &R_beta, &R_z]).unwrap();
+        let res = Mat::op("M'MMM'", &[&R_t, &R_gamma, &R_beta, &R_z]).unwrap();
+        Some(res)
     } else if minima.len() > 1  {
         // This can happen if our prior pose estimate was not very good.
-        panic!("Error, more than one new minima found.");
+        // panic!("Error, more than one new minima found.");
+        None
     } else {
         //TODO: double check this is correct
         unreachable!()
@@ -324,7 +333,7 @@ pub struct OrthogonalIteraionResult {
 }
 
 /// Estimate tag pose using orthogonal iteration.
-fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, niters: usize) -> OrthogonalIteraionResult {
+fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters: usize) -> OrthogonalIteraionResult {
     let scale = info.tagsize/2.0;
     let p = [
         Mat::create(3, 1, &[-scale, scale, 0.]),
@@ -337,34 +346,36 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, niters: 
         v[i] = Mat::create(3, 1, &[(info.detection.corners[i].x() - info.cx)/info.fx, (info.detection.corners[i].y() - info.cy)/info.fy, 1.]);
     }
 
-    let mut solution1 = estimate_pose_for_tag_homography(info);
-    let err1 = orthogonal_iteration(&v, &p, &mut solution1.t, &mut solution1.R, 4, niters);
-    solution2.R = fix_pose_ambiguities(&v, &p, &mut solution1.t, &solution1.R, 4);
-    if solution2.R {
-        solution2.t = Mat::zeroes(3, 1);
-        *err2 = orthogonal_iteration(&v, &p, &solution2.t, &solution2.R, 4, nIters);
+    let mut pose1 = estimate_pose_for_tag_homography(info);
+    let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, 4, n_iters);
+    
+    let solution2 = if let Some(R) = fix_pose_ambiguities(&v, &p, &mut pose1.t, &pose1.R, 4) {
+        let t = Mat::zeroes(3, 1);
+        let err2 = orthogonal_iteration(&v, &p, &mut t, &mut R, 4, n_iters);
+        let solution2 = ApriltagPose {
+            R,
+            t,
+        };
+        Some((solution2, err2))
     } else {
-        *err2 = HUGE_VAL;
+        None
+    };
+
+    OrthogonalIteraionResult {
+        solution1: (pose1, err1),
+        solution2,
     }
 }
 
 /// Estimate tag pose.
 pub fn estimate_tag_pose(info: &ApriltagDetectionInfo) -> (ApriltagPose, f64) {
-    double err1, err2;
     let ortho_res = estimate_tag_pose_orthogonal_iteration(info,50);
-    if (err1 <= err2) {
-        pose.R = pose1.R;
-        pose.t = pose1.t;
-        if (pose2.R) {
-            matd_destroy(pose2.t);
+    let (pose1, err1) = ortho_res.solution1;
+
+    if let Some((ref pose2, err2)) = ortho_res.solution2 {
+        if err2 < err1 {
+            return (*pose2, err2)
         }
-        matd_destroy(pose2.R);
-        return err1;
-    } else {
-        pose.R = pose2.R;
-        pose.t = pose2.t;
-        matd_destroy(pose1.R);
-        matd_destroy(pose1.t);
-        return err2;
     }
+    return ortho_res.solution1;
 }

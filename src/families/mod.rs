@@ -62,7 +62,8 @@ impl AprilTagFamily {
     
         // return im;
 
-        assert!(idx >= 0 && idx < self.codes.len());
+        assert!(idx >= 0);
+        assert!(idx < self.codes.len());
 
         let code = self.codes[idx];
 
