@@ -13,7 +13,7 @@ impl MatChol {
 		let N = mat.rows();
 
 		// make upper right
-		let U = mat.clone();
+		let mut U = mat.clone();
 
 		// don't actually need to clear lower-left... we won't touch it.
 	/*    for (int i = 0; i < U->nrows; i++) {
@@ -29,8 +29,9 @@ impl MatChol {
 			let d = U[(i,i)];
 			is_spd &= d > 0.;
 
-			let d = f64::max(d, Mat::EPS);
-			d = d.sqrt().recip();
+			let d = f64::max(d, Mat::EPS)
+				.sqrt()
+				.recip();
 
 			for j in i..N {
 				U[(i, j)] *= d;
