@@ -91,3 +91,9 @@ impl Point2D {
         delta.angle()
     }
 }
+
+impl From<Point2D> for [f64; 2] {
+    fn from(value: Point2D) -> Self {
+        [value.x(), value.y()]
+    }
+}
