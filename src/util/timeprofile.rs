@@ -1,9 +1,9 @@
-use std::time::{Instant, Duration};
+use std::{time::{Instant, Duration}, sync::Mutex};
 
 pub(crate) struct TimeProfile {
     pub now: Instant,
 
-    pub stamps: Vec<TimeProfileEntry>,
+    pub stamps: Mutex<Vec<TimeProfileEntry>>,
 }
 
 impl Default for TimeProfile {
@@ -22,18 +22,18 @@ struct TimeProfileEntry {
 
 impl TimeProfile {
     pub fn clear(&mut self) {
-        self.stamps.clear();
+        self.stamps.get_mut().unwrap().clear();
         self.now = Instant::now();
     }
 
     #[inline]
-    pub fn stamp(&mut self, name: &str) {
+    pub fn stamp(&self, name: &str) {
         let entry = TimeProfileEntry {
             name: String::from(name),
             utime: Instant::now(),
         };
 
-        self.stamps.push(entry);
+        self.stamps.lock().unwrap().push(entry);
     }
 
     pub fn display(&self) {
@@ -41,7 +41,8 @@ impl TimeProfile {
 
         let mut i = 0;
 
-        for stamp in self.stamps {
+        let stamps = self.stamps.lock().unwrap();
+        for stamp in stamps.iter() {
             let cumtime = stamp.utime - self.now;
 
             let parttime = stamp.utime - last_time;
@@ -54,12 +55,13 @@ impl TimeProfile {
     }
 
     pub fn total_utime(&self) -> Duration {
-        if self.stamps.len() == 0 {
+        let stamps = self.stamps.lock().unwrap();
+        if stamps.len() == 0 {
             return Duration::ZERO;
         }
 
-        let first = self.stamps.first().unwrap();
-        let last = self.stamps.last().unwrap();
+        let first = stamps.first().unwrap();
+        let last = stamps.last().unwrap();
 
         last.utime - first.utime
     }
