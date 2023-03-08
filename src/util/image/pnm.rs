@@ -13,7 +13,8 @@ pub(super) struct PNM {
     pub(super) width: usize,
     pub(super) height: usize,
     pub(super) format: PNMFormat,
-    // int max; // 1 = binary, 255 = one byte, 65535 = two bytes
+    /// 1 = binary, 255 = one byte, 65535 = two bytes
+    pub(super) max: usize,
 
     // if max=65535, in big endian
     pub(super) buf: Box<[u8]>,
@@ -122,6 +123,7 @@ impl PNM {
             width,
             height,
             format,
+            max,
             buf,
         })
     }
