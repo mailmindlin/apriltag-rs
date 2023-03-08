@@ -7,3 +7,9 @@ pub use img::*;
 pub use pose::*;
 pub use detector::*;
 pub use util::*;
+
+#[derive(Debug)]
+enum FFIConvertError {
+    FieldOverflow,
+    NullPointer,
+}

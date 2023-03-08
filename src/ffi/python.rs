@@ -13,7 +13,7 @@ py_class!(class Detection |py| {
 
     @property def tag_family(&self) -> PyResult<PyString> {
         let det = self.detection(py);
-        let name = PyString::new(py, det.family.name);
+        let name = PyString::new(py, &det.family.name);
         Ok(name)
     }
 
