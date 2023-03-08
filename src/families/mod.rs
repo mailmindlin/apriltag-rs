@@ -28,7 +28,7 @@ pub struct AprilTagFamily {
 	pub min_hamming: u32,
 
 	// a human-readable name, e.g., "tag36h11"
-	pub name: &'static str,
+	pub name: Cow<'static, str>,
 
 	// some detector implementations may preprocess codes in order to
 	// accelerate decoding.  They put their data here. (Do not use the

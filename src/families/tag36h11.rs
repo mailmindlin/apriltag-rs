@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::AprilTagFamily;
 
 pub fn tag36h11_create() -> AprilTagFamily {
@@ -633,6 +635,6 @@ pub fn tag36h11_create() -> AprilTagFamily {
 		total_width: 10,
 		reversed_border: false,
 		min_hamming: 11,
-		name: "tag36h11",
+		name: Cow::Borrowed("tag36h11"),
 	}
 }
