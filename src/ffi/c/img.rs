@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, mem::ManuallyDrop, slice};
 
 use libc::{c_uint};
 
@@ -36,13 +36,30 @@ impl From<Image<u8>> for image_u8_t {
 
 impl image_u8_t {
     pub(super) fn pretend_ref<'a>(&'a self) -> FakeImageGuard<'a> {
-        todo!()
+        let mut pretend = ManuallyDrop::new(Image::<u8>::create(self.width as usize, self.height as usize));
+        let buf_ptr = unsafe { slice::from_raw_parts_mut(self.buf, pretend.len()) };
+        pretend.buf = unsafe { Box::from_raw(buf_ptr as *mut _) };
+        FakeImageGuard {
+            raw: self,
+            pretend,
+        }
     }
 }
 
 pub(super) struct FakeImageGuard<'a> {
     raw: &'a image_u8_t,
-    pretend: Image<u8>,
+    pretend: ManuallyDrop<Image<u8>>,
+}
+
+impl<'a> Drop for FakeImageGuard<'a> {
+    fn drop(&mut self) {
+        let pb = std::mem::take(&mut self.pretend.buf);
+        let pretend_ptr = pb.as_ptr();
+
+        assert_eq!(pretend_ptr, self.raw.buf);
+        
+        std::mem::forget(pb);// Don't free pb, because it's really owned by `raw`
+    }
 }
 
 impl<'a> Deref for FakeImageGuard<'a> {

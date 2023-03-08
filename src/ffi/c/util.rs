@@ -1,3 +1,5 @@
+use std::mem;
+
 use libc::{size_t, c_int, c_char, c_uint, c_double};
 
 use crate::util::math::mat::Mat;
@@ -5,7 +7,7 @@ use crate::util::math::mat::Mat;
 use super::FFIConvertError;
 
 #[repr(C)]
-pub(super) struct zarray {
+pub struct zarray {
     /// size of each element
     el_sz: size_t,
 
@@ -16,9 +18,25 @@ pub(super) struct zarray {
     data: *mut c_char,
 }
 
-impl<T: Sized> From<Vec<T>> for zarray where T: ~const Drop {
+impl<T: Sized> From<Vec<T>> for zarray {
     fn from(value: Vec<T>) -> Self {
-        todo!()
+        let el_sz = mem::size_of::<T>();
+        let (data, size, alloc) = value.into_raw_parts();
+        Self {
+            el_sz,
+            size: size as _,
+            alloc: alloc as _,
+            data: data as _,
+        }
+    }
+}
+
+impl<T> From<zarray> for Vec<T> {
+    fn from(value: zarray) -> Self {
+        assert_eq!(value.el_sz as usize, std::mem::size_of::<T>());
+        unsafe {
+            Vec::from_raw_parts(value.data as *mut T, value.size as _, value.alloc as _)
+        }
     }
 }
 
@@ -30,8 +48,8 @@ pub struct matd_t {
 }
 
 impl matd_t {
-    const FOO: usize = 1;
     fn new(nrows: c_uint, ncols: c_uint, data: Box<[c_double]>) -> Box<matd_t> {
+        //See: https://stackoverflow.com/questions/67171086/how-can-a-dynamically-sized-object-be-constructed-on-the-heap
         use std::mem;
         use std::alloc::Layout;
         let base_layout = {
@@ -42,12 +60,12 @@ impl matd_t {
                 data: T
             }
 
-            const matd_one: matd_like<[c_double; 0]> = matd_like {
+            const MATD_EMPTY: matd_like<[c_double; 0]> = matd_like {
                 nrows: 0,
                 ncols: 0,
                 data: []
             };
-            Layout::for_value(&matd_one)
+            Layout::for_value(&MATD_EMPTY)
         };
 
         let (layout, arr_offset) = base_layout.extend(Layout::array::<c_double>(data.len()).unwrap()).unwrap();

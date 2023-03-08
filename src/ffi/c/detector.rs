@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice};
+use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice, ptr};
 
 use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::geom::Point2D, ffi::c::{drop_array, drop_str}};
 use libc::{c_int, c_double, c_void, c_char};
@@ -73,7 +73,7 @@ impl From<AprilTagFamily> for apriltag_family_t {
             bit_x: bits_x.into_raw_parts().0 as *const _,
             bit_y: bits_y.into_raw_parts().0 as *const _,
             h: value.min_hamming as _,
-            name: CString::new(value.name.as_ref()).unwrap().as_ptr(),
+            name: CString::new(value.name.as_ref()).unwrap().into_raw(),
             ximpl: std::ptr::null(),
         }
     }
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn apriltag_detector_destroy(td: *mut apriltag_detector_t)
     if td.is_null() {
         return;
     }
-    Box::from_raw(td);
+    drop(Box::from_raw(td));
 }
 
 /// Detect tags from an image and return an array of
@@ -263,10 +263,28 @@ pub unsafe extern "C" fn apriltag_detector_destroy(td: *mut apriltag_detector_t)
 /// _detection_destroy and zarray_destroy yourself.
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, im_orig: *const image_u8_t) -> *mut zarray {
-    let detector = td.as_mut().unwrap();
-    let im_orig = im_orig.as_ref().unwrap();
-    let results = detector.detect(&im_orig.pretend_ref());
-    todo!()
+    let detector = if let Some(det) = td.as_mut() {
+        det
+    } else {
+        return ptr::null_mut();
+    };
+    let im_orig = if let Some(im_orig) = im_orig.as_ref() {
+        im_orig
+    } else {
+        return ptr::null_mut();
+    };
+    
+    let res_vec = {
+        let results = detector.detect(&im_orig.pretend_ref());
+        //TODO: store time profile on apriltag_detector_t
+
+        results.detections
+            .into_iter()
+            .map(|det| det.try_into().unwrap())
+            .collect::<Vec<apriltag_detection_t>>()
+    };
+
+    Box::into_raw(box zarray::from(res_vec))
 }
 
 /// Call this method on each of the tags returned by apriltag_detector_detect
@@ -279,7 +297,12 @@ pub unsafe extern "C" fn apriltag_detection_destroy(det: *mut apriltag_detection
 // destroys the array AND the detections within it.
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detections_destroy(detections: *mut zarray) {
-
+    if detections.is_null() {
+        return;
+    }
+    let detections = unsafe { Box::from_raw(detections) };
+    let detections: Vec<apriltag_detection_t> = Box::into_inner(detections).into();
+    std::mem::drop(detections)
 }
 
 // Renders the apriltag.

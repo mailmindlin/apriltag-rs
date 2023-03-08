@@ -12,7 +12,7 @@ pub use detector::*;
 pub use util::*;
 
 #[derive(Debug)]
-enum FFIConvertError {
+pub enum FFIConvertError {
     FieldOverflow,
     NullPointer,
 }
