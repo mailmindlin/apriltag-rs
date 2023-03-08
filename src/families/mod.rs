@@ -1,3 +1,5 @@
+use std::{sync::Arc, borrow::Cow};
+
 use crate::util::Image;
 
 
@@ -11,7 +13,7 @@ pub use tag25h9::tag25h9_create;
 pub use tag36h10::tag36h10_create;
 pub use tag36h11::tag36h11_create;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
@@ -37,6 +39,17 @@ pub struct AprilTagFamily {
 }
 
 impl AprilTagFamily {
+    pub fn for_name(name: &str) -> Option<Arc<AprilTagFamily>> {
+        let res = match name {
+            "tag16h5" => tag16h5_create(),
+            "tag25h9" => tag25h9_create(),
+            "tag36h10" => tag36h10_create(),
+            "tag36h11" => tag36h11_create(),
+            _ => return None,
+        };
+        //TODO: cache references
+        Some(Arc::new(res))
+    }
     pub fn to_image(&self, idx: usize) -> Image {
         // assert!(idx >= 0 && idx < self.codes.len());
     
@@ -66,7 +79,6 @@ impl AprilTagFamily {
     
         // return im;
 
-        assert!(idx >= 0);
         assert!(idx < self.codes.len());
 
         let code = self.codes[idx];
