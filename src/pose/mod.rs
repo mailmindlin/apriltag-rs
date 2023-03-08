@@ -330,8 +330,8 @@ pub fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> Aprilta
 }
 
 pub struct OrthogonalIterationResult {
-    solution1: (ApriltagPose, f64),
-    solution2: Option<(ApriltagPose, f64)>,
+    pub solution1: (ApriltagPose, f64),
+    pub solution2: Option<(ApriltagPose, f64)>,
 }
 
 /// Estimate tag pose using orthogonal iteration.
