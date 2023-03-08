@@ -31,7 +31,28 @@ py_class!(class Detection |py| {
 py_class!(class Detector |py| {
     data detector: RwLock<ApriltagDetector>;
     def __new__(_cls, families: PySequence, nthreads: Option<usize>, quad_decimate: Option<f32>, quad_sigma: Option<f32>, refine_edges: Option<bool>, decode_sharpening: Option<f64>, debug: Option<bool>, camera_params: Option<PySequence>) -> PyResult<Detector> {
-        let detector = ApriltagDetector::default();
+        let mut detector = ApriltagDetector::default();
+        if let Some(nthreads) = nthreads {
+            detector.params.nthreads = nthreads;
+        }
+        if let Some(quad_decimate) = quad_decimate {
+            detector.params.quad_decimate = quad_decimate;
+        }
+        if let Some(quad_sigma) = quad_sigma {
+            detector.params.quad_sigma = quad_sigma;
+        }
+        if let Some(refine_edges) = refine_edges {
+            detector.params.refine_edges = refine_edges;
+        }
+        if let Some(decode_sharpening) = decode_sharpening {
+            detector.params.decode_sharpening = decode_sharpening;
+        }
+        if let Some(debug) = debug {
+            detector.params.debug = debug;
+        }
+        if let Some(refine_edges) = refine_edges {
+            detector.params.refine_edges = refine_edges;
+        }
         Self::create_instance(py, RwLock::new(detector))
     }
 
@@ -42,7 +63,7 @@ py_class!(class Detector |py| {
 
     @nthreads.setter def set_nthreads(&self, value: Option<usize>) -> PyResult<()> {
         if let Some(value) = value {
-            let det = self.detector(py).write().unwrap();
+            let mut det = self.detector(py).write().unwrap();
             det.params.nthreads = value;
             Ok(())
         } else {
@@ -57,7 +78,7 @@ py_class!(class Detector |py| {
 
     @quad_decimate.setter def set_qd(&self, value: Option<f32>) -> PyResult<()> {
         if let Some(value) = value {
-            let det = self.detector(py).write().unwrap();
+            let mut det = self.detector(py).write().unwrap();
             det.params.quad_decimate = value;
             Ok(())
         } else {
@@ -72,7 +93,7 @@ py_class!(class Detector |py| {
 
     @quad_sigma.setter def set_qs(&self, value: Option<f32>) -> PyResult<()> {
         if let Some(value) = value {
-            let det = self.detector(py).write().unwrap();
+            let mut det = self.detector(py).write().unwrap();
             det.params.quad_sigma = value;
             Ok(())
         } else {
@@ -91,7 +112,7 @@ py_class!(class Detector |py| {
 
     @refine_edges.setter def set_rf(&self, value: Option<PyBool>) -> PyResult<()> {
         if let Some(value) = value {
-            let det = self.detector(py).write().unwrap();
+            let mut det = self.detector(py).write().unwrap();
             det.params.refine_edges = value.is_true();
             Ok(())
         } else {
@@ -110,7 +131,7 @@ py_class!(class Detector |py| {
 
     @debug.setter def set_debug(&self, value: Option<PyBool>) -> PyResult<()> {
         if let Some(value) = value {
-            let det = self.detector(py).write().unwrap();
+            let mut det = self.detector(py).write().unwrap();
             det.params.debug = value.is_true();
             Ok(())
         } else {
