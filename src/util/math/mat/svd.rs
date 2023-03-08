@@ -561,8 +561,8 @@ impl MatSVD {
         // maxiters used to be smaller to prevent us from looping forever,
         // but this doesn't seem to happen any more with our more stable
         // svd22 implementation.
-        const maxiters: u32 = 1u32 << 30;
-        assert!(maxiters > 0); // reassure clang
+        const MAX_ITERS: u32 = 1u32 << 30;
+        assert!(MAX_ITERS > 0); // reassure clang
 
         let mut maxv: f64; // maximum non-zero value being reduced this iteration
 
@@ -576,7 +576,7 @@ impl MatSVD {
         };
 
         fn find_max(options: &SvdOptions, B: &mut Mat, LS: &mut Mat, RS: &mut Mat, mut find_max_method: impl FindMax) {
-            for iter in 0..maxiters {
+            for iter in 0..MAX_ITERS {
                 // No diagonalization required for 0x0 and 1x1 matrices.
                 if B.cols() < 2 {
                     break;
@@ -665,7 +665,7 @@ impl MatSVD {
                     }
                 }
     
-                if !options.suppress_warnings && iter == maxiters {
+                if !options.suppress_warnings && iter == MAX_ITERS {
                     //TODO: fixme
                     println!("WARNING: maximum iters (maximum = {})", iter);
                     // println!("WARNING: maximum iters (maximum = {}, matrix {} x {}, max={:.15})", iter, A.rows(), A.cols(), maxv);

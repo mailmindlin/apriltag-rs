@@ -2,8 +2,6 @@ use std::{path::Path, io};
 
 use super::{Image, PNM, pnm::PNMFormat, ImageWritePNM};
 
-pub type ImageRGB = Image<[u8; 3]>;
-
 impl Image<[u8; 3]> {
     /// Least common multiple of 64 (sandy bridge cache line) and 48 (stride needed
     /// for 16byte-wide RGB processing). (It's possible that 48 would be enough).

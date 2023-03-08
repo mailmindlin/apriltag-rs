@@ -447,7 +447,7 @@ static void matrix_to_quat(const matd_t *R, double q[4])
 */
 
 /// overwrites upper 3x3 area of matrix M. Doesn't touch any other elements of M.
-pub fn quat_to_matrix(q: &[f64; 4], M: &mut Mat) {
+fn quat_to_matrix(q: &[f64; 4], M: &mut Mat) {
     let w = q[0];
     let x = q[1];
     let y = q[2];

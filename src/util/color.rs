@@ -1,6 +1,6 @@
 use std::ops::{Range, Add, Sub};
 
-use rand::{thread_rng, Rng, distributions::uniform::{SampleRange, SampleUniform}};
+use rand::{Rng, distributions::uniform::{SampleRange, SampleUniform}};
 
 pub(crate) trait RandomColor {
     /// Generates a random RGB color
@@ -36,15 +36,4 @@ impl<R: Rng> RandomColor for R {
         let range = T::from(0)..(T::from(255) - bias);
         bias + self.gen_range(range)
     }
-}
-
-#[deprecated]
-pub(crate) fn random_color<T>(bias: T) -> [T; 3]
-    where
-        Range<T>: SampleRange<T>,
-        T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform
-{
-    let mut rng = thread_rng();
-
-    rng.gen_color_rgb(bias)
 }
