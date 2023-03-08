@@ -1,15 +1,15 @@
 use std::{mem, sync::RwLock};
 
-use jni::{JNIEnv, sys::{jlong, jint, jboolean, jdouble, JNI_TRUE, jstring}, objects::{JClass, JString}};
+use jni::{JNIEnv, sys::{jlong, jint, jboolean, jdouble, JNI_TRUE}, objects::{JClass, JString}};
 
 use crate::{detector::ApriltagDetector, families::AprilTagFamily};
 
 mod util;
 
-use self::util::{JavaError, jni_wrap_simple, get_ptr, JniDetectorData, get_ptr_mut};
+use self::util::{JavaError, jni_wrap_simple, JniDetectorData, get_ptr_mut, jni_wrap};
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_create(env: JNIEnv, class: JClass) -> jlong {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_create(mut env: JNIEnv, _class: JClass) -> jlong {
     jni_wrap_simple(&mut env, |env| {
         if mem::size_of::<jlong>() < mem::size_of::<*mut ApriltagDetector>() {
             //Throw exception
@@ -43,11 +43,8 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_create(env: J
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_setParams(env: JNIEnv, class: JClass, ptr: jlong, nthreads: jint, quadDecimate: jdouble, quadSigma: jdouble, refineEdges: jboolean, decodeSharpening: jdouble, debug: jboolean) {
-    jni_wrap_simple(&mut env, |env| {
-        let data = get_ptr(ptr)?;
-        let det = data.detector.write()?;
-    
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_setParams<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, ptr: jlong, nthreads: jint, quadDecimate: jdouble, quadSigma: jdouble, refineEdges: jboolean, decodeSharpening: jdouble, debug: jboolean) {
+    jni_wrap(&mut env, ptr, |env, det| {
         det.params.nthreads = nthreads.try_into()
             .map_err(|e| JavaError::IllegalArgumentException(format!("Illegal argument: nthreads: {:?}", e)))?;
         
@@ -63,7 +60,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_setParams(env
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_destroy(env: JNIEnv, class: JClass, ptr: jlong) {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_destroy(env: JNIEnv, _class: JClass, ptr: jlong) {
     let ptr: *mut JniDetectorData = unsafe { std::mem::transmute(ptr) };
     if ptr.is_null() {
         env.throw_new("java/lang/NullPointerException", "Missing pointer");
@@ -74,11 +71,8 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_destroy(env: 
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily<'local>(env: JNIEnv<'local>, class: JClass<'local>, ptr: jlong, family: JString<'local>, bits_corrected: jint) {
-    jni_wrap_simple(&mut env, |env| {
-        let data = get_ptr(ptr)?;
-        let detector = data.detector.write()?;
-
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, ptr: jlong, family: JString<'local>, bits_corrected: jint) {
+    jni_wrap(&mut env, ptr, |env, detector| {
         let family = {
             let family_name: String = env.get_string(family)?.into();
 
@@ -93,11 +87,8 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily<'lo
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_clearFamilies(env: JNIEnv, class: JClass, ptr: jlong) {
-    jni_wrap_simple(&mut env, |env| {
-        let data = get_ptr(ptr)?;
-        let detector = data.detector.write()?;
-        
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_clearFamilies(mut env: JNIEnv, _class: JClass, ptr: jlong) {
+    jni_wrap(&mut env, ptr, |env, detector| {
         detector.clear_families();
 
         Ok(())
@@ -105,11 +96,8 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_clearFamilies
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_removeFamily(env: JNIEnv, class: JClass, ptr: jlong, family: jstring) {
-    jni_wrap_simple(&mut env, |env| {
-        let data = get_ptr(ptr)?;
-        let detector = data.detector.write()?;
-
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_removeFamily<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, ptr: jlong, family: JString<'local>) {
+    jni_wrap(&mut env, ptr, |env, detector| {
         //TODO
         
         Ok(())

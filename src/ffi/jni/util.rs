@@ -18,12 +18,17 @@ pub(super) enum JavaError {
 
 impl JavaError {
     fn throw(&self, env: &mut JNIEnv) {
-        todo!()
+        match self {
+            JavaError::Exception(msg) => env.throw_new("java/lang/Exception", msg),
+            JavaError::ConcurrentModificationException => env.throw_new("java/util/ConcurrentModificationException", ""),
+            JavaError::IllegalArgumentException(msg) => env.throw_new("java/lang/IllegalArgumentException", msg),
+            JavaError::Internal(_) => return,
+        }.unwrap();
     }
 }
 
 impl<T> From<PoisonError<T>> for JavaError {
-    fn from(value: PoisonError<T>) -> Self {
+    fn from(_value: PoisonError<T>) -> Self {
         JavaError::ConcurrentModificationException
     }
 }
@@ -52,8 +57,9 @@ pub(super) fn get_ptr(ptr: jlong) -> JavaResult<&'static JniDetectorData> {
     }
 }
 
-pub(super) fn jni_wrap_simple<'a, R: Default>(env: &'a mut JNIEnv<'a>, inner: impl FnOnce(&'a mut JNIEnv<'a>) -> JavaResult<R>) -> R {
-    match inner(env) {
+pub(super) fn jni_wrap_simple<'a, R: Default>(env: &mut JNIEnv<'a>, inner: impl FnOnce(&mut JNIEnv<'a>) -> JavaResult<R>) -> R {
+    let res = inner(env);
+    match res {
         Ok(v) => v,
         Err(e) => {
             e.throw(env);
@@ -62,10 +68,10 @@ pub(super) fn jni_wrap_simple<'a, R: Default>(env: &'a mut JNIEnv<'a>, inner: im
     }
 }
 
-fn jni_wrap<R: Default>(env: &mut JNIEnv, ptr: jlong, inner: impl FnOnce(&mut JNIEnv, &mut ApriltagDetector) -> JavaResult<R>) -> R {
+pub(super) fn jni_wrap<'a, R: Default>(env: &mut JNIEnv<'a>, ptr: jlong, inner: impl FnOnce(&mut JNIEnv<'a>, &mut ApriltagDetector) -> JavaResult<R>) -> R {
     jni_wrap_simple(env, |env| {
         let data = get_ptr(ptr)?;
-        let detector = data.detector.get_mut()?;
-        inner(env, detector)
+        let mut detector = data.detector.write()?;
+        inner(env, &mut detector)
     })
 }
