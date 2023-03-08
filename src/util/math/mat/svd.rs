@@ -564,7 +564,7 @@ impl MatSVD {
         const MAX_ITERS: u32 = 1u32 << 30;
         assert!(MAX_ITERS > 0); // reassure clang
 
-        let mut maxv: f64; // maximum non-zero value being reduced this iteration
+        // let mut maxv: f64; // maximum non-zero value being reduced this iteration
 
         // which method will we use to find the largest off-diagonal
         // element of B?
