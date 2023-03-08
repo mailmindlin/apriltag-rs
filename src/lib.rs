@@ -11,3 +11,4 @@ pub(crate) mod quad_decode;
 mod pose;
 
 pub use detector::{ApriltagDetector, ApriltagDetection};
+pub use pose::{estimate_tag_pose};

@@ -11,38 +11,36 @@ use crate::{detector::ApriltagDetector, util::{Image, mem::calloc, color::Random
 
 use self::{uf::connected_components, grad_cluster::gradient_clusters, quadfit::fit_quads};
 
-const APRILTAG_TASKS_PER_THREAD_TARGET: usize = 10;
-
-pub(crate) struct ApriltagQuadThreshParams {
+pub struct ApriltagQuadThreshParams {
     // reject quads containing too few pixels
-    min_cluster_pixels: u32,
+    pub min_cluster_pixels: u32,
 
     // how many corner candidates to consider when segmenting a group
     // of pixels into a quad.
-    max_nmaxima: u8,
+    pub max_nmaxima: u8,
 
     // Reject quads where pairs of edges have angles that are close to
     // straight or close to 180 degrees. Zero means that no quads are
     // rejected. (In radians).
     #[deprecated]
-    critical_rad: f32,
-    cos_critical_rad: f32,
+    pub critical_rad: f32,
+    pub cos_critical_rad: f32,
 
     // When fitting lines to the contours, what is the maximum mean
     // squared error allowed?  This is useful in rejecting contours
     // that are far from being quad shaped; rejecting these quads "early"
     // saves expensive decoding processing.
-    max_line_fit_mse: f32,
+    pub max_line_fit_mse: f32,
 
     // When we build our model of black & white pixels, we add an
     // extra check that the white model must be (overall) brighter
     // than the black model.  How much brighter? (in pixel values,
     // [0,255]). .
-    min_white_black_diff: u8,
+    pub min_white_black_diff: u8,
 
     // should the thresholded image be deglitched? Only useful for
     // very noisy images
-    deglitch: bool,
+    pub deglitch: bool,
 }
 
 impl Default for ApriltagQuadThreshParams {

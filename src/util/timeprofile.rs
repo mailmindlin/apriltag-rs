@@ -1,7 +1,7 @@
 use std::time::{Instant, Duration};
 
-pub(crate) struct TimeProfile {
-    pub now: Instant,
+pub struct TimeProfile {
+    now: Instant,
 
     stamps: Vec<TimeProfileEntry>,
 }

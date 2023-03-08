@@ -66,7 +66,7 @@ impl AprilTagParams {
 pub struct ApriltagDetector {
 	pub params: AprilTagParams,
 
-	pub(crate) qtp: ApriltagQuadThreshParams,
+	pub qtp: ApriltagQuadThreshParams,
 
 	///////////////////////////////////////////////////////////////
 	// Internal variables below
@@ -516,8 +516,7 @@ pub struct ApriltagDetection {
 
 #[derive(Default)]
 pub struct DetectionResult {
-	tp: TimeProfile,
-	nquads: u32,
-	detections: Vec<ApriltagDetection>,
-
+	pub tp: TimeProfile,
+	pub nquads: u32,
+	pub detections: Vec<ApriltagDetection>,
 }
