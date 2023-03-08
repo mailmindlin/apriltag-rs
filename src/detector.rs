@@ -69,12 +69,6 @@ pub struct ApriltagDetector {
 	pub(crate) qtp: ApriltagQuadThreshParams,
 
 	///////////////////////////////////////////////////////////////
-	// pub(crate) tp: TimeProfile,
-
-	nedges: u32,
-	nsegments: u32,
-
-	///////////////////////////////////////////////////////////////
 	// Internal variables below
 
 	// Not freed on apriltag_destroy; a tag family can be shared
@@ -91,8 +85,6 @@ impl Default for ApriltagDetector {
         Self {
 			params: AprilTagParams::default(),
 			qtp: ApriltagQuadThreshParams::default(),
-			nedges: 0,
-			nsegments: 0,
 			tag_families: Vec::new(),
 			// NB: defer initialization of self.wp so that the user can
 			// override self.nthreads.
