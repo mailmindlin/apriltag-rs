@@ -556,10 +556,10 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         // get area of triangle formed by points 2, 3, 0, 2
         {
             let mut length = [0f64; 3];
-            const idxs: [usize; 4] = [ 2, 3, 0, 2 ];
+            const IDXS: [usize; 4] = [ 2, 3, 0, 2 ];
             for i in 0..3 {
-                let corner1 = &corners[idxs[i]];
-                let corner2 = &corners[idxs[i + 1]];
+                let corner1 = &corners[IDXS[i]];
+                let corner2 = &corners[IDXS[i + 1]];
                 length[i] = corner1.distance_to(corner2);
             }
             let p = (length[0] + length[1] + length[2]) / 2.;
