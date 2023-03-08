@@ -6,13 +6,14 @@ edition = "2021"
 [features]
 cpython = ["dep:cpython"]
 jni = ["dep:jni"]
-cffi = []
+cffi = ["dep:libc"]
 
-default=["cpython", "jni", "cffi"]
+default = ["cpython", "jni", "cffi"]
 
 [dependencies]
 arrayvec = "0.7.2"
 cpython = { version = "0.7.1", optional = true }
 jni = { version = "0.20.0", optional = true }
+libc ={ version = "0.2.139", optional = true }
 rand = "0.8.5"
 rayon = "1.6.1"
