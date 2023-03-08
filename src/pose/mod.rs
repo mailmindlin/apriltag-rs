@@ -282,12 +282,12 @@ fn fix_pose_ambiguities(v: &[Mat], p: &[Mat], t: &mut Mat, R: &Mat, n_points: us
     }
 }
 pub struct ApriltagDetectionInfo {
-    detection: ApriltagDetection,
-    tagsize: f64, // In meters.
-    fx: f64, // In pixels.
-    fy: f64, // In pixels.
-    cx: f64, // In pixels.
-    cy: f64, // In pixels.
+    pub detection: ApriltagDetection,
+    pub tagsize: f64, // In meters.
+    pub fx: f64, // In pixels.
+    pub fy: f64, // In pixels.
+    pub cx: f64, // In pixels.
+    pub cy: f64, // In pixels.
 }
 
 pub struct ApriltagPose {
