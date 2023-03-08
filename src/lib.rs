@@ -1,4 +1,4 @@
-#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten)]
+#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten, box_into_inner)]
 #![allow(non_snake_case)]
 mod apriltag_math;
 pub mod families;
