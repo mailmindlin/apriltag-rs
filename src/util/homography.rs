@@ -184,22 +184,18 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
                     chol.solve(&b)
                 };
 
-                let mut scale = 0.;
-
-                for i in 0..9 {
-                    let value = Ainv[(i,0)];
-                    scale += value * value;
-                }
-                scale = scale.sqrt();
+                let scale = (0..9)
+                    .map(|i| Ainv[(i, 0)])
+                    .map(|v| v * v)
+                    .sum::<f64>()
+                    .sqrt()
+                    .recip();
 
                 for i in 0..3 {
                     for j in 0..3 {
-                        H[(i,j)] = Ainv[(3*i+j,0)] / scale;
+                        H[(i,j)] = Ainv[(3*i+j,0)] * scale;
                     }
                 }
-
-                std::mem::drop(b);
-                std::mem::drop(Ainv);
             }
         },
         HomographyMode::SVD => {

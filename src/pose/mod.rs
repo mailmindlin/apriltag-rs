@@ -296,7 +296,7 @@ pub struct ApriltagPose {
 }
 
 /// Estimate pose of the tag using the homography method.
-fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPose {
+pub fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPose {
     let scale = info.tagsize/2.0;
 
     let initial_pose = {
@@ -335,7 +335,7 @@ pub struct OrthogonalIterationResult {
 }
 
 /// Estimate tag pose using orthogonal iteration.
-fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters: usize) -> OrthogonalIteraionResult {
+pub fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters: usize) -> OrthogonalIterationResult {
     let scale = info.tagsize/2.0;
     let p = [
         Mat::create(3, 1, &[-scale, scale, 0.]),
