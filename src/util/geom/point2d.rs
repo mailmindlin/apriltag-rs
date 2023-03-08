@@ -97,3 +97,9 @@ impl From<Point2D> for [f64; 2] {
         [value.x(), value.y()]
     }
 }
+
+impl From<[f64; 2]> for Point2D {
+    fn from(value: [f64; 2]) -> Self {
+        Self::of(value[0], value[1])
+    }
+}
