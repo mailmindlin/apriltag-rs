@@ -329,7 +329,7 @@ fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPos
     ApriltagPose { R, t }
 }
 
-pub struct OrthogonalIteraionResult {
+pub struct OrthogonalIterationResult {
     solution1: (ApriltagPose, f64),
     solution2: Option<(ApriltagPose, f64)>,
 }
@@ -366,7 +366,7 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters:
         None
     };
 
-    OrthogonalIteraionResult {
+    OrthogonalIterationResult {
         solution1: (pose1, err1),
         solution2,
     }
@@ -374,7 +374,7 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters:
 
 /// Estimate tag pose.
 pub fn estimate_tag_pose(info: &ApriltagDetectionInfo) -> (ApriltagPose, f64) {
-    let OrthogonalIteraionResult {
+    let OrthogonalIterationResult {
         solution1,
         solution2
     } = estimate_tag_pose_orthogonal_iteration(info,50);
