@@ -1,7 +1,7 @@
 use super::AprilTagFamily;
 
 pub fn tag16h5_create() -> AprilTagFamily {
-    return AprilTagFamily {
+    AprilTagFamily {
         bits: vec![
             (1, 1),
             (2, 1),
@@ -57,5 +57,5 @@ pub fn tag16h5_create() -> AprilTagFamily {
         reversed_border: false,
         min_hamming: 5,
         name: "tag16h5",
-    };
+    }
 }

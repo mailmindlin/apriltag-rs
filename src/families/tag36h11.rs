@@ -1,9 +1,45 @@
 use super::AprilTagFamily;
 
-use super::AprilTagFamily;
-
-pub fn tag25h9_create() -> AprilTagFamily {
+pub fn tag36h11_create() -> AprilTagFamily {
 	AprilTagFamily {
+		bits: vec![
+			(1, 1),
+			(2, 1),
+			(3, 1),
+			(4, 1),
+			(5, 1),
+			(2, 2),
+			(3, 2),
+			(4, 2),
+			(3, 3),
+			(6, 1),
+			(6, 2),
+			(6, 3),
+			(6, 4),
+			(6, 5),
+			(5, 2),
+			(5, 3),
+			(5, 4),
+			(4, 3),
+			(6, 6),
+			(5, 6),
+			(4, 6),
+			(3, 6),
+			(2, 6),
+			(5, 5),
+			(4, 5),
+			(3, 5),
+			(4, 4),
+			(1, 6),
+			(1, 5),
+			(1, 4),
+			(1, 3),
+			(1, 2),
+			(2, 5),
+			(2, 4),
+			(2, 3),
+			(3, 4),
+		],
 		codes: vec![
 			0x0000000d5d628584u64,
 			0x0000000d97f18b49u64,
@@ -593,8 +629,9 @@ pub fn tag25h9_create() -> AprilTagFamily {
 			0x00000002459068fbu64,
 			0x0000000e83be4b73u64,
 		],
-		black_border: 1,
-		dimensions: 6,
+		width_at_border: 8,
+		total_width: 10,
+		reversed_border: false,
 		min_hamming: 11,
 		name: "tag36h11",
 	}

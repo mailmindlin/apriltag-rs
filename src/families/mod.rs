@@ -2,10 +2,14 @@ use crate::util::Image;
 
 
 mod tag16h5;
-// mod _tag25h7;
-// mod tag25h9;
-// mod tag36h10;
-// mod tag36h11;
+mod tag25h9;
+mod tag36h10;
+mod tag36h11;
+
+pub use tag16h5::tag16h5_create;
+pub use tag25h9::tag25h9_create;
+pub use tag36h10::tag36h10_create;
+pub use tag36h11::tag36h11_create;
 
 #[derive(Debug, PartialEq)]
 pub struct AprilTagFamily {
