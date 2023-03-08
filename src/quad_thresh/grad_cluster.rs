@@ -6,7 +6,7 @@ use crate::{util::{Image}, ApriltagDetector};
 
 use super::{uf::{UnionFind2D, UnionFindId}, linefit::Pt};
 
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
@@ -37,7 +37,7 @@ fn u64hash_2(x: u64) -> u32 {
     // return x as u32;
 }
 
-fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usize, uf: &UnionFind2D) -> Vec<ClusterEntry> {
+fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usize, uf: &mut UnionFind2D) -> Vec<ClusterEntry> {
     // let nclustermap = 2*w*h - 1;
     let mut clustermap = HashMap::<ClusterId, Vec<Pt>>::with_capacity(nclustermap);
 
@@ -50,7 +50,7 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
 
             // XXX don't query this until we know we need it?
             let rep0 = uf.get_representative(x, y);
-            if rep0.get_set_size() < 25 {
+            if uf.get_set_size(rep0) < 25 {
                 continue;
             }
 
@@ -89,10 +89,10 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
 
                 if v0 + v1 == 255 {
                     let rep1 = uf.get_representative(off_x, off_y);
-                    if rep1.get_set_size() > 24 {
-                        let clusterid = ClusterId::new(rep0.idx(), rep1.idx());
+                    if uf.get_set_size(rep1) > 24 {
+                        let clusterid = ClusterId::new(rep0, rep1);
                         let cluster = match clustermap.entry(clusterid){
-                            Entry::Occupied(entry) => entry.get_mut(),
+                            Entry::Occupied(entry) => entry.into_mut(),
                             Entry::Vacant(entry) => entry.insert(Vec::new()),
                         };
 
@@ -120,7 +120,7 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
     clusters
 }
 
-fn merge_clusters(mut c1: Vec<ClusterEntry>, c2: Vec<ClusterEntry>) -> Vec<ClusterEntry> {
+fn merge_clusters(mut c1: Vec<ClusterEntry>, mut c2: Vec<ClusterEntry>) -> Vec<ClusterEntry> {
     /*let mut ret = Vec::with_capacity(c1.len() + c2.len());
 
     let mut i1 = 0;
@@ -159,7 +159,7 @@ fn merge_clusters(mut c1: Vec<ClusterEntry>, c2: Vec<ClusterEntry>) -> Vec<Clust
     c1
 }
 
-pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &UnionFind2D) -> Vec<Vec<Pt>> {
+pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &mut UnionFind2D) -> Vec<Vec<Pt>> {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height - 1;
@@ -167,7 +167,7 @@ pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &Un
     // struct cluster_task *tasks = malloc(sizeof(struct cluster_task)*(sz / chunksize + 1));
 
     (1..sz)
-        .into_par_iter()
+        // .into_par_iter()
         .step_by(chunksize)
         .map(|i| {
             let y0 = i;
@@ -176,7 +176,7 @@ pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &Un
             clusters
         })
         //TODO: it might be more efficient to reduce adjacent clusters
-        .reduce(Vec::new, merge_clusters)
+        .fold(Vec::new(), merge_clusters)
         // Convert from ClusterEntry -> Vec<Pt>
         .into_iter()
         .map(|cluster| cluster.data)

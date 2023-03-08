@@ -3,7 +3,7 @@ use std::time::{Instant, Duration};
 pub(crate) struct TimeProfile {
     pub now: Instant,
 
-    pub stamps: Vec<TimeProfileEntry>,
+    stamps: Vec<TimeProfileEntry>,
 }
 
 impl Default for TimeProfile {

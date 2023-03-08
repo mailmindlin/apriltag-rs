@@ -1,10 +1,9 @@
-use crate::{ApriltagDetector, util::Image, quad_thresh::APRILTAG_TASKS_PER_THREAD_TARGET};
+use crate::{ApriltagDetector, util::Image};
 use rayon::prelude::*;
 
 pub(super) type UnionFindId = u32;
 
 pub(super) struct UnionFind {
-	maxid: UnionFindId,
 	data: Vec<UnionFindNode>,
 }
 
@@ -23,7 +22,6 @@ impl UnionFind {
 	/// Create new UnionFind with given capacity
 	pub fn create(maxid: UnionFindId) -> Self {
 		let mut result = UnionFind {
-			maxid,
 			data: Vec::with_capacity(maxid as usize),
 		};
 
@@ -185,20 +183,6 @@ impl UnionFind2D {
 }
 
 
-fn do_unionfind_first_line(uf: &mut UnionFind2D, im: &Image) {
-	let w = im.width;
-	for x in 1..(w-1) {
-		let v0 = im[(x, 0)];
-        if v0 == 127 {
-            continue;
-		}
-		let v1 = im[(x - 1, 0)];
-		if v0 == v1 {
-			uf.connect((x, 0), (x - 1, 0));
-		}
-    }
-}
-
 fn do_unionfind_line2(uf: &mut UnionFind2D, im: &Image, y: usize) {
     assert!(y > 0);
 	assert_eq!(im.width, uf.width as usize);
@@ -249,36 +233,56 @@ fn do_unionfind_line2(uf: &mut UnionFind2D, im: &Image, y: usize) {
     }
 }
 
-pub(super) fn connected_components(td: &ApriltagDetector, threshim: &Image) -> UnionFind2D {
+pub(super) fn connected_components(_td: &ApriltagDetector, threshim: &Image) -> UnionFind2D {
     let mut uf = UnionFind2D::new(threshim.width, threshim.height);
 
-    if td.params.nthreads <= 1 {
-        do_unionfind_first_line(&mut uf, threshim);
+	fn do_unionfind_first_line(uf: &mut UnionFind2D, im: &Image) {
+		for x in 1..(im.width-1) {
+			let v0 = im[(x, 0)];
+			if v0 == 127 {
+				continue;
+			}
+			let v1 = im[(x - 1, 0)];
+			if v0 == v1 {
+				uf.connect((x, 0), (x - 1, 0));
+			}
+		}
+	}
+	do_unionfind_first_line(&mut uf, threshim);
+	//TODO: parallelism
+	for y in 1..threshim.height {
+		do_unionfind_line2(&mut uf, threshim, y);
+	}
+
+    /*if td.params.nthreads <= 1 {
 		for y in 1..threshim.height {
             do_unionfind_line2(&mut uf, threshim, y);
         }
     } else {
-        do_unionfind_first_line(&mut uf, threshim);
-
         let chunksize = 1 + threshim.height / (APRILTAG_TASKS_PER_THREAD_TARGET * td.params.nthreads);
 		td.wp.install(|| {
+			// each task will process [y0, y1). Note that this attaches
+            // each cell to the right and down, so row y1 *is* potentially modified.
+            //
+            // for parallelization, make sure that each task doesn't touch rows
+            // used by another thread.
 			(1..threshim.height).into_par_iter()
 				.step_by(chunksize)
-				.for_each(|i| {
+				.fold(|| UnionFind2D::new(threshim.width, threshim.height), |acc, i| {
 					let y0 = i;
 					let y1 = std::cmp::min(threshim.height, i + chunksize - 1);
-
 					for y in y0..y1 {
 						//TODO: how do we make UF parallel?
 						do_unionfind_line2(&mut uf, threshim, y);
 					}
-				});
+					(y0, y1, )
+				})
 		});
 
         // XXX stitch together the different chunks.
 		for i in (1..threshim.height).step_by(chunksize) {
-			do_unionfind_line2(&mut uf, threshim, i);
+			do_unionfind_line2(&mut uf, threshim, i - 1);
 		}
-    }
+    }*/
     return uf;
 }

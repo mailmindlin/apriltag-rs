@@ -44,7 +44,7 @@ enum MatdExpression {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum EvalError {
+pub(crate) enum EvalError {
     NotEnoughArguments,
     InvalidOperation,
 }
@@ -355,7 +355,7 @@ impl<'a> MatdExpressionParser<'a> {
 // that was an input argument!
 
 impl Mat {
-    pub fn op(expr: &str, args: &[&Mat]) -> Result<Mat, EvalError> {
+    pub(crate) fn op(expr: &str, args: &[&Mat]) -> Result<Mat, EvalError> {
         let expr = MatdExpressionParser::parse(expr);
 
         let nargs = expr.nargs();

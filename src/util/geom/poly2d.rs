@@ -239,7 +239,7 @@ impl Poly2D {
         let psz = self.len();
         assert!(psz > 0);
 
-        let mut last_quadrant;
+        let mut last_quadrant = None;
         let mut quad_acc = 0;
 
         for i in 0..=psz {
@@ -271,7 +271,7 @@ impl Poly2D {
                 }
             };
 
-            if i > 0 {
+            if let Some(last_quadrant) = last_quadrant { // i > 0
                 let dquadrant = quadrant - last_quadrant;
 
                 // encourage a jump table by mapping to small positive integers.
@@ -311,7 +311,7 @@ impl Poly2D {
                 }
             }
 
-            last_quadrant = quadrant;
+            last_quadrant = Some(quadrant);
         }
 
         let v = (quad_acc >= 2) || (quad_acc <= -2);

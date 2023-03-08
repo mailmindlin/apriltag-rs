@@ -1,11 +1,12 @@
-use crate::{util::{TimeProfile, Image, mem::calloc}, ApriltagDetector};
+use arrayvec::ArrayVec;
+
+use crate::util::{TimeProfile, Image, mem::calloc};
 
 use super::ApriltagQuadThreshParams;
 
 pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im: &Image) -> Image {
     let w = im.width;
     let h = im.height;
-    let s = im.stride;
     assert!(w < 32768);
     assert!(h < 32768);
 
@@ -242,12 +243,15 @@ pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &Image) -> Image {
     let tw = w/tilesz + 1;
     let th = h/tilesz + 1;
 
-    let mut im_min: [Box<[u8]>; 4];
-    let mut im_max: [Box<[u8]>; 4];
-    for i in 0..4 {
-        im_min[i] = calloc(tw * th);
-        im_max[i] = calloc(tw * th);
-    }
+    let (mut im_min, mut im_max) = {
+        let mut im_min = ArrayVec::<Box<[u8]>, 4>::new();
+        let mut im_max = ArrayVec::<Box<[u8]>, 4>::new();
+        for _ in 0..4 {
+            im_min.push(calloc(tw * th));
+            im_max.push(calloc(tw * th));
+        }
+        (im_min.into_inner().unwrap(), im_max.into_inner().unwrap())
+    };
 
     for ty in 0..th {
         for tx in 0..tw {
@@ -327,7 +331,7 @@ pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &Image) -> Image {
 
             // argument for biasing towards dark: specular highlights
             // can be substantially brighter than white tag parts
-            let mut thresh: [u8; 4];
+            let mut thresh = [0u8; 4];
             for i in 0..4 {
                 thresh[i] = min[i] + (max[i] - min[i]) / 2;
             }

@@ -10,13 +10,171 @@ pub(crate) struct MatSVD {
 
 #[derive(Default)]
 pub(crate) struct SvdOptions {
-    suppress_warnings: bool,
+    pub suppress_warnings: bool,
 }
 
-#[derive(PartialEq, Eq)]
-enum FindMaxMethod {
-    Fast,
-    Reference,
+const FIND_MAX_TOL: f64 = 1e-10;
+
+trait FindMax {
+    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)>;
+}
+
+struct FindMaxReference {
+}
+
+impl FindMax for FindMaxReference {
+    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)> {
+        // brute-force (reference) version.
+        let mut maxv = -1.;
+
+        let mut max_idxs = None;
+
+        // only search top "square" portion
+        for i in 0..B.cols() {
+            for j in 0..B.cols() {
+                if i == j {
+                    continue;
+                }
+
+                let v = f64::abs(B[(i, j)]);
+
+                if v > maxv {
+                    max_idxs = Some((i, j));
+                    maxv = v;
+                }
+            }
+        }
+
+        // termination condition.
+        if maxv < FIND_MAX_TOL {
+            None
+        } else {
+            Some(max_idxs.unwrap())
+        }
+    }
+}
+
+/// This method is the "smarter" method which does at least
+/// 4*ncols work. More work might be needed (up to
+/// ncols*ncols), depending on data. Thus, this might be a
+/// bit slower than the default method for very small
+/// matrices.
+struct FindMaxFast {
+    maxrowidx: Box<[usize]>,
+    lastmaxi: usize,
+    lastmaxj: usize,
+}
+
+impl FindMaxFast {
+    fn new(B: &Mat) -> Self {
+        // for each of the first B.cols() rows, which index has the
+        // maximum absolute value? (used by method 1)
+        let mut maxrowidx = calloc::<usize>(B.cols());
+        for i in 2..B.cols() {
+            maxrowidx[i] = B.max_idx(i, B.cols()).unwrap();
+        }
+
+        // note that we started the array at 2. That's because by setting
+        // these values below, we'll recompute first two entries on the
+        // first iteration!
+        let lastmaxi = 0;
+        let lastmaxj = 1;
+
+        Self {
+            maxrowidx,
+            lastmaxi,
+            lastmaxj,
+        }
+    }
+}
+
+impl FindMax for FindMaxFast {
+    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)> {
+        let mut maxi: Option<usize> = None;
+        let mut maxv = -1.;
+
+        // every iteration, we must deal with the fact that rows
+        // and columns lastmaxi and lastmaxj have been
+        // modified. Update maxrowidx accordingly.
+
+        // now, EVERY row also had columns lastmaxi and lastmaxj modified.
+        for rowi in 0..B.cols() {
+
+            // the magnitude of the largest off-diagonal element
+            // in this row.
+            let mut thismaxv: f64;
+
+            // row 'lastmaxi' and 'lastmaxj' have been completely
+            // changed. compute from scratch.
+            if rowi == self.lastmaxi || rowi == self.lastmaxj {
+                self.maxrowidx[rowi] = B.max_idx(rowi, B.cols()).unwrap();
+                thismaxv = B[(rowi, self.maxrowidx[rowi])].abs();
+                if thismaxv > maxv {
+                    maxv = thismaxv;
+                    maxi = Some(rowi);
+                }
+                continue;
+            }
+
+            // our maximum entry was just modified. We don't know
+            // if it went up or down, and so we don't know if it
+            // is still the maximum. We have to update from
+            // scratch.
+            if self.maxrowidx[rowi] == self.lastmaxi || self.maxrowidx[rowi] == self.lastmaxj {
+                self.maxrowidx[rowi] = B.max_idx(rowi, B.cols()).unwrap();
+                thismaxv = B[(rowi, self.maxrowidx[rowi])].abs();
+                if thismaxv > maxv {
+                    maxv = thismaxv;
+                    maxi = Some(rowi);
+                }
+                continue;
+            }
+
+            // This row is unchanged, except for columns
+            // 'lastmaxi' and 'lastmaxj', and those columns were
+            // not previously the largest entry...  just check to
+            // see if they are now the maximum entry in their
+            // row. (Remembering to consider off-diagonal entries
+            // only!)
+            thismaxv = f64::abs(B[(rowi, self.maxrowidx[rowi])]);
+
+            // check column lastmaxi. Is it now the maximum?
+            if self.lastmaxi != rowi {
+                let v = f64::abs(B[(rowi, self.lastmaxi)]);
+                if v > thismaxv {
+                    thismaxv = v;
+                    self.maxrowidx[rowi] = self.lastmaxi;
+                }
+            }
+
+            // check column lastmaxj
+            if self.lastmaxj != rowi {
+                let v = (B[(rowi, self.lastmaxj)]).abs();
+                if v > thismaxv {
+                    thismaxv = v;
+                    self.maxrowidx[rowi] = self.lastmaxj;
+                }
+            }
+
+            // does this row have the largest value we've seen so far?
+            if thismaxv > maxv {
+                maxv = thismaxv;
+                maxi = Some(rowi);
+            }
+        }
+        let maxi = maxi.unwrap();
+        let maxj = self.maxrowidx[maxi];
+
+        // save these for the next iteration.
+        self.lastmaxi = maxi;
+        self.lastmaxj = maxj;
+
+        if maxv < FIND_MAX_TOL {
+            None
+        } else {
+            Some((maxi, maxj))
+        }
+    }
 }
 
 /// SVD 2x2.
@@ -164,11 +322,11 @@ fn svd22(A: [f64; 4]) -> ([f64; 4], [f64; 2], [f64; 4]) {
         //      = (UP)(PSP)(P'V')'
 
         // exchange columns of U and V
-        std::mem::swap(&mut U[0], &mut U[1]);
-        std::mem::swap(&mut U[2], &mut U[3]);
+        U.swap(0, 1);
+        U.swap(2, 3);
 
-        std::mem::swap(&mut V[0], &mut V[1]);
-        std::mem::swap(&mut V[2], &mut V[3]);
+        V.swap(0, 1);
+        V.swap(2, 3);
         [f, e]
     };
  
@@ -210,12 +368,13 @@ impl MatSVD {
         if A.cols() <= A.rows() {
             Self::tall(A, options)
         } else {
-            let At = A.transpose();
-
             // A =U  S  V'
             // A'=V  S' U'
+            let tmp = {
+                let At = A.transpose();
 
-            let tmp = Self::tall(A, options);
+                Self::tall(&At, options)
+            };
 
             Self {
                 U: tmp.V, //matd_transpose(tmp.V);
@@ -285,11 +444,11 @@ impl MatSVD {
                 }
                 
                 let oldv0 = v[0];
-                v[0] = if oldv0 < 0. {
-                    -mag2.sqrt()
+                if oldv0 < 0. {
+                    v[0] -= mag2.sqrt();
                 } else {
-                    mag2.sqrt()
-                };
+                    v[0] += mag2.sqrt();
+                }
 
                 mag2 += -oldv0*oldv0 + v[0]*v[0];
 
@@ -402,254 +561,118 @@ impl MatSVD {
         // maxiters used to be smaller to prevent us from looping forever,
         // but this doesn't seem to happen any more with our more stable
         // svd22 implementation.
-        let maxiters = 1u32 << 30;
+        const maxiters: u32 = 1u32 << 30;
         assert!(maxiters > 0); // reassure clang
 
         let mut maxv: f64; // maximum non-zero value being reduced this iteration
 
-        let tol = 1e-10;
-
         // which method will we use to find the largest off-diagonal
         // element of B?
-        let find_max_method = FindMaxMethod::Fast; //(B.cols() < 6) ? 2 : 1;
+        if true {//(B.cols() < 6) ? 2 : 1;
+            let method = FindMaxFast::new(&B);
+            find_max(&options, &mut B, &mut LS, &mut RS, method);
+        } else {
+            find_max(&options, &mut B, &mut LS, &mut RS, FindMaxReference {});
+        };
 
-        // for each of the first B.cols() rows, which index has the
-        // maximum absolute value? (used by method 1)
-        let mut maxrowidx = calloc::<usize>(B.cols());
-        let mut lastmaxi;
-        let mut lastmaxj;
-
-        if find_max_method == FindMaxMethod::Fast {
-            for i in 2..B.cols() {
-                maxrowidx[i] = B.max_idx(i, B.cols()).unwrap();
-            }
-
-            // note that we started the array at 2. That's because by setting
-            // these values below, we'll recompute first two entries on the
-            // first iteration!
-            lastmaxi = 0;
-            lastmaxj = 1;
-        }
-
-        for iter in 0..maxiters {
-            // No diagonalization required for 0x0 and 1x1 matrices.
-            if B.cols() < 2 {
-                break;
-            }
-
-            // find the largest off-diagonal element of B, and put its
-            // coordinates in maxi, maxj.
-            let (maxi, maxj) = match find_max_method {
-                FindMaxMethod::Fast => {
-                    // method 1 is the "smarter" method which does at least
-                    // 4*ncols work. More work might be needed (up to
-                    // ncols*ncols), depending on data. Thus, this might be a
-                    // bit slower than the default method for very small
-                    // matrices.
-                    let mut maxi: Option<usize> = None;
-                    let mut maxv = -1.;
-
-                    // every iteration, we must deal with the fact that rows
-                    // and columns lastmaxi and lastmaxj have been
-                    // modified. Update maxrowidx accordingly.
-
-                    // now, EVERY row also had columns lastmaxi and lastmaxj modified.
-                    for rowi in 0..B.cols() {
-
-                        // the magnitude of the largest off-diagonal element
-                        // in this row.
-                        let mut thismaxv: f64;
-
-                        // row 'lastmaxi' and 'lastmaxj' have been completely
-                        // changed. compute from scratch.
-                        if rowi == lastmaxi || rowi == lastmaxj {
-                            maxrowidx[rowi] = B.max_idx(rowi, B.cols()).unwrap();
-                            thismaxv = B[(rowi, maxrowidx[rowi])].abs();
-                            if thismaxv > maxv {
-                                maxv = thismaxv;
-                                maxi = Some(rowi);
-                            }
-                            continue;
-                        }
-
-                        // our maximum entry was just modified. We don't know
-                        // if it went up or down, and so we don't know if it
-                        // is still the maximum. We have to update from
-                        // scratch.
-                        if maxrowidx[rowi] == lastmaxi || maxrowidx[rowi] == lastmaxj {
-                            maxrowidx[rowi] = B.max_idx(rowi, B.cols()).unwrap();
-                            thismaxv = B[(rowi, maxrowidx[rowi])].abs();
-                            if thismaxv > maxv {
-                                maxv = thismaxv;
-                                maxi = Some(rowi);
-                            }
-                            continue;
-                        }
-
-                        // This row is unchanged, except for columns
-                        // 'lastmaxi' and 'lastmaxj', and those columns were
-                        // not previously the largest entry...  just check to
-                        // see if they are now the maximum entry in their
-                        // row. (Remembering to consider off-diagonal entries
-                        // only!)
-                        thismaxv = f64::abs(B[(rowi, maxrowidx[rowi])]);
-
-                        // check column lastmaxi. Is it now the maximum?
-                        if lastmaxi != rowi {
-                            let v = f64::abs(B[(rowi, lastmaxi)]);
-                            if v > thismaxv {
-                                thismaxv = v;
-                                maxrowidx[rowi] = lastmaxi;
-                            }
-                        }
-
-                        // check column lastmaxj
-                        if lastmaxj != rowi {
-                            let v = (B[(rowi, lastmaxj)]).abs();
-                            if v > thismaxv {
-                                thismaxv = v;
-                                maxrowidx[rowi] = lastmaxj;
-                            }
-                        }
-
-                        // does this row have the largest value we've seen so far?
-                        if thismaxv > maxv {
-                            maxv = thismaxv;
-                            maxi = Some(rowi);
-                        }
+        fn find_max(options: &SvdOptions, B: &mut Mat, LS: &mut Mat, RS: &mut Mat, mut find_max_method: impl FindMax) {
+            for iter in 0..maxiters {
+                // No diagonalization required for 0x0 and 1x1 matrices.
+                if B.cols() < 2 {
+                    break;
+                }
+    
+                // find the largest off-diagonal element of B, and put its
+                // coordinates in maxi, maxj.
+                let (maxi, maxj) = match find_max_method.iter(B) {
+                    Some(idxs) => idxs,
+                    None => break,
+                };
+    
+        //        printf(">>> %5d %3d, %3d %15g\n", maxi, maxj, iter, maxv);
+    
+                // Now, solve the 2x2 SVD problem for the matrix
+                // [ A0 A1 ]
+                // [ A2 A3 ]
+                let A0: f64 = B[(maxi, maxi)];
+                let A1: f64 = B[(maxi, maxj)];
+                let A2: f64 = B[(maxj, maxi)];
+                let A3: f64 = B[(maxj, maxj)];
+    
+                if true {
+                    let AQ = [ A0, A1, A2, A3 ];
+    
+                    let (U, _S, V) = svd22(AQ);
+    
+        /*  Reference (slow) implementation...
+    
+                    // LS = LS * ROT(theta) = LS * QL
+                    matd_t *QL = matd_identity(A.rows());
+                    QL[(maxi, maxi)] = U[0];
+                    QL[(maxi, maxj)] = U[1];
+                    QL[(maxj, maxi)] = U[2];
+                    QL[(maxj, maxj)] = U[3];
+    
+                    matd_t *QR = matd_identity(A.cols());
+                    QR[(maxi, maxi)] = V[0];
+                    QR[(maxi, maxj)] = V[1];
+                    QR[(maxj, maxi)] = V[2];
+                    QR[(maxj, maxj)] = V[3];
+    
+                    LS = Mat::op("F*M", LS, QL);
+                    RS = Mat::op("F*M", RS, QR); // remember we'll transpose RS.
+                    B = Mat::op("M'*F*M", QL, B, QR);
+    
+                    matd_destroy(QL);
+                    matd_destroy(QR);
+        */
+    
+                    //  LS = Mat::op("F*M", LS, QL);
+                    for i in 0..LS.rows() {
+                        let vi = LS[(i, maxi)];
+                        let vj = LS[(i, maxj)];
+    
+                        LS[(i, maxi)] = U[0]*vi + U[2]*vj;
+                        LS[(i, maxj)] = U[1]*vi + U[3]*vj;
                     }
-                    let maxi = maxi.unwrap();
-                    let maxj = maxrowidx[maxi];
-
-                    // save these for the next iteration.
-                    lastmaxi = maxi;
-                    lastmaxj = maxj;
-
-                    if maxv < tol {
-                        break;
+    
+                    //  RS = Mat::op("F*M", RS, QR); // remember we'll transpose RS.
+                    for i in 0..RS.rows() {
+                        let vi = RS[(i, maxi)];
+                        let vj = RS[(i, maxj)];
+    
+                        RS[(i, maxi)] = V[0]*vi + V[2]*vj;
+                        RS[(i, maxj)] = V[1]*vi + V[3]*vj;
                     }
-                    (maxi, maxj)
-                },
-                FindMaxMethod::Reference => {
-                    // brute-force (reference) version.
-                    maxv = -1.;
-
-                    let mut maxi;
-                    let mut maxj;
-
-                    // only search top "square" portion
+    
+                    // B = Mat::op("M'*F*M", QL, B, QR);
+                    // The QL matrix mixes rows of B.
                     for i in 0..B.cols() {
-                        for j in 0..B.cols() {
-                            if i == j {
-                                continue;
-                            }
-
-                            let v = f64::abs(B[(i, j)]);
-
-                            if v > maxv {
-                                maxi = i;
-                                maxj = j;
-                                maxv = v;
-                            }
-                        }
+                        let vi = B[(maxi, i)];
+                        let vj = B[(maxj, i)];
+    
+                        B[(maxi, i)] = U[0]*vi + U[2]*vj;
+                        B[(maxj, i)] = U[1]*vi + U[3]*vj;
                     }
-
-                    // termination condition.
-                    if maxv < tol {
-                        break;
+    
+                    // The QR matrix mixes columns of B.
+                    for i in 0..B.rows() {
+                        let vi = B[(i, maxi)];
+                        let vj = B[(i, maxj)];
+    
+                        B[(i, maxi)] = V[0]*vi + V[2]*vj;
+                        B[(i, maxj)] = V[1]*vi + V[3]*vj;
                     }
-                    (maxi, maxj)
                 }
-            };
-
-    //        printf(">>> %5d %3d, %3d %15g\n", maxi, maxj, iter, maxv);
-
-            // Now, solve the 2x2 SVD problem for the matrix
-            // [ A0 A1 ]
-            // [ A2 A3 ]
-            let A0: f64 = B[(maxi, maxi)];
-            let A1: f64 = B[(maxi, maxj)];
-            let A2: f64 = B[(maxj, maxi)];
-            let A3: f64 = B[(maxj, maxj)];
-
-            if true {
-                let AQ = [
-                    A0,
-                    A1,
-                    A2,
-                    A3,
-                ];
-
-                let (U, S, V) = svd22(AQ);
-
-    /*  Reference (slow) implementation...
-
-                // LS = LS * ROT(theta) = LS * QL
-                matd_t *QL = matd_identity(A.rows());
-                QL[(maxi, maxi)] = U[0];
-                QL[(maxi, maxj)] = U[1];
-                QL[(maxj, maxi)] = U[2];
-                QL[(maxj, maxj)] = U[3];
-
-                matd_t *QR = matd_identity(A.cols());
-                QR[(maxi, maxi)] = V[0];
-                QR[(maxi, maxj)] = V[1];
-                QR[(maxj, maxi)] = V[2];
-                QR[(maxj, maxj)] = V[3];
-
-                LS = Mat::op("F*M", LS, QL);
-                RS = Mat::op("F*M", RS, QR); // remember we'll transpose RS.
-                B = Mat::op("M'*F*M", QL, B, QR);
-
-                matd_destroy(QL);
-                matd_destroy(QR);
-    */
-
-                //  LS = Mat::op("F*M", LS, QL);
-                for i in 0..LS.rows() {
-                    let vi = LS[(i, maxi)];
-                    let vj = LS[(i, maxj)];
-
-                    LS[(i, maxi)] = U[0]*vi + U[2]*vj;
-                    LS[(i, maxj)] = U[1]*vi + U[3]*vj;
+    
+                if !options.suppress_warnings && iter == maxiters {
+                    //TODO: fixme
+                    println!("WARNING: maximum iters (maximum = {})", iter);
+                    // println!("WARNING: maximum iters (maximum = {}, matrix {} x {}, max={:.15})", iter, A.rows(), A.cols(), maxv);
+                    // matd_print(A, "%15f");
                 }
-
-                //  RS = Mat::op("F*M", RS, QR); // remember we'll transpose RS.
-                for i in 0..RS.rows() {
-                    let vi = RS[(i, maxi)];
-                    let vj = RS[(i, maxj)];
-
-                    RS[(i, maxi)] = V[0]*vi + V[2]*vj;
-                    RS[(i, maxj)] = V[1]*vi + V[3]*vj;
-                }
-
-                // B = Mat::op("M'*F*M", QL, B, QR);
-                // The QL matrix mixes rows of B.
-                for i in 0..B.cols() {
-                    let vi = B[(maxi, i)];
-                    let vj = B[(maxj, i)];
-
-                    B[(maxi, i)] = U[0]*vi + U[2]*vj;
-                    B[(maxj, i)] = U[1]*vi + U[3]*vj;
-                }
-
-                // The QR matrix mixes columns of B.
-                for i in 0..B.rows() {
-                    let vi = B[(i, maxi)];
-                    let vj = B[(i, maxj)];
-
-                    B[(i, maxi)] = V[0]*vi + V[2]*vj;
-                    B[(i, maxj)] = V[1]*vi + V[3]*vj;
-                }
-            }
-
-            if !options.suppress_warnings && iter == maxiters {
-                println!("WARNING: maximum iters (maximum = {}, matrix {} x {}, max={:.15})", iter, A.rows(), A.cols(), maxv);
-        //        matd_print(A, "%15f");
             }
         }
-
-        std::mem::drop(maxrowidx);
 
         // them all positive by flipping the corresponding columns of
         // U/LS.

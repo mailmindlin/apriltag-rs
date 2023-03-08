@@ -1,3 +1,5 @@
+use arrayvec::ArrayVec;
+
 use crate::{util::{math::{mat::Mat, poly::Poly}, homography::homography_to_pose}, ApriltagDetection};
 
 
@@ -51,7 +53,7 @@ fn orthogonal_iteration(v: &[Mat], p: &[Mat], t: &mut Mat, R: &mut Mat, n_points
 
     let mut prev_error = f64::INFINITY;
     // Iterate.
-    for i in 0..n_steps {
+    for _ in 0..n_steps {
         // Calculate translation.
         *t = {
             let mut M2 = Mat::zeroes(3, 1);
@@ -341,10 +343,13 @@ fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters:
         Mat::create(3, 1, &[scale, -scale, 0.]),
         Mat::create(3, 1, &[-scale, -scale, 0.]),
     ];
-    let v: [Mat; 4];
-    for i in 0..4 {
-        v[i] = Mat::create(3, 1, &[(info.detection.corners[i].x() - info.cx)/info.fx, (info.detection.corners[i].y() - info.cy)/info.fy, 1.]);
-    }
+    let v = {
+        let mut v = ArrayVec::<Mat, 4>::new();
+        for i in 0..4 {
+            v.push(Mat::create(3, 1, &[(info.detection.corners[i].x() - info.cx)/info.fx, (info.detection.corners[i].y() - info.cy)/info.fy, 1.]));
+        }
+        v.into_inner().unwrap()
+    };
 
     let mut pose1 = estimate_pose_for_tag_homography(info);
     let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, 4, n_iters);

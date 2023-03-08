@@ -1,6 +1,5 @@
 mod vec2;
 pub mod mat;
-pub mod mat3;
 pub(crate) mod poly;
 
 use std::f64::consts::{TAU, PI};

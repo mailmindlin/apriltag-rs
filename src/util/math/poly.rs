@@ -96,7 +96,7 @@ impl Poly {
                 let mut f = self.eval(root);
                 let mut df = p_der.eval(root);
 
-                for j in 0..100 {
+                for _ in 0..100 {
                     if ((f + df*(upper - root))*(f + df*(lower - root)) > 0.) || ((2.*f).abs() > (dx_old*df).abs()) {
                         dx_old = dx;
                         dx = 0.5*(upper - lower);

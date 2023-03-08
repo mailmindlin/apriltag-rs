@@ -121,7 +121,7 @@ impl unionfind_task {
     }
 }*/
 
-pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Image) -> Vec<Quad> {
+pub(crate) fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Image) -> Vec<Quad> {
     ////////////////////////////////////////////////////////
     // step 1. threshold the image, creating the edge image.
 
@@ -202,7 +202,7 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
             .write(true)
             .open("debug_lines.ps")
             .unwrap();
-        write!(f, "%%!PS\n\n");
+        write!(f, "%%!PS\n\n").unwrap();
 
         let mut im2 = im.clone();
         im2.darken();
@@ -210,9 +210,9 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
 
         // assume letter, which is 612x792 points.
         let scale = f32::min(612.0/im.width as f32, 792.0/im2.height as f32);
-        write!(f, "{:.15} {:.15} scale\n", scale, scale);
-        write!(f, "0 {} translate\n", im2.height);
-        write!(f, "1 -1 scale\n");
+        write!(f, "{:.15} {:.15} scale\n", scale, scale).unwrap();
+        write!(f, "0 {} translate\n", im2.height).unwrap();
+        write!(f, "1 -1 scale\n").unwrap();
 
         // im.write_postscript(&mut f); //FIXME
 
@@ -221,13 +221,13 @@ pub fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &Im
         for q in quads.iter() {
             let rgb = rng.gen_color_rgb::<f32>(100.);
 
-            write!(f, "{} {} {} setrgbcolor\n", rgb[0]/255.0f32, rgb[1]/255.0f32, rgb[2]/255.0f32);
+            write!(f, "{} {} {} setrgbcolor\n", rgb[0]/255.0f32, rgb[1]/255.0f32, rgb[2]/255.0f32).unwrap();
             write!(f, "{:.15} {:.15} moveto {:.15} {:.15} lineto {:.15} {:.15} lineto {:.15} {:.15} lineto {:.15} {:.15} lineto stroke\n",
                     q.corners[0].x(), q.corners[0].y(),
                     q.corners[1].x(), q.corners[1].y(),
                     q.corners[2].x(), q.corners[2].y(),
                     q.corners[3].x(), q.corners[3].y(),
-                    q.corners[0].x(), q.corners[0].y());
+                    q.corners[0].x(), q.corners[0].y()).unwrap();
         }
     }
 

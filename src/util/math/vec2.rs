@@ -1,7 +1,7 @@
 use std::ops::{Add, Sub, Neg, Div, Mul, MulAssign};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) struct Vec2(f64, f64);
+pub struct Vec2(f64, f64);
 
 impl Vec2 {
     /// Zero vector

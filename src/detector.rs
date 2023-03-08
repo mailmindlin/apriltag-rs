@@ -1,4 +1,4 @@
-use std::{fs::{File, OpenOptions}, io::Write, cmp::Ordering, sync::Arc};
+use std::{fs::{File, OpenOptions}, io::Write, cmp::Ordering, sync::{Arc, Mutex}};
 
 use rand::thread_rng;
 use rayon::{ThreadPool, ThreadPoolBuilder};
@@ -190,10 +190,9 @@ impl ApriltagDetector {
 		tp.stamp("blur/sharp");
 
 		if self.params.debug {
-			quad_im.save_to_pnm("debug_preprocess.pnm");
+			quad_im.save_to_pnm("debug_preprocess.pnm").unwrap();
 		}
 
-	//    zarray_t *quads = apriltag_quad_gradient(td, im_orig);
 		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
 
 		// adjust centers of pixels so that they correspond to the
@@ -207,8 +206,6 @@ impl ApriltagDetector {
 		}
 
 		std::mem::drop(quad_im);
-
-		let mut detections = Vec::<ApriltagDetection>::new();
 
 		let nquads: u32 = quads.len().try_into().unwrap();
 
@@ -230,35 +227,35 @@ impl ApriltagDetector {
 				im_quads.draw_line(quad.corners[3], quad.corners[0], &color, 1);
 			}
 
-			im_quads.save_to_pnm("debug_quads_raw.pnm");
+			im_quads.save_to_pnm("debug_quads_raw.pnm").unwrap();
 		}
 
 		////////////////////////////////////////////////////////////////
 		// Step 2. Decode tags from each quad.
-		if true {
-			let mut im_samples = if self.params.debug { Some(im_orig.clone()) } else { None };
-
-			// let chunksize = 1 + quads.len() / (APRILTAG_TASKS_PER_THREAD_TARGET * self.nthreads);
+		let detections = if true {
+			let mut im_samples = if self.params.debug { Some(Mutex::new(im_orig.clone())) } else { None };
 
 			let detections = self.wp.install(|| {
-				let info = QuadDecodeInfo {
-					detector: self,
-					im: im_orig,
-					im_samples: if let Some(im) = &mut im_samples { Some(im) } else { None },
-				};
-
 				quads.par_iter_mut()
 					.flat_map(|quad| {
-						quad.decode_task(&info)
+						quad.decode_task(QuadDecodeInfo {
+							det_params: &self.params,
+							tag_families: &self.tag_families,
+							im: im_orig,
+							im_samples: im_samples.as_ref(),
+						})
 					})
 					.collect::<Vec<_>>()
 			});
 
-			if let Some(im_samples) = im_samples {
-				im_samples.save_to_pnm("debug_samples.pnm");
-				std::mem::drop(im_samples);
+			if let Some(im_samples) = &mut im_samples {
+				let im_samples = im_samples.get_mut().unwrap();
+				im_samples.save_to_pnm("debug_samples.pnm").unwrap();
 			}
-		}
+			detections
+		} else {
+			Vec::new()
+		};
 
 		if self.params.debug {
 			let mut im_quads = im_orig.clone();
@@ -277,7 +274,7 @@ impl ApriltagDetector {
 
 			}
 
-			im_quads.save_to_pnm("debug_quads_fixed.pnm");
+			im_quads.save_to_pnm("debug_quads_fixed.pnm").unwrap();
 		}
 
 		tp.stamp("decode+refinement");
@@ -285,7 +282,7 @@ impl ApriltagDetector {
 		////////////////////////////////////////////////////////////////
 		// Step 3. Reconcile detections--- don't report the same tag more
 		// than once. (Allow non-overlapping duplicate detections.)
-		if true {
+		let detections = if true {
 			let mut drop_idxs = Vec::new();
 			'outer: for (i0, det0) in detections.iter().enumerate() {
 				if drop_idxs.contains(&i0) {
@@ -352,14 +349,18 @@ impl ApriltagDetector {
 			}
 
 			if !drop_idxs.is_empty() {
-				detections = detections
+				detections
 					.into_iter()
 					.enumerate()
 					.filter(|(idx, _)| !drop_idxs.contains(idx))
 					.map(|(_idx, det)| det)
-					.collect::<Vec<_>>();
+					.collect::<Vec<_>>()
+			} else {
+				detections
 			}
-		}
+		} else {
+			detections
+		};
 
 		tp.stamp("reconcile");
 
@@ -449,27 +450,28 @@ impl ApriltagDetector {
 				writeln!(f, "0 {} translate", darker.height).unwrap();
 				writeln!(f, "1 -1 scale").unwrap();
 
-				darker.write_postscript(&mut PostScriptWriter::new(&mut f));
+				darker.write_postscript(&mut PostScriptWriter::new(&mut f)).unwrap();
 			}
 
 			for q in quads.iter() {
 				let rgb = rng.gen_color_rgb(100f32);
 
-				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0);
+				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0).unwrap();
 				write!(f, "{} {} moveto {} {} lineto {} {} lineto {} {} lineto {} {} lineto stroke\n",
 						q.corners[0].x(), q.corners[0].y(),
 						q.corners[1].x(), q.corners[1].y(),
 						q.corners[2].x(), q.corners[2].y(),
 						q.corners[3].x(), q.corners[3].y(),
-						q.corners[0].x(), q.corners[0].y());
+						q.corners[0].x(), q.corners[0].y()).unwrap();
 			}
 
-			write!(f, "showpage\n");
+			write!(f, "showpage\n").unwrap();
 		}
 
 		tp.stamp("debug output");
 		std::mem::drop(quads);
 
+		let mut detections = detections;
 		detections.sort_by(|a, b| Ord::cmp(&a.id, &b.id));
 
 		tp.stamp("cleanup");

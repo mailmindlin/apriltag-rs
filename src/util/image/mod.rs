@@ -66,9 +66,19 @@ impl<T> Image<T> {
             if x >= self.width || y >= self.height {
                 continue;
             }
-    
-            let idx = (y as usize)*self.stride + (x as usize);
-            self.buf[idx + i] = *color;
+
+            self[(x, y)] = *color;
+            if width > 1 {
+                if x + 1 < self.width {
+                    self[(x + 1, y)] = *color;
+                }
+                if y + 1 < self.height {
+                    self[(x, y + 1)] = *color;
+                }
+                if x + 1 < self.width && y + 1 < self.height {
+                    self[(x + 1, y + 1)] = *color;
+                }
+            }
         }
     }
 }

@@ -3,7 +3,7 @@ use std::ops::{Add, Sub, Neg};
 use crate::util::math::Vec2;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) struct Point2D(Vec2);
+pub struct Point2D(Vec2);
 
 impl Add<&Vec2> for &Point2D {
     type Output = Point2D;

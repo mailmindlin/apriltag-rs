@@ -94,6 +94,6 @@ impl MatChol {
 			}
 		}
 
-		return x;
+		x
 	}
 }

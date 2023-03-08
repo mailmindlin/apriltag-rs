@@ -1,11 +1,12 @@
-use std::ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign};
+use std::{ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign}, fmt::Debug};
 
 use crate::util::mem::calloc;
 
 use super::{plu::MatPLU, MatChol, svd::{MatSVD, SvdOptions}};
 
+/// Index into matrix
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MatIndex {
+pub struct MatIndex {
 	pub row: usize,
 	pub col: usize,
 }
@@ -27,7 +28,7 @@ impl From<(usize, usize)> for MatIndex {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MatDims {
+pub struct MatDims {
 	/// Number of rows in matrix
 	pub rows: usize,
 	/// Number of columns in matrix
@@ -112,7 +113,7 @@ pub struct OutOfBoundsError {
 	pub index: MatIndex,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Mat {
 	pub(super) dims: MatDims,
 	pub(super) data: Box<[f64]>,
@@ -490,7 +491,7 @@ impl Mat {
 		res
 	}
 
-	/// Inplace transpose (consumes original matrix). Prevents a reallocation.
+	/// In-place transpose (consumes original matrix). Prevents a reallocation.
 	pub fn transpose_inplace(mut self) -> Self {
 		if self.is_scalar() || self.dims == (MatDims { rows: 1, cols: 1 }) {
 			return self;
@@ -579,7 +580,7 @@ impl Mat {
 		result
 	}
 
-	// find the index of the off-diagonal element with the largest magnitude
+	/// Find the index of the off-diagonal element with the largest magnitude
 	pub fn max_idx(&self, row: usize, maxcol: usize) -> Result<usize, OutOfBoundsError> {
 		self.dims.assert_contains(&MatIndex { row, col: maxcol })?;
 		

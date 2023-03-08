@@ -1,5 +1,5 @@
 /// Marker trait for types that zeroed-out memory is a valid representation
-pub(crate) trait SafeZero {}
+pub trait SafeZero {}
 
 impl SafeZero for u8 {}
 impl SafeZero for u32 {}

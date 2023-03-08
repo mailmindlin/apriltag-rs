@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::{util::{Image, mem::calloc, geom::Point2D}, ApriltagDetector, quad_decode::Quad};
 
-use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self, LineFitData}};
+use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self, LineFitData}, ApriltagQuadThreshParams};
 
 struct Segment {
     // always greater than zero, but right can be > size, which denotes
@@ -27,7 +27,7 @@ struct Segment {
 /// clusters. (This is actually performed by iterating over the pixels,
 /// rather than pairs of clusters.) Critically, this helps keep nearby
 /// edges from becoming connected.
-fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
+fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
     let sz = cluster.len();
 
     // ksz: when fitting points, how many points on either side do we consider?
@@ -113,7 +113,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
     }
 
     // select only the best maxima if we have too many
-    let max_nmaxima = td.qtp.max_nmaxima;
+    let max_nmaxima = qtp.max_nmaxima;
 
     if maxima.len() > (max_nmaxima as usize) {
         let mut maxima_errs_copy = maxima
@@ -125,7 +125,6 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
         maxima_errs_copy.sort_by(|a, b| f64::total_cmp(a, b).reverse());
 
         let maxima_thresh = maxima_errs_copy[max_nmaxima as usize];
-        let mut out = 0;
 
         maxima = maxima
             .into_iter()
@@ -133,11 +132,11 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
             .collect::<Vec<_>>();
     }
 
-    let mut best_indices: [usize; 4];
+    let mut best_indices = [0usize; 4];
     let mut best_error = f64::INFINITY;
 
     // disallow quads where the angle is less than a critical value.
-    let max_dot = td.qtp.cos_critical_rad; //25*M_PI/180);
+    let max_dot = qtp.cos_critical_rad; //25*M_PI/180);
 
     for m0 in 0..(maxima.len() - 3) {
         let (i0, _i0_err) = maxima[m0];
@@ -147,7 +146,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
 
             let line01 = fit_line(lfps, i0, i1);
 
-            if line01.mse > td.qtp.max_line_fit_mse as f64 {
+            if line01.mse > qtp.max_line_fit_mse as f64 {
                 continue;
             }
 
@@ -155,7 +154,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
                 let (i2, _i2_err) = maxima[m2];
 
                 let line12 = fit_line(lfps, i1, i2);
-                if line12.mse > td.qtp.max_line_fit_mse as f64 {
+                if line12.mse > qtp.max_line_fit_mse as f64 {
                     continue;
                 }
 
@@ -168,12 +167,12 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
                     let (i3, _i3_err) = maxima[m3];
 
                     let line23 = fit_line(lfps, i2, i3);
-                    if line23.mse > td.qtp.max_line_fit_mse as f64 {
+                    if line23.mse > qtp.max_line_fit_mse as f64 {
                         continue;
                     }
 
                     let line30 = fit_line(lfps, i3, i0);
-                    if line30.mse > td.qtp.max_line_fit_mse as f64 {
+                    if line30.mse > qtp.max_line_fit_mse as f64 {
                         continue;
                     }
 
@@ -194,7 +193,7 @@ fn quad_segment_maxima(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoi
         return None;
     }
 
-    if best_error / (sz as f64) >= td.qtp.max_line_fit_mse as f64 {
+    if best_error / (sz as f64) >= qtp.max_line_fit_mse as f64 {
         return None;
     }
     Some(best_indices)
@@ -231,7 +230,7 @@ impl Ord for RemoveVertex {
 }
 
 /// returns false if the cluster looks bad.
-fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
+fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
     let mut heap = BinaryHeap::<RemoveVertex>::new();
 
     // We will initially allocate sz rvs. We then have two types of
@@ -253,8 +252,6 @@ fn quad_segment_agg(td: &ApriltagDetector, cluster: &[Pt], lfps: &[LineFitPoint]
         };
 
         let LineFitData { err, .. } = linefit::fit_line(&lfps, left, right);
-
-        let rv = RemoveVertex { i, left, right, err };
 
         heap.push(RemoveVertex {
             i,
@@ -457,7 +454,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
     // we now sort the points according to theta. This is a prepatory
     // step for segmenting them into four lines.
     if true {
-        ptsort(&mut cluster);
+        ptsort(cluster);
 
         // remove duplicate points. (A byproduct of our segmentation system.)
         if true {
@@ -472,13 +469,13 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
     let lfps = compute_lfps(cluster, im);
 
     let indices = if true {
-        quad_segment_maxima(td, cluster, &lfps)?
+        quad_segment_maxima(&td.qtp, cluster, &lfps)?
     } else {
-        quad_segment_agg(td, cluster, &lfps)?
+        quad_segment_agg(cluster, &lfps)?
     };
 
 
-    let mut lines: [[f64; 4]; 4];
+    let mut lines = [[0f64; 4]; 4];
     for i in 0..4 {
         let i0 = indices[i];
         let i1 = indices[(i+1)&3];
@@ -532,7 +529,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         ))
     }
 
-    let mut corners: [Point2D; 4];
+    let mut corners = [Point2D::zero(); 4];
     for i in 0..4 {
         let line1 = &lines[i];
         let line2 = &lines[(i + 1) % 4];
@@ -545,7 +542,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
 
         // get area of triangle formed by points 0, 1, 2, 0
         {
-            let mut length: [f64; 3];
+            let mut length = [0f64; 3];
             for i in 0..3 {
                 let idxa = i; // 0, 1, 2,
                 let idxb = (i+1) % 3; // 1, 2, 0
@@ -558,7 +555,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
 
         // get area of triangle formed by points 2, 3, 0, 2
         {
-            let length: [f64; 3];
+            let mut length = [0f64; 3];
             const idxs: [usize; 4] = [ 2, 3, 0, 2 ];
             for i in 0..3 {
                 let corner1 = &corners[idxs[i]];

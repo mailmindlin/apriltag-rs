@@ -2,9 +2,9 @@ mod edges;
 mod greymodel;
 mod sharpening;
 
-use std::{f64::consts::FRAC_PI_2, sync::Arc};
+use std::{f64::consts::FRAC_PI_2, sync::{Arc, Mutex}};
 
-use crate::{detector::{ApriltagDetector, AprilTagParams}, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
+use crate::{detector::AprilTagParams, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
 
 use greymodel::Graymodel;
 
@@ -40,9 +40,10 @@ fn value_for_pixel(im: &Image, p: Point2D) -> Option<f64> {
 }
 
 pub(crate) struct QuadDecodeInfo<'a> {
-    detector: &'a ApriltagDetector,
-    im: &'a Image,
-    im_samples: Option<&'a mut Image>,
+    pub(crate) det_params: &'a AprilTagParams,
+    pub(crate) tag_families: &'a Vec<(Arc<AprilTagFamily>, QuickDecode)>,
+    pub(crate) im: &'a Image,
+    pub(crate) im_samples: Option<&'a Mutex<Image>>,
 }
 
 fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
@@ -57,7 +58,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
                  0.,      0., 0., c[3][0], c[3][1], 1., -c[3][0]*c[3][3], -c[3][1]*c[3][3], c[3][3],
     ];
 
-    const epsilon: f64 = 1e-10;
+    const EPSILON: f64 = 1e-10;
 
     // Eliminate.
     for col in 0..8 {
@@ -72,7 +73,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
             }
         }
 
-        if max_val < epsilon {
+        if max_val < EPSILON {
             //TODO
             // debug_print("WRN: Matrix is singular.\n");
             return None;
@@ -114,13 +115,10 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
 }
 
 impl Quad {
-    /// returns the decision margin. Return < 0 if the detection should be rejected.
-    pub fn decode(&self, det_params: &AprilTagParams, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&mut Image>) -> Option<(f32, QuickDecodeEntry)> {
+    /// returns the decision margin. Return `None` if the detection should be rejected.
+    pub fn decode(&self, det_params: &AprilTagParams, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&Mutex<Image>>) -> Option<(f32, QuickDecodeEntry)> {
         // decode the tag binary contents by sampling the pixel
         // closest to the center of each bit cell.
-
-        // how wide do we assume the white border is?
-        let white_border = 1.0f32;
 
         // We will compute a threshold by sampling known white/black cells around this tag.
         // This sampling is achieved by considering a set of samples along lines.
@@ -213,7 +211,8 @@ impl Quad {
 
                 let v = im[(ix, iy)];
 
-                if let Some(im_samples) = im_samples {
+                if let Some(im_samples_lock) = im_samples {
+                    let mut im_samples = im_samples_lock.lock().unwrap();
                     im_samples[(ix, iy)] = if pattern.is_white { 0 } else { 255 };
                 }
 
@@ -245,11 +244,11 @@ impl Quad {
         let mut black_score_count = 1usize;
         let mut white_score_count = 1usize;
 
-        let values = vec![0f64; (family.total_width*family.total_width) as usize];
+        let mut values = vec![0f64; (family.total_width*family.total_width) as usize];
 
         let min_coord = (family.width_at_border - family.total_width)/2;
         let half = Vec2::of(0.5, 0.5);
-        for (bitx, bity) in family.bits {
+        for &(bitx, bity) in family.bits.iter() {
             let tag01 = (Vec2::of(bitx as f64, bity as f64) + &half) / (family.width_at_border as f64);
 
             // scale to [-1, 1]
@@ -263,9 +262,10 @@ impl Quad {
             let thresh = (blackmodel.interpolate(tag.x(), tag.y()) + whitemodel.interpolate(tag.x(), tag.y())) / 2.0;
             values[(family.total_width*(bity - min_coord) + bitx - min_coord) as usize] = v - thresh;
 
-            if let Some(im_samples) = im_samples {
+            if let Some(im_samples_lock) = im_samples {
                 let ix = p.x() as usize;
                 let iy = p.y() as usize;
+                let mut im_samples = im_samples_lock.lock().unwrap();
                 im_samples[(ix, iy)] = if v < thresh { 255 } else { 0 };
             }
         }
@@ -273,7 +273,7 @@ impl Quad {
         sharpening::sharpen(&mut values, det_params.decode_sharpening, family.total_width as usize);
 
         let mut rcode = 0u64;
-        for (bitx, bity) in family.bits {
+        for (bitx, bity) in family.bits.iter() {
             rcode <<= 1;
             let v = values[((bity - min_coord)*family.total_width + bitx - min_coord) as usize];
 
@@ -294,7 +294,7 @@ impl Quad {
     }
 
     fn decode_family(&mut self, info: &QuadDecodeInfo, family: Arc<AprilTagFamily>, qd: &QuickDecode) -> Option<ApriltagDetection> {
-        let (decision_margin, entry) = self.decode(&info.detector.params, &family, qd, info.im, info.im_samples)?;
+        let (decision_margin, entry) = self.decode(&info.det_params, &family, qd, info.im, info.im_samples)?;
 
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
@@ -321,7 +321,7 @@ impl Quad {
         // [-1, 1], [1, 1], [1, -1], [-1, -1], FLIP Y
         // adjust the points in det->p so that they correspond to
         // counter-clockwise around the quad, starting at -1,-1.
-        let mut corners: [Point2D; 4];
+        let mut corners = [Point2D::zero(); 4];
         for i in 0..4 {
             let tcx = if i == 1 || i == 2 { 1. } else { -1. };
             let tcy = if i < 2 { 1. } else { -1. };
@@ -341,12 +341,12 @@ impl Quad {
         Some(det)
     }
 
-    pub fn decode_task(&mut self, info: &QuadDecodeInfo) -> Vec<ApriltagDetection> {
+    pub fn decode_task(&mut self, info: QuadDecodeInfo) -> Vec<ApriltagDetection> {
         // refine edges is not dependent upon the tag family, thus
         // apply this optimization BEFORE the other work.
         //if (td->quad_decimate > 1 && td->refine_edges) {
-        if info.detector.params.refine_edges {
-            self.refine_edges(&info.detector.params, info.im);
+        if info.det_params.refine_edges {
+            self.refine_edges(&info.det_params, info.im);
         }
 
         // make sure the homographies are computed...
@@ -354,26 +354,21 @@ impl Quad {
             return vec![];
         }
 
-        let result = Vec::new();
-        for (family, qd) in info.detector.tag_families.iter() {
-            if family.reversed_border != self.reversed_border {
-                continue;
-            }
-
-            // since the geometry of tag families can vary, start any
-            // optimization process over with the original quad.
-            let mut quad = self.clone();
-
-            if let Some(det) = quad.decode_family(info, family.to_owned(), qd) {
-                result.push(det);
-            }
-        }
-        result
+        info.tag_families
+            .iter()
+            .filter(|(family, _qd)| family.reversed_border == self.reversed_border)
+            .filter_map(|(family, qd)| {
+                // since the geometry of tag families can vary, start any
+                // optimization process over with the original quad.
+                let mut quad = self.clone();
+                quad.decode_family(&info, family.to_owned(), qd)
+            })
+            .collect()
     }
 
     /// returns non-zero if an error occurs (i.e., H has no inverse)
     fn update_homographies(&mut self) -> Result<(), ()> {
-        let corr_arr: [[f64; 4]; 4];
+        let mut corr_arr = [[0f64; 4]; 4];
         for i in 0..4 {
             let c01 = if i == 0 || i == 3 { -1. } else { 1. };
             corr_arr[i] = [
