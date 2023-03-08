@@ -101,8 +101,9 @@ impl ApriltagDetector {
 		}
 	}
 
-	/// add a family to the apriltag detector. caller still "owns" the family.
-	/// a single instance should only be provided to one apriltag detector instance.
+	/// Add a family to the apriltag detector.
+	/// 
+	/// A single instance should only be provided to one apriltag detector instance.
 	pub fn add_family_bits(&mut self, fam: Arc<AprilTagFamily>, bits_corrected: usize) {
 		let qd = QuickDecode::init(&fam, bits_corrected).unwrap();
 		self.tag_families.push((fam, qd));
