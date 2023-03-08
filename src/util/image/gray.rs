@@ -16,13 +16,13 @@ fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
 
     // Convolve middle
     for i in 0..(x.len() - k.len()) {
-        let mut acc = 0;
+        let mut acc = 0u32;
 
         for j in 0..k.len() {
-            acc += k[j] * x[i + j];
+            acc += k[j] as u32 * x[i + j] as u32;
         }
 
-        y[k.len()/2 + i] = acc >> 8;
+        y[k.len()/2 + i] = (acc >> 8) as u8;
     }
 
     // Copy right
