@@ -1,13 +1,129 @@
 #![allow(non_camel_case_types)]
-use std::ffi::c_float;
+use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice};
 
-use crate::{ApriltagDetector, families::AprilTagFamily, ApriltagDetection};
-use libc::{c_int, c_double};
+use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::geom::Point2D, ffi::c::{drop_array, drop_str}};
+use libc::{c_int, c_double, c_void, c_char};
 
-use super::{util::zarray, img::image_u8_t, matd_t};
+use super::{util::zarray, img::image_u8_t, matd_t, FFIConvertError};
 
 type apriltag_detector_t = ApriltagDetector;
-type apriltag_family_t = AprilTagFamily;
+
+#[repr(C)]
+pub struct apriltag_family_t {
+    // How many codes are there in this tag family?
+    ncodes: u32,
+
+    // The codes in the family.
+    codes: *const u64,
+
+    width_at_border: c_int,
+    total_width: c_int,
+    reversed_border: bool,
+
+    // The bit locations.
+    nbits: u32,
+    bit_x: *const u32,
+    bit_y: *const u32,
+
+    // minimum hamming distance between any two codes. (e.g. 36h11 => 11)
+    h: u32,
+
+    // a human-readable name, e.g., "tag36h11"
+    name: *const c_char,
+
+    // some detector implementations may preprocess codes in order to
+    // accelerate decoding.  They put their data here. (Do not use the
+    // same apriltag_family instance in more than one implementation)
+    ximpl: *const c_void,
+}
+
+impl Drop for apriltag_family_t {
+    fn drop(&mut self) {
+        drop_array(&mut self.codes, self.ncodes as usize);
+
+        drop_array(&mut self.bit_x, self.nbits as usize);
+        drop_array(&mut self.bit_y, self.nbits as usize);
+        drop_str(&mut self.name);
+        assert!(self.ximpl.is_null());
+    }
+}
+
+impl From<AprilTagFamily> for apriltag_family_t {
+    fn from(mut value: AprilTagFamily) -> Self {
+        let mut bits_x = Vec::with_capacity(value.bits.len());
+        let mut bits_y = Vec::with_capacity(value.bits.len());
+        for (bit_x, bit_y) in value.bits.iter() {
+            bits_x.push(bit_x);
+            bits_y.push(bit_y);
+        }
+        bits_x.shrink_to_fit();
+        bits_y.shrink_to_fit();
+
+        value.codes.shrink_to_fit();
+        let (codes, ncodes, codes_cap) = value.codes.into_raw_parts();
+        assert_eq!(ncodes, codes_cap);
+
+        Self {
+            ncodes: ncodes as _,
+            codes: codes,
+            width_at_border: value.width_at_border as _,
+            total_width: value.total_width as _,
+            reversed_border: value.reversed_border,
+            nbits: value.bits.len() as _,
+            bit_x: bits_x.into_raw_parts().0 as *const _,
+            bit_y: bits_y.into_raw_parts().0 as *const _,
+            h: value.min_hamming as _,
+            name: CString::new(value.name.as_ref()).unwrap().as_ptr(),
+            ximpl: std::ptr::null(),
+        }
+    }
+}
+
+impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
+    type Error = FFIConvertError;
+
+    fn try_from(value: &apriltag_family_t) -> Result<Self, Self::Error> {
+        let codes = {
+            let mut codes = Vec::with_capacity(value.ncodes as usize);
+            if value.ncodes == 0 {
+                // Skip
+            } else if value.codes.is_null() {
+                return Err(FFIConvertError::NullPointer);
+            } else {
+                let codes_raw = unsafe { slice::from_raw_parts(value.codes, value.ncodes as usize) };
+                codes.extend_from_slice(codes_raw);
+            }
+            codes
+        };
+        let bits = {
+            let mut bits = Vec::with_capacity(value.nbits as usize);
+            if value.nbits == 0 {
+                // Skip
+            } else if value.bit_x.is_null() || value.bit_y.is_null() {
+                return Err(FFIConvertError::NullPointer);
+            } else {
+                let bits_x = unsafe { slice::from_raw_parts(value.bit_x, value.nbits as usize) };
+                let bits_y = unsafe { slice::from_raw_parts(value.bit_y, value.nbits as usize) };
+                for (bit_x, bit_y) in bits_x.iter().zip(bits_y.iter()) {
+                    bits.push((*bit_x, *bit_y));
+                }
+            }
+            bits
+        };
+        let name = unsafe { CStr::from_ptr(value.name as *const i8) }
+            .to_string_lossy();
+        
+        Ok(Arc::new(AprilTagFamily {
+            codes,
+            bits,
+            width_at_border: value.width_at_border as u32,
+            total_width: value.total_width as u32,
+            reversed_border: value.reversed_border,
+            min_hamming: value.h.into(),
+            name,
+        }))
+    }
+}
 
 #[repr(C)]
 pub struct apriltag_detection_t {
@@ -49,10 +165,10 @@ pub struct apriltag_detection_t {
 impl From<ApriltagDetection> for apriltag_detection_t {
     fn from(value: ApriltagDetection) -> Self {
         Self {
-            family: todo!(),
+            family: Box::into_raw(Box::new(apriltag_family_t::from(value.family.as_ref().clone()))),
             id: value.id as c_int,
             hamming: value.hamming as c_int,
-            decision_margin: todo!(),
+            decision_margin: value.decision_margin,
             H: matd_t::convert(&value.H),
             c: value.center.into(),
             p: [
@@ -65,10 +181,35 @@ impl From<ApriltagDetection> for apriltag_detection_t {
     }
 }
 
+impl TryFrom<*const apriltag_detection_t> for ApriltagDetection {
+    
+    type Error = FFIConvertError;
+
+    fn try_from(value: *const apriltag_detection_t) -> Result<Self, Self::Error> {
+        let value = unsafe { value.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
+        let family_raw = unsafe { value.family.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
+
+        Ok(Self {
+            family: family_raw.try_into()?,
+            id: value.id as usize,
+            hamming: value.hamming as i16,
+            decision_margin: value.decision_margin,
+            H: value.H.try_into()?,
+            center: Point2D::from(value.c),
+            corners: [
+                value.p[0].into(),
+                value.p[1].into(),
+                value.p[2].into(),
+                value.p[3].into(),
+            ],
+        })
+    }
+}
+
 /// don't forget to add a family!
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_create() -> *mut apriltag_detector_t {
-    let detector = Box::new(ApriltagDetector::default());
+    let detector = box ApriltagDetector::default();
 
     Box::into_raw(detector)
 }
@@ -78,9 +219,9 @@ pub unsafe extern "C" fn apriltag_detector_create() -> *mut apriltag_detector_t 
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: *mut apriltag_detector_t, fam: *const apriltag_family_t, bits_corrected: c_int) {
     let detector = td.as_mut().unwrap();
-    let fam = fam.as_ref().unwrap();
+    let fam = fam.as_ref().unwrap().try_into().unwrap();
     let bits_corrected = bits_corrected.try_into().unwrap();
-    detector.add_family_bits(*fam, bits_corrected)
+    detector.add_family_bits(fam, bits_corrected)
 }
 
 /// Tunable, but really, 2 is a good choice. Values of >=3
@@ -95,8 +236,8 @@ pub unsafe extern "C" fn apriltag_detector_add_family(td: *mut apriltag_detector
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_remove_family(td: *mut apriltag_detector_t, fam: *const apriltag_family_t) {
     let detector = td.as_mut().unwrap();
-    let fam = fam.as_ref().unwrap();
-    detector.remove_family(fam);
+    let fam: Arc<AprilTagFamily> = fam.as_ref().unwrap().try_into().unwrap();
+    detector.remove_family(&fam);
 }
 
 /// unregister all families, but does not deallocate the underlying tag family objects.

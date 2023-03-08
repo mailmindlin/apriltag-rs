@@ -4,12 +4,21 @@ use libc::{c_uint};
 
 use crate::util::Image;
 
+use super::{drop_boxed_mut, drop_array_mut};
+
 #[repr(C)]
 pub struct image_u8_t {
     width: i32,
     height: i32,
     stride: i32,
     buf: *mut u8,
+}
+
+impl Drop for image_u8_t {
+    fn drop(&mut self) {
+        let len = (self.height as usize) * (self.stride as usize);
+        drop_array_mut(&mut self.buf, len);
+    }
 }
 
 impl From<Image<u8>> for image_u8_t {
@@ -31,7 +40,7 @@ impl image_u8_t {
     }
 }
 
-struct FakeImageGuard<'a> {
+pub(super) struct FakeImageGuard<'a> {
     raw: &'a image_u8_t,
     pretend: Image<u8>,
 }
@@ -39,7 +48,7 @@ struct FakeImageGuard<'a> {
 impl<'a> Deref for FakeImageGuard<'a> {
     type Target = Image<u8>;
 
-    fn deref(&self) -> &'a Self::Target {
+    fn deref(&self) -> &Self::Target {
         &self.pretend
     }
 }
@@ -50,15 +59,10 @@ pub unsafe extern "C" fn image_u8_create(width: c_uint, height: c_uint) -> *mut 
     let height = height as usize;
     let img = Image::<u8>::create(width, height);
     
-    let res = Box::new(image_u8_t::from(img));
-    Box::into_raw(res)
+    Box::into_raw(box image_u8_t::from(img))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn image_u8_destroy(im: *mut image_u8_t) {
-    if !im.is_null() {
-        let raw = Box::from_raw(im);
-        let len = (raw.height as usize) * (raw.width as usize);
-        Vec::from_raw_parts(raw.buf, len, len);
-    }
+pub unsafe extern "C" fn image_u8_destroy(mut im: *mut image_u8_t) {
+    drop_boxed_mut(&mut im);
 }

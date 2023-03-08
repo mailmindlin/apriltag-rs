@@ -1,5 +1,3 @@
-use std::alloc::Allocator;
-
 use libc::{size_t, c_int, c_char, c_uint, c_double};
 
 use crate::util::math::mat::Mat;
@@ -33,10 +31,9 @@ pub struct matd_t {
 
 impl matd_t {
     const FOO: usize = 1;
-    fn new<A: Allocator>(nrows: c_uint, ncols: c_uint, data: Box<[c_double]>) -> Box<matd_t> {
+    fn new(nrows: c_uint, ncols: c_uint, data: Box<[c_double]>) -> Box<matd_t> {
         use std::mem;
         use std::alloc::Layout;
-        use std::ptr::Pointee;
         let base_layout = {
             #[repr(C)]
             struct matd_like<T: ?Sized> {
