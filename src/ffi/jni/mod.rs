@@ -1,8 +1,8 @@
 use std::{mem, sync::RwLock};
 
-use jni::{JNIEnv, sys::{jlong, jint, jboolean, jdouble, JNI_TRUE}, objects::{JClass}};
+use jni::{JNIEnv, sys::{jlong, jint, jboolean, jdouble, JNI_TRUE, jstring}, objects::{JClass, JString}};
 
-use crate::detector::ApriltagDetector;
+use crate::{detector::ApriltagDetector, families::AprilTagFamily};
 
 mod util;
 
@@ -48,12 +48,9 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_setParams(env
         let data = get_ptr(ptr)?;
         let det = data.detector.write()?;
     
-        det.params.nthreads = match nthreads.try_into() {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(JavaError::IllegalArgumentException(format!("Illegal argument: nthreads: {:?}", e)));
-            },
-        };
+        det.params.nthreads = nthreads.try_into()
+            .map_err(|e| JavaError::IllegalArgumentException(format!("Illegal argument: nthreads: {:?}", e)))?;
+        
         det.params.quad_decimate = quadDecimate as f32;
         det.params.quad_sigma = quadSigma as f32;
         det.params.refine_edges = refineEdges == JNI_TRUE;
@@ -77,11 +74,19 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_destroy(env: 
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily(env: JNIEnv, class: JClass, ptr: jlong) {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily<'local>(env: JNIEnv<'local>, class: JClass<'local>, ptr: jlong, family: JString<'local>, bits_corrected: jint) {
     jni_wrap_simple(&mut env, |env| {
         let data = get_ptr(ptr)?;
         let detector = data.detector.write()?;
 
+        let family = {
+            let family_name: String = env.get_string(family)?.into();
+
+            AprilTagFamily::for_name(&family_name)
+                .ok_or_else(|| JavaError::IllegalArgumentException(format!("Unknown AprilTag family: {}", family_name)))?
+        };
+
+        detector.add_family_bits(family, bits_corrected as usize);
 
         Ok(())
     })
@@ -100,10 +105,12 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_clearFamilies
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_removeFamily(env: JNIEnv, class: JClass, ptr: jlong) {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_removeFamily(env: JNIEnv, class: JClass, ptr: jlong, family: jstring) {
     jni_wrap_simple(&mut env, |env| {
         let data = get_ptr(ptr)?;
         let detector = data.detector.write()?;
+
+        //TODO
         
         Ok(())
     })

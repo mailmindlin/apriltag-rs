@@ -13,6 +13,7 @@ pub(super) enum JavaError {
     Exception(String),
     ConcurrentModificationException,
     IllegalArgumentException(String),
+    Internal(jni::errors::Error),
 }
 
 impl JavaError {
@@ -24,6 +25,12 @@ impl JavaError {
 impl<T> From<PoisonError<T>> for JavaError {
     fn from(value: PoisonError<T>) -> Self {
         JavaError::ConcurrentModificationException
+    }
+}
+
+impl From<jni::errors::Error> for JavaError {
+    fn from(value: jni::errors::Error) -> Self {
+        Self::Internal(value)
     }
 }
 
@@ -45,7 +52,7 @@ pub(super) fn get_ptr(ptr: jlong) -> JavaResult<&'static JniDetectorData> {
     }
 }
 
-pub(super) fn jni_wrap_simple<R: Default>(env: &mut JNIEnv, inner: impl FnOnce(&mut JNIEnv) -> JavaResult<R>) -> R {
+pub(super) fn jni_wrap_simple<'a, R: Default>(env: &'a mut JNIEnv<'a>, inner: impl FnOnce(&'a mut JNIEnv<'a>) -> JavaResult<R>) -> R {
     match inner(env) {
         Ok(v) => v,
         Err(e) => {

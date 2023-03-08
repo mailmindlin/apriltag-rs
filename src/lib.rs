@@ -6,10 +6,11 @@ mod detector;
 mod util;
 mod quickdecode;
 pub(crate) mod quad_thresh;
-// pub(crate) mod ffi;
+pub(crate) mod ffi;
 pub(crate) mod quad_decode;
 mod pose;
 
+pub use families::AprilTagFamily;
 pub use detector::{ApriltagDetector, ApriltagDetection, DetectionResult};
 pub use quad_thresh::ApriltagQuadThreshParams;
 
