@@ -4,7 +4,7 @@ use rand::thread_rng;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 
-use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript, PostScriptWriter}}, families::AprilTagFamily, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
+use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript, PostScriptWriter}}, families::AprilTagFamily, quickdecode::{QuickDecode, AddFamilyError}, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
 
 pub struct AprilTagParams {
 	/// How many threads should be used?
@@ -104,9 +104,10 @@ impl ApriltagDetector {
 	/// Add a family to the apriltag detector.
 	/// 
 	/// A single instance should only be provided to one apriltag detector instance.
-	pub fn add_family_bits(&mut self, fam: Arc<AprilTagFamily>, bits_corrected: usize) {
-		let qd = QuickDecode::init(&fam, bits_corrected).unwrap();
+	pub fn add_family_bits(&mut self, fam: Arc<AprilTagFamily>, bits_corrected: usize) -> Result<(), AddFamilyError> {
+		let qd = QuickDecode::init(&fam, bits_corrected)?;
 		self.tag_families.push((fam, qd));
+		Ok(())
 	}
 
 	pub fn clear_families(&mut self) {

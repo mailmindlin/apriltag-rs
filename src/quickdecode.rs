@@ -1,26 +1,62 @@
+use std::{alloc::AllocError, mem::MaybeUninit};
+
 use crate::families::AprilTagFamily;
 
-#[derive(Clone, Copy)]
-pub(crate) struct QuickDecodeEntry {
-	/// the queried code
+
+#[derive(Copy, Clone)]
+struct QuickDecodeEntry {
+	/// Queried code
+	rcode: u64,
+	/// Tag ID
+	id: u16,
+	/// How many errors were corrected?
+	hamming: u8,
+}
+
+impl QuickDecodeEntry {
+	#[inline]
+	const fn empty() -> Self {
+		Self {
+			rcode: u64::MAX,
+			id: 0,
+			hamming: 0,
+		}
+	}
+
+	#[inline]
+	fn is_empty(&self) -> bool {
+		self.rcode == u64::MAX
+	}
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct QuickDecodeResult {
+	/// Queried code
 	pub rcode: u64,
-	/// the tag ID (a small integer)
+	/// Tag ID
 	pub id: u16,
-	/// how many errors corrected?
+	/// How many errors were corrected?
 	pub hamming: u8,
-	/// number of rotations [0, 3]
+	/// Number of rotations [0, 3]
 	pub rotation: u8,
 }
 
 pub(crate) struct QuickDecode {
-	entries: Vec<QuickDecodeEntry>,
+	entries: Box<[QuickDecodeEntry]>,
+}
+
+#[derive(Debug)]
+pub enum AddFamilyError {
+	TooManyCodes(usize),
+	QuickDecodeAllocation(AllocError),
+	BigHamming(usize),
 }
 
 /// if the bits in w were arranged in a d*d grid and that grid was
 /// rotated, what would the new bits in w be?
 /// The bits are organized like this (for d = 3):
 ///
-/// ```
+/// ```text
 ///  8 7 6       2 5 8      0 1 2
 ///  5 4 3  ==>  1 4 7 ==>  3 4 5    (rotate90 applied twice)
 ///  2 1 0       0 3 6      6 7 8
@@ -52,9 +88,42 @@ fn rotate90(w: u64, d: u32) -> u64 {
     w & (1u64 << d) - 1
 }
 
+struct QDBucketIter {
+	current: usize,
+	capacity: usize,
+}
+
+impl Iterator for QDBucketIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+		let res = self.current;
+        self.current = (self.current + 1) % self.capacity;
+		//TODO: detect complete cycles (currently they will just spin forever)
+		Some(res)
+    }
+}
+
 impl QuickDecode {
-	pub fn init(family: &AprilTagFamily, maxhamming: usize) -> Option<QuickDecode> {
-		assert!(family.codes.len() < 65535);
+	fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
+		let entries = {
+			let mut entries = Box::try_new_zeroed_slice(capacity)?;
+					// println!("Failed to allocate hamming decode table for family {}: {:?}", family.name, e);
+			
+			entries.fill(MaybeUninit::new(QuickDecodeEntry::empty()));
+
+			unsafe { entries.assume_init() }
+		};
+
+		Ok(Self {
+			entries,
+		})
+	}
+
+	pub fn init(family: &AprilTagFamily, maxhamming: usize) -> Result<Self, AddFamilyError> {
+		if family.codes.len() >= u16::MAX as usize {
+			return Err(AddFamilyError::TooManyCodes(family.codes.len()));
+		}
 	
 		let nbits = family.bits.len();
 
@@ -73,18 +142,8 @@ impl QuickDecode {
 			capacity
 		};
 
-		let mut qd = QuickDecode {
-			entries: Vec::new(),
-		};
-
-		// Handle out-of-memory here
-		match qd.entries.try_reserve_exact(capacity) {
-			Ok(_) => {},
-			Err(err) => {
-				println!("Failed to allocate hamming decode table for family {}: {:?}", family.name, err);
-				return None;
-			}
-		}
+		let mut qd = Self::with_capacity(capacity)
+			.map_err(|e| AddFamilyError::QuickDecodeAllocation(e))?;
 
 		for (i, code) in family.codes.iter().enumerate() {
 			// add exact code (hamming = 0)
@@ -126,13 +185,11 @@ impl QuickDecode {
 					}
 				},
 				_ => {
-					println!("Error: maxhamming beyond 3 not supported");
-					return None;
+					// println!("Error: maxhamming beyond 3 not supported");
+					return Err(AddFamilyError::BigHamming(maxhamming));
 				},
 			}
 		}
-
-		qd.entries.shrink_to_fit();
 	
 	//    printf("capacity %d, size: %.0f kB\n",
 	//           capacity, qd->nentries * sizeof(struct quick_decode_entry) / 1024.0);
@@ -161,43 +218,56 @@ impl QuickDecode {
 			println!("quick decode: longest run: {}, average run {:.3}", longest_run, (run_sum as f64) / (run_count as f64));
 		}
 
-		Some(qd)
+		Ok(qd)
 	}
 
-	pub fn add(&mut self, code: u64, id: usize, hamming: u8) {
-		let bucket = {
-			let mut bucket = (code as usize) % self.entries.len();
-			while self.entries[bucket].rcode != u64::MAX {
-				bucket = (bucket + 1) % self.entries.len();
+	fn bucket_iter(&self, initial_value: u64) -> QDBucketIter {
+		let capacity = self.entries.len();
+		let initial = initial_value as usize % capacity;
+		QDBucketIter {
+			current: initial,
+			capacity
+		}
+	}
+
+	fn add(&mut self, code: u64, id: usize, hamming: u8) {
+		for bucket in self.bucket_iter(code) {
+			let entry = &mut self.entries[bucket];
+			if entry.is_empty() {
+				let id: u16 = id.try_into().unwrap(); // We already checked for this overflow
+				*entry = QuickDecodeEntry {
+					rcode: code,
+					id,
+					hamming,
+				};
+				return;
 			}
-			bucket
-		};
-		let entry = &mut self.entries[bucket];
-	
-		entry.rcode = code;
-		entry.id = id.try_into().unwrap();
-		entry.hamming = hamming;
+		}
+		panic!("No bucket for code");
 	}
 
-	pub fn decode_codeword(&self, tf: &AprilTagFamily, mut rcode: u64) -> Option<QuickDecodeEntry> {
+	pub fn decode_codeword(&self, tf: &AprilTagFamily, mut rcode: u64) -> Option<QuickDecodeResult> {
+		let dim = tf.bits.len().try_into().expect("AprilTag family has too many bits");
+		
 		for ridx in 0..4 {
 			let mut bucket = (rcode as usize) % self.entries.len();
-			loop {
-				// I don't get this check
-				if self.entries[bucket].rcode == u64::MAX {
+			for bucket in self.bucket_iter(rcode) {
+				let entry = &self.entries[bucket];
+				if entry.is_empty() {
 					break;
 				}
 
-				if self.entries[bucket].rcode == rcode {
-					let mut result = self.entries[bucket].clone();
-					result.rotation = ridx;
-					return Some(result);
+				if entry.rcode == rcode {
+					return Some(QuickDecodeResult {
+						rcode: entry.rcode,
+						id: entry.id,
+						hamming: entry.hamming,
+						rotation: ridx
+					});
 				}
-
-				bucket = (bucket + 1) % self.entries.len();
 			}
 	
-			rcode = rotate90(rcode, tf.bits.len().try_into().unwrap());
+			rcode = rotate90(rcode, dim);
 		}
 
 		None
