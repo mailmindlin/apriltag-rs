@@ -87,11 +87,11 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
                 let off_y = (y as isize + dy) as usize;
                 let v1 = threshim[(off_x, off_y)];
 
-                if v0 + v1 == 255 {
+                if v0.saturating_add(v1) == 255 {
                     let rep1 = uf.get_representative(off_x, off_y);
                     if uf.get_set_size(rep1) > 24 {
                         let clusterid = ClusterId::new(rep0, rep1);
-                        let cluster = match clustermap.entry(clusterid){
+                        let cluster = match clustermap.entry(clusterid) {
                             Entry::Occupied(entry) => entry.into_mut(),
                             Entry::Vacant(entry) => entry.insert(Vec::new()),
                         };
