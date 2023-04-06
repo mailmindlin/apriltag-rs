@@ -147,6 +147,7 @@ impl UnionFind2D {
 		let x = force_from(idx.0);
 		debug_assert!(x < self.width);
 		let y = force_from(idx.1);
+		#[cfg(debug_assertions)]
 		debug_assert!(y < self.height);
 		(y * self.width) + x
 	}
@@ -161,6 +162,7 @@ impl UnionFind2D {
 		let x = UnionFindId::try_from(idx.0)?;
 		debug_assert!(x < self.width);
 		let y = UnionFindId::try_from(idx.1)?;
+		#[cfg(debug_assertions)]
 		debug_assert!(y < self.height);
 		Ok((y * self.width) + x)
 	}
@@ -186,6 +188,7 @@ impl UnionFind2D {
 fn do_unionfind_line2(uf: &mut UnionFind2D, im: &Image, y: usize) {
     assert!(y > 0);
 	assert_eq!(im.width, uf.width as usize);
+	#[cfg(debug_assertions)]
 	debug_assert_eq!(im.height, uf.height as usize);
 
     let mut v_0_m1 = im[(0, y-1)];
