@@ -604,7 +604,7 @@ impl Index<(usize, usize)> for Mat {
 	type Output = MatElement;
 
 	fn index(&self, index: (usize, usize)) -> &Self::Output {
-		assert!(self.is_scalar());
+		assert!(!self.is_scalar(), "Attempted to index into scalar");
 		
 		self.get(MatIndex::from(index)).unwrap()
 	}
@@ -612,7 +612,7 @@ impl Index<(usize, usize)> for Mat {
 
 impl IndexMut<(usize, usize)> for Mat {
 	fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-		assert!(self.is_scalar());
+		assert!(!self.is_scalar(), "Attempted to index into scalar");
 		
 		self.get_mut(MatIndex::from(index)).unwrap()
 	}
