@@ -127,7 +127,7 @@ impl Quad {
 
                 let normal_theta = 0.5 * f64::atan2(-2.*Cxy, Cyy - Cxx);
                 let pn = Vec2::from_angle(normal_theta);
-                lines[edge] = (E, pn);
+                lines.push((E, pn));
             }
             lines.into_inner().unwrap()
         };
