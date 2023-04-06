@@ -4,7 +4,7 @@ mod sharpening;
 
 use std::{f64::consts::FRAC_PI_2, sync::{Arc, Mutex}};
 
-use crate::{detector::AprilTagParams, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeEntry}, ApriltagDetection};
+use crate::{detector::AprilTagParams, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, ApriltagDetection};
 
 use greymodel::Graymodel;
 
@@ -116,7 +116,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Option<Mat> {
 
 impl Quad {
     /// returns the decision margin. Return `None` if the detection should be rejected.
-    pub fn decode(&self, det_params: &AprilTagParams, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&Mutex<Image>>) -> Option<(f32, QuickDecodeEntry)> {
+    pub fn decode(&self, det_params: &AprilTagParams, family: &AprilTagFamily, qd: &QuickDecode, im: &Image, im_samples: Option<&Mutex<Image>>) -> Option<(f32, QuickDecodeResult)> {
         // decode the tag binary contents by sampling the pixel
         // closest to the center of each bit cell.
 
