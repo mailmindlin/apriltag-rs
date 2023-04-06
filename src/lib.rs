@@ -1,5 +1,5 @@
-#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten, box_into_inner)]
 #![allow(non_snake_case)]
+#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten, box_into_inner, allocator_api)]
 mod apriltag_math;
 pub mod families;
 mod detector;
@@ -10,6 +10,7 @@ pub(crate) mod ffi;
 pub(crate) mod quad_decode;
 mod pose;
 
+pub use util::Image;
 pub use families::AprilTagFamily;
 pub use detector::{ApriltagDetector, ApriltagDetection, DetectionResult};
 pub use quad_thresh::ApriltagQuadThreshParams;
