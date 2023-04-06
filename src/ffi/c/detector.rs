@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice, ptr};
 
-use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::geom::Point2D, ffi::c::{drop_array, drop_str}};
+use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::geom::Point2D, ffi::c::{drop_array, drop_str}, Image};
 use libc::{c_int, c_double, c_void, c_char};
 
 use super::{util::zarray, img::image_u8_t, matd_t, FFIConvertError};
@@ -221,7 +221,8 @@ pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: *mut apriltag_det
     let detector = td.as_mut().unwrap();
     let fam = fam.as_ref().unwrap().try_into().unwrap();
     let bits_corrected = bits_corrected.try_into().unwrap();
-    detector.add_family_bits(fam, bits_corrected)
+    
+    detector.add_family_bits(fam, bits_corrected).unwrap();
 }
 
 /// Tunable, but really, 2 is a good choice. Values of >=3
@@ -305,10 +306,35 @@ pub unsafe extern "C" fn apriltag_detections_destroy(detections: *mut zarray) {
     std::mem::drop(detections)
 }
 
-// Renders the apriltag.
-// Caller is responsible for calling image_u8_destroy on the image
+/// Renders the apriltag.
+/// Caller is responsible for calling image_u8_destroy on the image
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c_int) -> *mut image_u8_t {
     let fam = fam.as_ref().unwrap();
-    todo!()
+    
+    assert!(idx >= 0 && (idx as u32) < fam.ncodes);
+    let code = *fam.codes.offset(idx as isize);
+
+    let mut im = Image::<u8>::create(fam.total_width as usize, fam.total_width as usize);
+
+    let white_border_width = fam.width_at_border as usize + (if fam.reversed_border { 0 } else { 2 });
+    let white_border_start = (fam.total_width as usize - white_border_width)/2;
+    // Make 1px white border
+    for i in 0..(white_border_width-1) {
+        im[(white_border_start + i, white_border_start)] = 255;
+        im[(fam.total_width as usize - 1 - white_border_start, white_border_start + i)] = 255;
+        im[(white_border_start + i + 1, fam.total_width as usize - 1 - white_border_start)] = 255;
+        im[(white_border_start, white_border_start + 1 + i)] = 255;
+    }
+
+    let border_start = ((fam.total_width - fam.width_at_border)/2) as usize;
+    for i in 0..fam.nbits {
+        if (code & (1u64 << (fam.nbits - i - 1))) != 0 {
+            let bit_y = *fam.bit_y.offset(i as isize) as usize;
+            let bit_x = *fam.bit_x.offset(i as isize) as usize;
+            im[(bit_x + border_start, bit_y + border_start)] = 255;
+        }
+    }
+    let im = image_u8_t::from(im);
+    Box::into_raw(Box::new(im))
 }
