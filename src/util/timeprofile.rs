@@ -42,12 +42,17 @@ impl TimeProfile {
         let mut i = 0;
 
         let stamps = &self.stamps;
+        let max_name = stamps.iter()
+            .map(|stamp| stamp.name.len())
+            .max()
+            .unwrap_or(0);
+
         for stamp in stamps.iter() {
             let cumtime = stamp.utime - self.now;
 
             let parttime = stamp.utime - last_time;
 
-            println!("{:2} {} {:15} ms {:15} ms\n", i, stamp.name, parttime.as_micros() as f64 / 1000.0, cumtime.as_micros() as f64 / 1000.0);
+            println!("{:2} {:0width$} {:12.3} ms {:12.3} ms", i, stamp.name, parttime.as_micros() as f64 / 1000.0, cumtime.as_micros() as f64 / 1000.0, width=max_name);
 
             i += 1;
             last_time = stamp.utime;
