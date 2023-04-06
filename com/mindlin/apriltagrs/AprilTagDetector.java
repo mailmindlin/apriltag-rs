@@ -4,6 +4,11 @@ import java.util.Collections;
 import java.util.List;
 
 public final class AprilTagDetector implements Closeable {
+    /**
+     * Create new detector object
+     * 
+     * @return Handle to detector
+     */
     private static native long create();
     private static native void setParams(long ptr, int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, float decodeSharpening, boolean debug);
     private static native void addFamily(long ptr, String familyName, short maxHamming);
@@ -48,7 +53,11 @@ public final class AprilTagDetector implements Closeable {
         this.updateParams();
     }
 
-    public void addFamily(String familyName, short maxHamming) {
+    public void addFamily(String familyName) {
+        
+    }
+
+    public void addFamily(String familyName, int maxHamming) {
 
     }
 
@@ -59,5 +68,6 @@ public final class AprilTagDetector implements Closeable {
     @Override
     public void close() {
         AprilTagDetector.destroy(ptr);
+        this.ptr = 0;
     }
 }
