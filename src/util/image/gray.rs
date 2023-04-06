@@ -1,8 +1,8 @@
-use std::{io::{self, Write}};
+use std::{io::{self, Write}, path::Path};
 
 use crate::util::mem::calloc;
 
-use super::{Image, ImageWritePNM, ImageWritePostscript};
+use super::{Image, ImageWritePNM, ImageWritePostscript, pnm::PNM};
 
 /// 1-d convolution
 fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
@@ -41,6 +41,86 @@ impl Image<u8> {
     /// Create new grayscale image of dimensions
     pub fn create(width: usize, height: usize) -> Self {
         Self::create_alignment(width, height, Self::DEFAULT_ALIGNMENT)
+    }
+
+    pub fn create_from_pnm(path: &Path) -> io::Result<Self> {
+        Self::create_from_pnm_alignment(path, Self::DEFAULT_ALIGNMENT)
+    }
+
+    pub fn create_from_pnm_alignment(path: &Path, alignment: usize) -> io::Result<Self> {
+        let pnm = PNM::create_from_file(path)?;
+        let mut im = Self::create_alignment(pnm.width, pnm.height, alignment);
+
+        match pnm.format {
+            super::pnm::PNMFormat::Gray => {
+                match pnm.max {
+                    255 => {
+                        for y in 0..im.height {
+                            let src = &pnm.buf[y*im.width..(y+1)*im.width];
+                            im[(.., y)].copy_from_slice(src);
+                        }
+                    },
+                    65535 => {
+                        for y in 0..im.height {
+                            for x in 0..im.width {
+                                im[(x, y)] = pnm.buf[2*(y*im.width + x)];
+                            }
+                        }
+                    },
+                    //TODO: return error
+                    _ => panic!(),
+                }
+            }
+            super::pnm::PNMFormat::RGB => {
+                match pnm.max {
+                    255 => {
+                        // Gray conversion for RGB is gray = (r + g + g + b)/4
+                        for y in 0..im.height {
+                            for x in 0..im.width {
+                                let r = pnm.buf[y*im.width*3 + 3*x+0];
+                                let g = pnm.buf[y*im.width*3 + 3*x+1];
+                                let b = pnm.buf[y*im.width*3 + 3*x+2];
+
+                                let gray = (r + g + g + b) / 4;
+                                im[(x, y)] = gray;
+                            }
+                        }
+                    },
+                    65535 => {
+                        for y in 0..im.height {
+                            for x in 0..im.width {
+                                let r = pnm.buf[6*(y*im.width + x) + 0];
+                                let g = pnm.buf[6*(y*im.width + x) + 2];
+                                let b = pnm.buf[6*(y*im.width + x) + 4];
+
+                                let gray = (r + g + g + b) / 4;
+                                im[(x, y)] = gray;
+                            }
+                        }
+                    },
+                    //TODO: return error
+                    _ => panic!(),
+                }
+            }
+            super::pnm::PNMFormat::Binary => {
+                // image is padded to be whole bytes on each row.
+
+                // how many bytes per row on the input?
+                let pbmstride = (im.width + 7) / 8;
+
+                for y in 0..im.height {
+                    for x in 0..im.width {
+                        let byteidx = y * pbmstride + x / 8;
+                        let bitidx = 7 - (x & 7);
+
+                        // ack, black is one according to pbm docs!
+                        let value = if ((pnm.buf[byteidx] >> bitidx) & 1) != 0 { 0 } else { 255 };
+                        im[(x, y)] = value;
+                    }
+                }
+            }
+        }
+        Ok(im)
     }
 
     pub fn darken(&mut self) {
