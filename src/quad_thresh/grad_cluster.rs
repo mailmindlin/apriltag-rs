@@ -155,7 +155,14 @@ fn merge_clusters(mut c1: Vec<ClusterEntry>, mut c2: Vec<ClusterEntry>) -> Vec<C
     ret*/
     c1.extend(c2.drain(..));
     c1.sort_unstable_by_key(|c| c.id);
-    todo!();
+    c1.dedup_by(|h1, h2| {
+        if h1.id != h2.id {
+            return false;
+        }
+        // h1 will be removed, so move its data to h2
+        h2.data.extend(h1.data.drain(..));
+        true
+    });
     c1
 }
 
@@ -181,4 +188,84 @@ pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &mu
         .into_iter()
         .map(|cluster| cluster.data)
         .collect()
+}
+
+#[cfg(test)]
+mod test {
+    use crate::quad_thresh::linefit::Pt;
+
+    use super::{ClusterEntry, merge_clusters};
+
+    fn random_point(seed: usize) -> Pt {
+        Pt {
+            x: seed as u16,
+            y: seed.rotate_right(16) as u16,
+            gx: seed.rotate_right(32) as i16,
+            gy: seed.rotate_right(48) as i16,
+            slope: 0.,
+        }
+    }
+
+    #[test]
+    fn merge_empty() {
+        let e1 = ClusterEntry {
+            id: super::ClusterId { rep0: 0, rep1: 0 },
+            data: vec![random_point(0), random_point(1)],
+        };
+        let merged = merge_clusters(vec![e1], vec![]);
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn merge_no_dedup() {
+        let e1 = ClusterEntry {
+            id: super::ClusterId { rep0: 0, rep1: 0 },
+            data: vec![random_point(0), random_point(1)],
+        };
+        let e2 = ClusterEntry {
+            id: super::ClusterId { rep0: 0, rep1: 1 },
+            data: vec![random_point(2), random_point(3)],
+        };
+        let e3 = ClusterEntry {
+            id: super::ClusterId { rep0: 0, rep1: 2 },
+            data: vec![random_point(4), random_point(5)],
+        };
+        let e4 = ClusterEntry {
+            id: super::ClusterId { rep0: 0, rep1: 3 },
+            data: vec![random_point(6), random_point(7)],
+        };
+        let merged = merge_clusters(vec![e1, e2], vec![e3, e4]);
+        assert_eq!(merged.len(), 4);
+    }
+
+    #[test]
+    fn merge_dedup() {
+        let id1 = super::ClusterId { rep0: 0, rep1: 0 };
+        let id2 = super::ClusterId { rep0: 0, rep1: 1 };
+        let id3 = super::ClusterId { rep0: 0, rep1: 2 };
+        let e1 = ClusterEntry {
+            id: id1.clone(),
+            data: vec![random_point(0), random_point(1)],
+        };
+        let e2 = ClusterEntry {
+            id: id2.clone(),
+            data: vec![random_point(2), random_point(3)],
+        };
+        let e3 = ClusterEntry {
+            id: id3.clone(),
+            data: vec![random_point(4), random_point(5)],
+        };
+        let e4 = ClusterEntry {
+            id: id1.clone(),
+            data: vec![random_point(6), random_point(7)],
+        };
+        let merged = merge_clusters(vec![e1, e2], vec![e3, e4]);
+        assert_eq!(merged.len(), 3);
+        // Check that other two are still there
+        assert!(merged.iter().find(|it| it.id == id2).is_some());
+        assert!(merged.iter().find(|it| it.id == id3).is_some());
+        
+        let e_merged = merged.iter().find(|it| it.id == id1).unwrap();
+        assert_eq!(e_merged.data.len(), 4);
+    }
 }
