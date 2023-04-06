@@ -61,6 +61,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
         // XXX Tunable
         let sigma = 1.; // was 3
+        let double_sigma_sq = 2. * sigma * sigma;
 
         // cutoff = exp(-j*j/(2*sigma*sigma));
         // log(cutoff) = -j*j / (2*sigma*sigma)
@@ -72,15 +73,15 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
         // XXX Tunable (though not super useful to change)
         let cutoff = 0.05;
-        let fsz = f64::sqrt(-f64::ln(cutoff) * 2. * sigma * sigma) as usize + 1;
+        let fsz = f64::sqrt(-f64::ln(cutoff) * double_sigma_sq) as isize + 1;
         let fsz = 2*fsz + 1;
 
         // For default values of cutoff = 0.05, sigma = 3,
         // we have fsz = 17.
-        let mut f = calloc::<f32>(fsz);
+        let mut f = calloc::<f32>(fsz as usize);
         for i in 0..fsz {
-            let j = (i - fsz / 2) as f32;
-            f[i] = f32::exp(-j*j/(2.*(sigma*sigma) as f32));
+            let j = (i - fsz / 2);
+            f[i as usize] = f64::exp((-j*j) as f64/ double_sigma_sq) as f32;
         }
 
         let mut y = calloc::<f64>(sz);
@@ -88,7 +89,8 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
             let mut acc = 0.;
 
             for i in 0..fsz {
-                acc += errs[(iy + i - fsz / 2 + sz) % sz] * (f[i] as f64);
+                let err_idx = iy as isize + i - fsz/2 + (sz as isize);
+                acc += errs[err_idx as usize % sz] * (f[i as usize] as f64);
             }
             y[iy] = acc;
         }
@@ -345,8 +347,8 @@ fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
             let mut W = 1.;
 
             if ix > 0 && ix+1 < im.width && iy > 0 && iy+1 < im.height {
-                let grad_x = (im[(ix + 1, iy)] - im[(ix - 1, iy)]) as f64;
-                let grad_y = (im[(ix, iy + 1)] - im[(ix, iy - 1)]) as f64;
+                let grad_x = ((im[(ix + 1, iy)] as i32) - (im[(ix - 1, iy)] as i32)) as f64;
+                let grad_y = ((im[(ix, iy + 1)] as i32) - (im[(ix, iy - 1)] as i32)) as f64;
 
                 // XXX Tunable. How to shape the gradient magnitude?
                 W = (grad_x*grad_x + grad_y*grad_y).sqrt() + 1.;
