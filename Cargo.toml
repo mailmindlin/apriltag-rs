@@ -15,8 +15,22 @@ default = ["cpython", "jni", "cffi"]
 
 [dependencies]
 arrayvec = "0.7.2"
-cpython = { version = "0.7.1", optional = true, features=["extension-module"] }
-jni = { version = "0.20.0", optional = true }
-libc ={ version = "0.2.139", optional = true }
 rand = "0.8.5"
 rayon = "1.6.1"
+
+[dependencies.cpython]
+version = "0.7.1"
+optional = true
+features=["extension-module"]
+[dependencies.jni]
+version = "0.20.0"
+optional = true
+[dependencies.libc]
+version = "0.2.139"
+optional = true
+
+
+[dev-dependencies]
+clap = { version = "4.2.1", features=["derive"] }
+image = "0.24.6"
+opencv = "0.78.2"
