@@ -183,7 +183,7 @@ impl FindMax for FindMaxFast {
 /// matrix. With double precision math, results are accurate to about
 /// 1E-16.
 /// 
-/// ```
+/// ```text
 /// U = [ cos(theta) -sin(theta) ]
 ///     [ sin(theta)  cos(theta) ]
 /// 
@@ -199,7 +199,7 @@ impl FindMax for FindMaxFast {
 /// and then rearrange so that we can solve for theta, phi, e, and
 /// f. (Derivation by ebolson@umich.edu 5/2016)
 /// 
-/// ```
+/// ```text
 /// V' = [ CP  SP ]
 ///      [ -SP CP ]
 
