@@ -183,7 +183,7 @@ impl ApriltagDetector {
 
 		tp.stamp("blur/sharp");
 
-		if self.params.debug {
+		if self.params.generate_debug_image() {
 			quad_im.save_to_pnm("debug_preprocess.pnm").unwrap();
 		}
 
@@ -227,7 +227,7 @@ impl ApriltagDetector {
 		////////////////////////////////////////////////////////////////
 		// Step 2. Decode tags from each quad.
 		let detections = if true {
-			let mut im_samples = if self.params.debug { Some(Mutex::new(im_orig.clone())) } else { None };
+			let im_samples = if self.params.generate_debug_image() { Some(Mutex::new(im_orig.clone())) } else { None };
 
 			let detections = self.wp.install(|| {
 				quads.par_iter_mut()
@@ -251,7 +251,7 @@ impl ApriltagDetector {
 			Vec::new()
 		};
 
-		if self.params.debug {
+		if self.params.generate_debug_image() {
 			let mut im_quads = im_orig.clone();
 			im_quads.darken();
 			im_quads.darken();
