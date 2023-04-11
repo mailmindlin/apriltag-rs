@@ -10,15 +10,13 @@ use crate::apriltag_math::mat33_sym_solve;
 pub(super) struct Graymodel {
 	A: [[f64; 3]; 3],
 	B: [f64; 3],
-	C: [f64; 3],
 }
 
 impl Graymodel {
-	pub fn init() -> Self {
+	pub const fn new() -> Self {
 		Self {
 			A: [[0f64; 3]; 3],
 			B: [0f64; 3],
-			C: [0f64; 3],
 		}
 	}
 
@@ -37,10 +35,17 @@ impl Graymodel {
 		self.B[2] += gray;
 	}
 
-	pub fn solve(&mut self) {
-		self.C = mat33_sym_solve(&self.A, &self.B);
+	pub fn solve(self) -> SolvedGraymodel {
+		let C = mat33_sym_solve(&self.A, &self.B);
+		SolvedGraymodel { C }
 	}
-	
+}
+
+pub(super) struct SolvedGraymodel {
+	C: [f64; 3],
+}
+
+impl SolvedGraymodel {
 	pub fn interpolate(&self, x: f64, y: f64) -> f64 {
 		return self.C[0]*x + self.C[1]*y + self.C[2];
 	}
