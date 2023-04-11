@@ -2,116 +2,7 @@ use std::{ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign}
 
 use crate::util::mem::calloc;
 
-use super::{plu::MatPLU, MatChol, svd::{MatSVD, SvdOptions}};
-
-/// Index into matrix
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MatIndex {
-	pub row: usize,
-	pub col: usize,
-}
-
-impl MatIndex {
-	pub fn transposed(self) -> MatIndex {
-		MatIndex { row: self.col, col: self.row }
-	}
-}
-
-impl From<(usize, usize)> for MatIndex {
-    fn from(value: (usize, usize)) -> Self {
-        let (row, col) = value;
-		Self {
-			row,
-			col,
-		}
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MatDims {
-	/// Number of rows in matrix
-	pub rows: usize,
-	/// Number of columns in matrix
-	pub cols: usize,
-}
-
-impl MatDims {
-	#[inline]
-	pub fn contains(&self, index: &MatIndex) -> bool {
-		return index.row < self.rows || index.col < self.cols;
-	}
-
-	#[inline]
-	fn assert_contains(&self, index: &MatIndex) -> Result<(), OutOfBoundsError> {
-		if self.contains(index) {
-			Ok(())
-		} else {
-			Err(OutOfBoundsError {
-				dims: *self,
-				index: *index,
-			})
-		}
-	}
-
-	#[inline(always)]
-	pub fn compute_offset_unchecked(&self, index: MatIndex) -> usize {
-		self.cols * index.row + index.col
-	}
-
-	#[inline]
-	pub fn compute_offset(&self, index: MatIndex) -> Result<usize, OutOfBoundsError> {
-		self.assert_contains(&index)?;
-		Ok(self.compute_offset_unchecked(index))
-	}
-
-	#[inline]
-	pub fn index_for_offset_unchecked(&self, offset: usize) -> MatIndex {
-		MatIndex {
-			row: offset.div_floor(self.cols),
-			col: offset % self.cols,
-		}
-	}
-
-	#[inline]
-	pub fn index_for_offset(&self, offset: usize) -> Result<MatIndex, OutOfBoundsError> {
-		let index = self.index_for_offset_unchecked(offset);
-		self.assert_contains(&index)?;
-		Ok(index)
-	}
-
-	/// Get number of elements in a matrix with these dimensions
-	#[inline]
-	pub fn len(&self) -> usize {
-		self.rows * self.cols
-	}
-
-	/// Check if this dimension is for a scalar
-	#[inline]
-	pub fn is_scalar(&self) -> bool {
-		(self.rows == 0) && (self.cols == 0)
-	}
-
-	#[inline]
-	pub fn is_vector(&self) -> bool {
-		self.rows == 1 || self.cols == 1
-	}
-
-	#[inline]
-	pub fn is_vector_len(&self, len: usize) -> bool {
-		(self.cols == 1 && self.rows == len) || (self.cols == len && self.rows == 1)
-	}
-
-	#[inline]
-	pub fn is_square(&self) -> bool {
-		self.rows == self.cols
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct OutOfBoundsError {
-	pub dims: MatDims,
-	pub index: MatIndex,
-}
+use super::{plu::MatPLU, MatChol, svd::{MatSVD, SvdOptions}, MatDims, MatIndex, OutOfBoundsError};
 
 #[derive(Clone, Debug)]
 pub struct Mat {
@@ -173,7 +64,7 @@ impl Mat {
 	/// Create new scalar
 	pub fn scalar(value: f64) -> Self {
 		Self {
-			dims: MatDims { rows: 0, cols: 0 },
+			dims: MatDims::scalar(),
 			data: Box::new([value]),
 		}
 	}
@@ -347,67 +238,84 @@ impl Mat {
 		(mlu.pivsign as f64) * detL * detU
 	}
 
+	/// Determinant of a 2x2 matrix
+	#[inline(always)]
+	fn det_22(&self) -> f64 {
+		#[cfg(debug_assertions)]
+		debug_assert_eq!(self.dims, MatDims { rows: 2, cols: 2 });
+		assert_eq!(self.data.len(), 4);
+
+		self.data[0] * self.data[3] - self.data[1] * self.data[2]
+	}
+
+	/// Determinant of a 3x3 matrix
+	#[inline]
+	fn det_33(&self) -> f64 {
+		#[cfg(debug_assertions)]
+		debug_assert_eq!(self.dims, MatDims { rows: 3, cols: 3 });
+		assert_eq!(self.data.len(), 9);
+		
+		0.
+			+ self.data[0]*self.data[4]*self.data[8]
+			- self.data[0]*self.data[5]*self.data[7]
+			+ self.data[1]*self.data[5]*self.data[6]
+			- self.data[1]*self.data[3]*self.data[8]
+			+ self.data[2]*self.data[3]*self.data[7]
+			- self.data[2]*self.data[4]*self.data[6]
+	}
+
+	#[inline]
+	fn det_44(&self) -> f64 {
+		#[cfg(debug_assertions)]
+		debug_assert_eq!(self.dims, MatDims { rows: 4, cols: 4 });
+		assert_eq!(self.data.len(), 16);
+
+		let m00 = self[(0,0)];
+		let m01 = self[(0,1)];
+		let m02 = self[(0,2)];
+		let m03 = self[(0,3)];
+		let m10 = self[(1,0)];
+		let m11 = self[(1,1)];
+		let m12 = self[(1,2)];
+		let m13 = self[(1,3)];
+		let m20 = self[(2,0)];
+		let m21 = self[(2,1)];
+		let m22 = self[(2,2)];
+		let m23 = self[(2,3)];
+		let m30 = self[(3,0)];
+		let m31 = self[(3,1)];
+		let m32 = self[(3,2)];
+		let m33 = self[(3,3)];
+
+		m00 * m11 * m22 * m33 - m00 * m11 * m23 * m32 -
+			m00 * m21 * m12 * m33 + m00 * m21 * m13 * m32 + m00 * m31 * m12 * m23 -
+			m00 * m31 * m13 * m22 - m10 * m01 * m22 * m33 +
+			m10 * m01 * m23 * m32 + m10 * m21 * m02 * m33 -
+			m10 * m21 * m03 * m32 - m10 * m31 * m02 * m23 +
+			m10 * m31 * m03 * m22 + m20 * m01 * m12 * m33 -
+			m20 * m01 * m13 * m32 - m20 * m11 * m02 * m33 +
+			m20 * m11 * m03 * m32 + m20 * m31 * m02 * m13 -
+			m20 * m31 * m03 * m12 - m30 * m01 * m12 * m23 +
+			m30 * m01 * m13 * m22 + m30 * m11 * m02 * m23 -
+			m30 * m11 * m03 * m22 - m30 * m21 * m02 * m13 +
+			m30 * m21 * m03 * m12
+	}
+
 	/// Compute matrix determinant
 	pub(crate) fn det(&self) -> f64 {
 		assert!(!self.dims.is_scalar(), "Cannot compute determinant of scalar");
-		assert!(self.dims.is_square());
+		assert!(self.dims.is_square(), "Can only compute determinant of square matrix");
 
 		match self.rows() {
-			1 => {
-				// 1x1 matrix
-				self.data[0]
-			},
-			2 => {
-				// 2x2 matrix
-				self.data[0] * self.data[3] - self.data[1] * self.data[2]
-			},
-			3 => {
-				// 3x3 matrix
-				0.
-					+ self.data[0]*self.data[4]*self.data[8]
-					- self.data[0]*self.data[5]*self.data[7]
-					+ self.data[1]*self.data[5]*self.data[6]
-					- self.data[1]*self.data[3]*self.data[8]
-					+ self.data[2]*self.data[3]*self.data[7]
-					- self.data[2]*self.data[4]*self.data[6]
-			},
-			4 => {
-				// 4x4 matrix
-				let m00 = self[(0,0)];
-				let m01 = self[(0,1)];
-				let m02 = self[(0,2)];
-				let m03 = self[(0,3)];
-				let m10 = self[(1,0)];
-				let m11 = self[(1,1)];
-				let m12 = self[(1,2)];
-				let m13 = self[(1,3)];
-				let m20 = self[(2,0)];
-				let m21 = self[(2,1)];
-				let m22 = self[(2,2)];
-				let m23 = self[(2,3)];
-				let m30 = self[(3,0)];
-				let m31 = self[(3,1)];
-				let m32 = self[(3,2)];
-				let m33 = self[(3,3)];
-
-				m00 * m11 * m22 * m33 - m00 * m11 * m23 * m32 -
-					m00 * m21 * m12 * m33 + m00 * m21 * m13 * m32 + m00 * m31 * m12 * m23 -
-					m00 * m31 * m13 * m22 - m10 * m01 * m22 * m33 +
-					m10 * m01 * m23 * m32 + m10 * m21 * m02 * m33 -
-					m10 * m21 * m03 * m32 - m10 * m31 * m02 * m23 +
-					m10 * m31 * m03 * m22 + m20 * m01 * m12 * m33 -
-					m20 * m01 * m13 * m32 - m20 * m11 * m02 * m33 +
-					m20 * m11 * m03 * m32 + m20 * m31 * m02 * m13 -
-					m20 * m31 * m03 * m12 - m30 * m01 * m12 * m23 +
-					m30 * m01 * m13 * m22 + m30 * m11 * m02 * m23 -
-					m30 * m11 * m03 * m22 - m30 * m21 * m02 * m13 +
-					m30 * m21 * m03 * m12
-			},
+			1 => self.data[0], // 1x1 matrix
+			2 => self.det_22(),
+			3 => self.det_33(),
+			4 => self.det_44(),
 			_ => self.det_general(),
-	}
+		}
 	}
 
-	/// returns None if the matrix is (exactly) singular. Caller is
+	/// Returns None if the matrix is (exactly) singular. Caller is
 	/// otherwise responsible for knowing how to cope with badly
 	/// conditioned matrices.
 	pub fn inv(&self) -> Option<Self> {
@@ -435,7 +343,7 @@ impl Mat {
 				Some(m)
 			},
 			2 => {
-				let det = self.data[0] * self.data[3] - self.data[1] * self.data[2];
+				let det = self.det_22();
 				if det == 0. {
 					return None;
 				}
@@ -465,9 +373,9 @@ impl Mat {
 	}
 
 	/// Only sensible on PSD matrices
-	// Hhad expected it to be faster than inverse via LU... for now, doesn't seem to be.
+	// Had expected it to be faster than inverse via LU... for now, doesn't seem to be.
 	pub fn chol_inverse(&self) -> Mat {
-		assert!(self.dims.is_square());
+		assert!(self.dims.is_square(), "Cannot invert non-square matrix");
 
 		let chol = self.chol();
 
@@ -518,11 +426,13 @@ impl Mat {
 		self
 	}
 
+	/// Get element at index
 	pub fn get(&self, idx: MatIndex) -> Result<&MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
 		Ok(unsafe { self.data.get_unchecked(offset) })
 	}
 
+	/// Mutable [Self::get]
 	pub fn get_mut(&mut self, idx: MatIndex) -> Result<&mut MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
 		Ok(unsafe { self.data.get_unchecked_mut(offset) })
@@ -538,6 +448,7 @@ impl Mat {
 		unsafe { self.data.get_unchecked_mut(offset) }
 	}
 
+	/// Create new matrix where all elements are scaled by some factor
 	pub fn scale(&self, scalar: f64) -> Mat {
 		if let Some(me_scalar) = self.as_scalar() {
 			return Self::scalar(me_scalar * scalar);
