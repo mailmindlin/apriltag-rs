@@ -115,6 +115,7 @@ impl Iterator for QDBucketIter {
 }
 
 impl QuickDecode {
+	/// Create QuickDecode with given table capacity
 	fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
 		let entries = {
 			let mut entries = Box::try_new_zeroed_slice(capacity)?;
@@ -130,6 +131,7 @@ impl QuickDecode {
 		})
 	}
 
+	/// Create 
 	pub fn init(family: &AprilTagFamily, maxhamming: usize) -> Result<Self, AddFamilyError> {
 		if family.codes.len() >= u16::MAX as usize {
 			return Err(AddFamilyError::TooManyCodes(family.codes.len()));
@@ -260,16 +262,18 @@ impl QuickDecode {
 		let dim = tf.bits.len().try_into().expect("AprilTag family has too many bits");
 		
 		for ridx in 0..4 {
-			let mut bucket = (rcode as usize) % self.entries.len();
 			for bucket in self.bucket_iter(rcode) {
+				println!("Test bucket {}", bucket);
 				let entry = &self.entries[bucket];
 				if entry.is_empty() {
+					println!("qd End");
 					break;
 				}
 
+				println!("\trcode {rcode} vs {}", entry.rcode);
+
 				if entry.rcode == rcode {
 					return Some(QuickDecodeResult {
-						rcode: entry.rcode,
 						id: entry.id,
 						hamming: entry.hamming,
 						rotation: ridx
