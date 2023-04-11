@@ -9,10 +9,10 @@ pub(crate) fn homography_project(H: &Mat, x: f64, y: f64) -> Point2D {
     let yy = H[(1, 0)]*x + H[(1, 1)]*y + H[(1, 2)];
     let zz = H[(2, 0)]*x + H[(2, 1)]*y + H[(2, 2)];
 
-    return Point2D::of(
+    Point2D::of(
         xx / zz, // x
         yy / zz, // y
-    );
+    )
 }
 
 pub enum HomographyMode {
