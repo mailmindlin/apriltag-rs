@@ -40,7 +40,7 @@ pub(super) fn sharpen(values: &mut [f64], sharpening: f64, size: usize) {
 
     for y in 0..size {
         for x in 0..size {
-            values[y*size + x] = values[y*size + x] + sharpening * sharpened[y*size + x];
+            values[y*size + x] += sharpening * sharpened[y*size + x];
         }
     }
 }
