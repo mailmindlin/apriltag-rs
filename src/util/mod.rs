@@ -7,4 +7,4 @@ pub(crate) mod mem;
 pub(crate) mod color;
 
 pub(crate) use timeprofile::TimeProfile;
-pub use self::image::Image;
+pub use self::image::{Image, ImageWritePNM};

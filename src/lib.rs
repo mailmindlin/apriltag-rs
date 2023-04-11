@@ -3,7 +3,7 @@
 mod apriltag_math;
 pub mod families;
 mod detector;
-mod util;
+pub mod util;
 mod quickdecode;
 pub(crate) mod quad_thresh;
 pub(crate) mod ffi;
@@ -11,8 +11,9 @@ pub(crate) mod quad_decode;
 mod pose;
 
 pub use util::Image;
+pub use quickdecode::AddFamilyError;
 pub use families::AprilTagFamily;
-pub use detector::{ApriltagDetector, ApriltagDetection, DetectionResult};
+pub use detector::{ApriltagDetector, ApriltagDetection, Detections};
 pub use quad_thresh::ApriltagQuadThreshParams;
 
 pub use pose::{estimate_tag_pose, estimate_pose_for_tag_homography, estimate_tag_pose_orthogonal_iteration, ApriltagDetectionInfo, ApriltagPose, OrthogonalIterationResult};
