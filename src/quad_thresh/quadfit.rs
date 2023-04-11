@@ -360,8 +360,8 @@ fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
                 Mx:  last.Mx  + W * fx,
                 My:  last.My  + W * fy,
                 Mxx: last.Mxx + W * fx * fx,
-                Myy: last.Myy + W * fx * fy,
-                Mxy: last.Mxy + W * fy * fy,
+                Mxy: last.Mxy + W * fx * fy,
+                Myy: last.Myy + W * fy * fy,
                 W: last.W + W,
             });
         }
