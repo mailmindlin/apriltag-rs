@@ -87,14 +87,15 @@ fn rotate90(w: u64, numBits: u64) -> u64 {
 
 	wr*/
 
-	let mut p = d as u64;
-    let mut l = 0u64;
-    if d % 4 == 1 {
-		p = d as u64 - 1;
-		l = 1;
-    }
-    let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/ 4 + l) << l) | (w & l);
-    w & (1u64 << d) - 1
+	/// Odd/even
+    let (p, l) = if numBits % 4 == 1 {
+		(numBits - 1, 1)
+	} else {
+		(numBits, 0)
+	};
+
+    let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
+    w & (1u64 << numBits) - 1
 }
 
 struct QDBucketIter {
