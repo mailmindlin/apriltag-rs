@@ -52,6 +52,9 @@ pub enum AddFamilyError {
 	BigHamming(usize),
 }
 
+/// Assuming we are drawing the image one quadrant at a time, what would the rotated image look like?
+/// Special care is taken to handle the case where there is a middle pixel of the image.
+/// 
 /// if the bits in w were arranged in a d*d grid and that grid was
 /// rotated, what would the new bits in w be?
 /// The bits are organized like this (for d = 3):
@@ -61,7 +64,13 @@ pub enum AddFamilyError {
 ///  5 4 3  ==>  1 4 7 ==>  3 4 5    (rotate90 applied twice)
 ///  2 1 0       0 3 6      6 7 8
 /// ```
-fn rotate90(w: u64, d: u32) -> u64 {
+/// 
+/// ```
+/// let w_orig = 0b1010_1010_1010_1010;
+/// let w_rot  = 0b1111_0000_1111_0000;
+/// assert_eq!(rotate90(w, 16), w_rot);
+/// ```
+fn rotate90(w: u64, numBits: u64) -> u64 {
 	/*let mut wr = 0;
 
 	for r in (0..d).rev() {
