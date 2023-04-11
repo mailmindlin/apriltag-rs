@@ -14,14 +14,20 @@ pub(super) fn sharpen(values: &mut [f64], sharpening: f64, size: usize) {
             let mut acc = 0.;
 
             for i in 0..3 {
+                if y + i < 1 {
+                    continue;
+                }
                 let cy = y + i - 1;
-                if (y + i) < 1 || cy > size - 1 {
+                if cy > size - 1 {
                     continue;
                 }
 
                 for j in 0..3 {
+                    if x + j < 1 {
+                        continue;
+                    }
                     let cx = x + j - 1;
-                    if (x + j) < 1 || cx > size - 1 {
+                    if cx > size - 1 {
                         continue;
                     }
                     acc += values[cy*size + cx]*kernel[i*3 + j];
