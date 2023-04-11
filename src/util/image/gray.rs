@@ -77,12 +77,12 @@ impl Image<u8> {
                         // Gray conversion for RGB is gray = (r + g + g + b)/4
                         for y in 0..im.height {
                             for x in 0..im.width {
-                                let r = pnm.buf[y*im.width*3 + 3*x+0];
-                                let g = pnm.buf[y*im.width*3 + 3*x+1];
-                                let b = pnm.buf[y*im.width*3 + 3*x+2];
+                                let r = pnm.buf[y*im.width*3 + 3*x+0] as u16;
+                                let g = pnm.buf[y*im.width*3 + 3*x+1] as u16;
+                                let b = pnm.buf[y*im.width*3 + 3*x+2] as u16;
 
                                 let gray = (r + g + g + b) / 4;
-                                im[(x, y)] = gray;
+                                im[(x, y)] = gray.clamp(0, 255) as u8;
                             }
                         }
                     },
