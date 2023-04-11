@@ -2,6 +2,19 @@ use std::{path::Path, io};
 
 use super::{Image, PNM, pnm::PNMFormat, ImageWritePNM};
 
+impl From<Image<u8>> for Image<[u8; 3]> {
+    fn from(src: Image<u8>) -> Self {
+        let mut dst = Image::<[u8; 3]>::create(src.width, src.height);
+        for y in 0..src.height {
+            for x in 0..src.width {
+                let value = src[(x, y)];
+                dst[(x, y)] = [value; 3];
+            }
+        }
+        dst
+    }
+}
+
 impl Image<[u8; 3]> {
     /// Least common multiple of 64 (sandy bridge cache line) and 48 (stride needed
     /// for 16byte-wide RGB processing). (It's possible that 48 would be enough).
