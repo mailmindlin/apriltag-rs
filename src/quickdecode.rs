@@ -31,8 +31,6 @@ impl QuickDecodeEntry {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct QuickDecodeResult {
-	/// Queried code
-	pub rcode: u64,
 	/// Tag ID
 	pub id: u16,
 	/// How many errors were corrected?
@@ -47,9 +45,25 @@ pub(crate) struct QuickDecode {
 
 #[derive(Debug)]
 pub enum AddFamilyError {
+	/// Too many codes in an AprilTag family
 	TooManyCodes(usize),
+	/// Error allocating QD table
 	QuickDecodeAllocation(AllocError),
+	/// Hamming value was too big
 	BigHamming(usize),
+}
+
+impl std::fmt::Display for AddFamilyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddFamilyError::TooManyCodes(num_codes) =>
+				write!(f, "Too many codes in AprilTag family to create QuickDecode (actual: {}, max: {})", num_codes, u16::MAX),
+            AddFamilyError::QuickDecodeAllocation(e) =>
+				write!(f, "Error allocating QuickDecode table: {}", e),
+            AddFamilyError::BigHamming(hamming) =>
+				write!(f, "Hamming too big for QuickDecode: {}", hamming),
+        }
+    }
 }
 
 /// Assuming we are drawing the image one quadrant at a time, what would the rotated image look like?
