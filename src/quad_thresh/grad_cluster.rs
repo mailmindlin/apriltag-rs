@@ -2,7 +2,7 @@ use std::{collections::{HashMap, hash_map::Entry}, hash::Hash};
 
 use rayon::prelude::*;
 
-use crate::{util::{Image}, ApriltagDetector};
+use crate::{util::{Image, image::Luma}, ApriltagDetector};
 
 use super::{uf::{UnionFind2D, UnionFindId}, linefit::Pt};
 
@@ -37,12 +37,12 @@ fn u64hash_2(x: u64) -> u32 {
     // return x as u32;
 }
 
-fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usize, uf: &mut UnionFind2D) -> Vec<ClusterEntry> {
+fn do_gradient_clusters(threshim: &impl Image<Luma<u8>>, y0: usize, y1: usize, nclustermap: usize, uf: &UnionFind2D) -> Vec<ClusterEntry> {
     // let nclustermap = 2*w*h - 1;
     let mut clustermap = HashMap::<ClusterId, Vec<Pt>>::with_capacity(nclustermap);
 
     for y in y0..y1 {
-        for x in 1..(threshim.width-1) {
+        for x in 1..(threshim.width()-1) {
             let v0 = threshim[(x, y)];
             if v0 == 127 {
                 continue;
@@ -87,7 +87,7 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
                 let off_y = (y as isize + dy) as usize;
                 let v1 = threshim[(off_x, off_y)];
 
-                if v0.saturating_add(v1) == 255 {
+                if v0.wrapping_add(v1) == 255 {
                     let rep1 = uf.get_representative(off_x, off_y);
                     if uf.get_set_size(rep1) > 24 {
                         let clusterid = ClusterId::new(rep0, rep1);
@@ -99,8 +99,8 @@ fn do_gradient_clusters(threshim: &Image, y0: usize, y1: usize, nclustermap: usi
                         let dv = (v1 as isize) - (v0 as isize);
 
                         cluster.push(Pt {
-                            x: (2 * off_x).try_into().unwrap(),
-                            y: (2 * off_y).try_into().unwrap(),
+                            x: (2 * x as isize + dx).try_into().unwrap(),
+                            y: (2 * y as isize + dy).try_into().unwrap(),
                             gx: (dx * dv).try_into().unwrap(),
                             gy: (dy * dv).try_into().unwrap(),
                             slope: 0.,//TODO?
@@ -166,24 +166,39 @@ fn merge_clusters(mut c1: Vec<ClusterEntry>, mut c2: Vec<ClusterEntry>) -> Vec<C
     c1
 }
 
-pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &Image, uf: &mut UnionFind2D) -> Vec<Vec<Pt>> {
+pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &(impl Image<Luma<u8>> + Sync), uf: &UnionFind2D) -> Vec<Vec<Pt>> {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
-    let sz = threshim.height - 1;
+    let sz = threshim.height() - 1;
     let chunksize = 1 + sz / td.params.nthreads;
     // struct cluster_task *tasks = malloc(sizeof(struct cluster_task)*(sz / chunksize + 1));
 
-    (1..sz)
-        // .into_par_iter()
-        .step_by(chunksize)
+    let cluster_entries = if td.params.nthreads == 1 || true{
+        (0..sz)
         .map(|i| {
             let y0 = i;
-            let y1 = std::cmp::min(sz, i + chunksize);
+            let y1 = i + 1;
             let clusters = do_gradient_clusters(threshim, y0, y1, nclustermap, uf);
             clusters
         })
         //TODO: it might be more efficient to reduce adjacent clusters
         .fold(Vec::new(), merge_clusters)
+    } else {
+        (1..sz)
+            .into_par_iter()
+            .step_by(chunksize)
+            .map(|i| {
+                let y0 = i;
+                let y1 = std::cmp::min(sz, i + chunksize);
+                let clusters = do_gradient_clusters(threshim, y0, y1, nclustermap, uf);
+                clusters
+            })
+            //TODO: it might be more efficient to reduce adjacent clusters
+            .reduce(|| Vec::new(), merge_clusters)
+    };
+
+
+    cluster_entries
         // Convert from ClusterEntry -> Vec<Pt>
         .into_iter()
         .map(|cluster| cluster.data)

@@ -12,7 +12,7 @@ struct Args {
     #[arg(short, long)]
     debug: bool,
     /// Reduce output
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t=false)]
     quiet: bool,
     /// Tag family to use
     #[arg(short, long)]
@@ -122,6 +122,8 @@ fn main() {
 
             let detections = detector.detect(&im);
 
+            println!("Found {} tags", detections.detections.len());
+
             for (i, det) in detections.detections.iter().enumerate() {
                 if !quiet {
                     println!("detection {:3}: id ({:2}x{:2})-%-{:4}, hamming {}, margin {:8.3}",
@@ -154,7 +156,7 @@ fn main() {
 
             let t = detections.tp.total_utime();
             total_time += t;
-            print!("{:12.3}", t.as_secs_f32());
+            print!("{:12.3}s", t.as_secs_f32());
             print!("{:4}", detections.nquads);
 
             println!();

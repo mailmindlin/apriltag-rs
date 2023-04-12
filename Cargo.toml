@@ -4,19 +4,29 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+# crate-type = ["cdylib"]
 
 [features]
 cpython = ["dep:cpython"]
 jni = ["dep:jni"]
 cffi = ["dep:libc"]
+debug = []
+extra_debug = ["debug"]
 
+default = ["cpython", "jni", "cffi", "debug"]
+
+[profile.dev]
+default = ["cpython", "jni", "cffi", "debug", "extra_debug"]
+
+[profile.release]
 default = ["cpython", "jni", "cffi"]
+
 
 [dependencies]
 arrayvec = "0.7.2"
 rand = "0.8.5"
 rayon = "1.6.1"
+datasize = "0.2.14"
 
 [dependencies.cpython]
 version = "0.7.1"

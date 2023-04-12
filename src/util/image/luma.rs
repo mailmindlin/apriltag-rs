@@ -1,8 +1,66 @@
 use std::{io::{self, Write}, path::Path};
 
-use crate::util::mem::calloc;
+use crate::util::mem::{calloc, SafeZero};
 
-use super::{Image, ImageWritePNM, ImageWritePostscript, pnm::PNM};
+use super::{Image, ImageBuffer, pnm::PNM, pixel::{Primitive, Pixel, PixelConvert}, Rgb, ImageMut, ImageRowMut, HasDimensions, ImageWritePNM, ImageWritePostscript, ImageRow};
+
+#[derive(Copy, Clone)]
+pub struct Luma<T>(pub [T; 1]);
+
+impl From<u8> for Luma<u8> {
+    fn from(value: u8) -> Self {
+        Self([value])
+    }
+}
+
+impl<T: Primitive> Pixel for Luma<T> {
+    type Subpixel = T;
+    type Value = T;
+
+    const CHANNEL_COUNT: usize = 1;
+
+    fn channels(&self) -> &[Self::Subpixel] {
+        &self.0
+    }
+
+    fn channels_mut(&mut self) -> &mut [Self::Subpixel] {
+        &mut self.0
+    }
+
+    fn to_value(self) -> Self::Value {
+        self.0[0]
+    }
+
+    fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
+        todo!()
+    }
+
+    fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
+        todo!()
+    }
+
+    fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
+        todo!()
+    }
+
+    fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
+        todo!()
+    }
+}
+
+impl<T: Primitive> PixelConvert for Luma<T> {
+    fn to_rgb(&self) -> Rgb<Self::Subpixel> {
+        let v = self.0[0];
+        Rgb([v; 3])
+    }
+
+    #[inline(always)]
+    fn to_luma(&self) -> Luma<Self::Subpixel> {
+        *self
+    }
+}
+
+impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
 fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
@@ -33,14 +91,14 @@ fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
 }
 
 /// Grayscale image
-impl Image<u8> {
+impl ImageBuffer<Luma<u8>> {
     /// least common multiple of 64 (sandy bridge cache line) and 24 (stride
     /// needed for RGB in 8-wide vector processing)
     const DEFAULT_ALIGNMENT: usize = 96;
 
     /// Create new grayscale image of dimensions
-    pub fn create(width: usize, height: usize) -> Self {
-        Self::create_alignment(width, height, Self::DEFAULT_ALIGNMENT)
+    pub fn zeroed(width: usize, height: usize) -> Self {
+        Self::with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
     }
 
     pub fn create_from_pnm(path: &Path) -> io::Result<Self> {
@@ -49,22 +107,21 @@ impl Image<u8> {
 
     pub fn create_from_pnm_alignment(path: &Path, alignment: usize) -> io::Result<Self> {
         let pnm = PNM::create_from_file(path)?;
-        let mut im = Self::create_alignment(pnm.width, pnm.height, alignment);
+        let width = pnm.width;
+        let mut im = Self::with_alignment(pnm.width, pnm.height, alignment);
 
         match pnm.format {
             super::pnm::PNMFormat::Gray => {
                 match pnm.max {
                     255 => {
-                        for y in 0..im.height {
-                            let src = &pnm.buf[y*im.width..(y+1)*im.width];
-                            im[(.., y)].copy_from_slice(src);
+                        for (y, mut row) in im.rows_mut() {
+                            let src = &pnm.buf[y*width..(y+1)*width];
+                            row.as_slice_mut().copy_from_slice(src);
                         }
                     },
                     65535 => {
-                        for y in 0..im.height {
-                            for x in 0..im.width {
-                                im[(x, y)] = pnm.buf[2*(y*im.width + x)];
-                            }
+                        for ((x, y), dst) in im.enumerate_pixels_mut() {
+                            *dst = pnm.buf[2*(y*width + x)].into();
                         }
                     },
                     //TODO: return error
@@ -75,27 +132,23 @@ impl Image<u8> {
                 match pnm.max {
                     255 => {
                         // Gray conversion for RGB is gray = (r + g + g + b)/4
-                        for y in 0..im.height {
-                            for x in 0..im.width {
-                                let r = pnm.buf[y*im.width*3 + 3*x+0] as u16;
-                                let g = pnm.buf[y*im.width*3 + 3*x+1] as u16;
-                                let b = pnm.buf[y*im.width*3 + 3*x+2] as u16;
+                        for ((x, y), dst) in im.enumerate_pixels_mut() {
+                            let r = pnm.buf[y*width*3 + 3*x+0] as u16;
+                            let g = pnm.buf[y*width*3 + 3*x+1] as u16;
+                            let b = pnm.buf[y*width*3 + 3*x+2] as u16;
 
-                                let gray = (r + g + g + b) / 4;
-                                im[(x, y)] = gray.clamp(0, 255) as u8;
-                            }
+                            let gray = (r + g + g + b) / 4;
+                            *dst = (gray.clamp(0, 255) as u8).into();
                         }
                     },
                     65535 => {
-                        for y in 0..im.height {
-                            for x in 0..im.width {
-                                let r = pnm.buf[6*(y*im.width + x) + 0];
-                                let g = pnm.buf[6*(y*im.width + x) + 2];
-                                let b = pnm.buf[6*(y*im.width + x) + 4];
+                        for ((x, y), dst) in im.enumerate_pixels_mut() {
+                            let r = pnm.buf[6*(y*width + x) + 0];
+                            let g = pnm.buf[6*(y*width + x) + 2];
+                            let b = pnm.buf[6*(y*width + x) + 4];
 
-                                let gray = (r + g + g + b) / 4;
-                                im[(x, y)] = gray;
-                            }
+                            let gray = (r + g + g + b) / 4;
+                            *dst = gray.into();
                         }
                     },
                     //TODO: return error
@@ -106,17 +159,15 @@ impl Image<u8> {
                 // image is padded to be whole bytes on each row.
 
                 // how many bytes per row on the input?
-                let pbmstride = (im.width + 7) / 8;
+                let pbmstride = (im.width() + 7) / 8;
 
-                for y in 0..im.height {
-                    for x in 0..im.width {
-                        let byteidx = y * pbmstride + x / 8;
-                        let bitidx = 7 - (x & 7);
+                for ((x, y), dst) in im.enumerate_pixels_mut() {
+                    let byteidx = y * pbmstride + x / 8;
+                    let bitidx = 7 - (x & 7);
 
-                        // ack, black is one according to pbm docs!
-                        let value = if ((pnm.buf[byteidx] >> bitidx) & 1) != 0 { 0 } else { 255 };
-                        im[(x, y)] = value;
-                    }
+                    // ack, black is one according to pbm docs!
+                    let value = if ((pnm.buf[byteidx] >> bitidx) & 1) != 0 { 0 } else { 255 };
+                    *dst = value.into();
                 }
             }
         }
@@ -124,29 +175,20 @@ impl Image<u8> {
     }
 
     pub fn darken(&mut self) {
-        if self.stride == self.width {
-            for pixel in self.buf.iter_mut() {
-                *pixel /= 2;
-            }
-        } else {
-            //TODO: efficient iteration
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    self[(x, y)] /= 2;
-                }
-            }
-        }
+        self.apply(|pixel| {
+            pixel.0[0] /= 2;
+        });
     }
 
     pub fn decimate(&self, ffactor: f32) -> Self {
-        let width = self.width;
-        let height = self.height;
+        let width = self.width();
+        let height = self.height();
 
         if ffactor == 1.5 {
             let swidth = width / 3 * 2;
             let sheight = height / 3 * 2;
 
-            let mut dst = Self::create(swidth, sheight);
+            let mut dst = Self::zeroed(swidth, sheight);
 
             let mut y = 0;
             for sy in (0..sheight).step_by(2) {
@@ -178,13 +220,16 @@ impl Image<u8> {
             }
             dst
         } else {
-            let factor = ffactor as usize;
+            let factor = ffactor.round() as usize;
 
             let swidth = 1 + (width - 1) / factor;
             let sheight = 1 + (height - 1) / factor;
 
-            let mut decim = Self::create(swidth, sheight);
+            let mut decim = Self::zeroed(swidth, sheight);
             let mut sy = 0;
+            for row in self.rows() {
+
+            }
             for y in (0..height).step_by(factor) {
                 let mut sx = 0;
                 for x in (0..width).step_by(factor) {
@@ -203,30 +248,29 @@ impl Image<u8> {
         // Convolve horizontally
         {
             // Allocate this buffer once
-            let mut row_buf = calloc::<u8>(self.width);
+            let mut row_buf = calloc::<u8>(self.width());
     
-            for y in 0..self.height {
-                let row = &mut self[(.., y)];
-                row_buf.copy_from_slice(row);
-                convolve(&row_buf, row, kernel);
+            for (_, mut row) in self.rows_mut() {
+                row_buf.copy_from_slice(row.as_slice());
+                convolve(&row_buf, row.as_slice_mut(), kernel);
             }
         }
 
         // Convolve vertically
         {
-            let mut xb = calloc::<u8>(self.height);
-            let mut yb = calloc::<u8>(self.height);
+            let mut xb = calloc::<u8>(self.height());
+            let mut yb = calloc::<u8>(self.height());
 
-            for x in 0..self.width {
+            for x in 0..self.width() {
                 //TODO: we can optimize this loop
-                for y in 0..self.height {
+                for y in 0..self.height() {
                     xb[y] = self[(x, y)];
                 }
 
                 convolve(&xb, &mut yb, kernel);
 
                 //TODO: we can optimize this loop
-                for y in 0..self.height {
+                for y in 0..self.height() {
                     self[(x, y)] = yb[y];
                 }
             }
@@ -273,35 +317,33 @@ impl Image<u8> {
     }
 }
 
-impl ImageWritePNM for Image<u8> {
+impl ImageWritePNM for ImageBuffer<Luma<u8>> {
     fn write_pnm(&self, f: &mut impl io::Write) -> io::Result<()> {
         // Only outputs to RGB
         writeln!(f, "P5")?;
-        writeln!(f, "{} {}", self.width, self.height)?;
+        let dims = self.dimensions();
+        writeln!(f, "{} {}", dims.width, dims.height)?;
         writeln!(f, "255")?;
-        for y in 0..self.height {
-            f.write_all(&self[(.., y)])?;
+        for (_, row) in self.rows() {
+            f.write_all(row.as_slice())?;
         }
 
         Ok(())
     }
 }
 
-impl ImageWritePostscript for Image<u8> {
+impl ImageWritePostscript for ImageBuffer<Luma<u8>> {
     fn write_postscript(&self, f: &mut super::PostScriptWriter<impl io::Write>) -> io::Result<()> {
-        writeln!(f, "/picstr {} string def", self.width)?;
+        writeln!(f, "/picstr {} string def", self.width())?;
 
-        writeln!(f, "{} {} 8 [1 0 0 1 0 0]", self.width, self.height)?;
+        writeln!(f, "{} {} 8 [1 0 0 1 0 0]", self.width(), self.height())?;
         writeln!(f, "{{currentfile picstr readhexstring pop}}")?;
         writeln!(f, "image")?;
 
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let v = self[(x, y)];
-                write!(f, "{:02x}", v)?;
-                if (x % 32) == 31 {
-                    writeln!(f)?;
-                }
+        for ((x, y), v) in self.enumerate_pixels() {
+            write!(f, "{:02x}", v.to_value())?;
+            if (x % 32) == 31 {
+                writeln!(f)?;
             }
         }
 
@@ -310,9 +352,9 @@ impl ImageWritePostscript for Image<u8> {
     }
 }
 
-impl From<Image<f32>> for Image<u8> {
-    fn from(value: Image<f32>) -> Self {
-        let mut res = Self::create(value.width, value.height);
+/*impl From<dyn Image<Luma<f32>>> for ImageBuffer<Luma<u8>> {
+    fn from(value: dyn Image<Luma<f32>>) -> Self {
+        let mut res = Self::create(value.width(), value.height());
         for y in 0..value.height {
             for x in 0..value.width {
                 res[(x, y)] = (255. * value[(x, y)]).round() as u8;
@@ -320,4 +362,4 @@ impl From<Image<f32>> for Image<u8> {
         }
         res
     }
-}
+}*/

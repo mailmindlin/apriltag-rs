@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 /// Marker trait for types that zeroed-out memory is a valid representation
 pub trait SafeZero {}
 
@@ -12,6 +14,7 @@ impl SafeZero for usize {}
 impl<T: SafeZero, const N: usize> SafeZero for [T; N] {}
 //TODO: double check this is valid
 impl<T: SafeZero> SafeZero for Option<T> {}
+impl<T> SafeZero for MaybeUninit<T> {}
 
 pub(crate) fn calloc<T: SafeZero>(size: usize) -> Box<[T]> {
     let res = Box::new_zeroed_slice(size);

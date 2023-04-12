@@ -1,5 +1,5 @@
+#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten, box_into_inner, allocator_api, maybe_uninit_slice, anonymous_lifetime_in_impl_trait)]
 #![allow(non_snake_case)]
-#![feature(box_syntax, int_roundings, new_uninit, unwrap_infallible, vec_into_raw_parts, const_trait_impl, slice_flatten, box_into_inner, allocator_api)]
 mod apriltag_math;
 pub mod families;
 mod detector;

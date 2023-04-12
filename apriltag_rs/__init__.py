@@ -6,7 +6,16 @@ class Detection:
     pass
 
 class Detector:
-    def __init__(self, *, families: Optional[Sequence[str]] = None, nthreads: Optional[int] = None, quad_decimate: Optional[float] = None, quad_sigma: Optional[float] = None, refine_edges: Optional[bool] = None, decode_sharpening: Optional[float] = None, debug: Optional[bool] = None, camera_params: Optional[Sequence] = None):
+    def __init__(self, *,
+            families: Optional[Sequence[str]] = None,
+            nthreads: Optional[int] = None,
+            quad_decimate: Optional[float] = None,
+            quad_sigma: Optional[float] = None,
+            refine_edges: Optional[bool] = None,
+            decode_sharpening: Optional[float] = None,
+            debug: Optional[bool] = None,
+            camera_params: Optional[Sequence[float]] = None
+    ):
         self._inner = raw.Detector(
             families=families,
             nthreads=nthreads,
@@ -67,7 +76,7 @@ class Detector:
     def debug(self, value: bool):
         self._inner.debug = value
     
-    def detect(self, image) -> Sequence[Detection]:
+    def detect(self, image: np.NDArray[np.uint8]) -> Sequence[Detection]:
         assert len(image.shape) == 2
         assert image.dtype == np.uint8
-        
+        self._inner.detect(image)

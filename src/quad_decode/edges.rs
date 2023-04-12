@@ -1,11 +1,11 @@
 use arrayvec::ArrayVec;
 
-use crate::{detector::AprilTagParams, util::{Image, math::Vec2, geom::Point2D}};
+use crate::{detector::AprilTagParams, util::{Image, math::Vec2, geom::Point2D, image::Luma}};
 
 use super::Quad;
 
 impl Quad {
-    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &Image) {
+    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &impl Image<Luma<u8>>) {
         let lines = {
             let mut lines = ArrayVec::<(Vec2, Vec2), 4>::new(); // for each line, [E,n]
 
@@ -75,14 +75,14 @@ impl Quad {
                         let p1 = &p0 + &(pn * (n + grange));
                         let x1 = p1.x() as isize;
                         let y1 = p1.y() as isize;
-                        if x1 < 0 || x1 as usize >= im_orig.width || y1 < 0 || y1 as usize >= im_orig.height {
+                        if x1 < 0 || x1 as usize >= im_orig.width() || y1 < 0 || y1 as usize >= im_orig.height() {
                             continue;
                         }
 
                         let p2 = &p0 + &(pn * (n - grange));
                         let x2 = p2.x() as isize;
                         let y2 = p2.y() as isize;
-                        if x2 < 0 || x2 as usize >= im_orig.width || y2 < 0 || y2 as usize >= im_orig.height {
+                        if x2 < 0 || x2 as usize >= im_orig.width() || y2 < 0 || y2 as usize >= im_orig.height() {
                             continue;
                         }
 

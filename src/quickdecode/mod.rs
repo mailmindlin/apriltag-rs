@@ -1,7 +1,7 @@
 mod table;
-use std::{alloc::AllocError, mem::MaybeUninit, sync::Arc};
+use std::{alloc::AllocError, sync::Arc};
 
-use datasize::{data_size, DataSize};
+use datasize::{DataSize};
 
 use crate::families::AprilTagFamily;
 
@@ -83,7 +83,7 @@ fn rotate90(w: u64, numBits: u64) -> u64 {
 
 	wr*/
 
-	/// Odd/even
+	// Odd/even
     let (p, l) = if numBits % 4 == 1 {
 		(numBits - 1, 1)
 	} else {
@@ -114,7 +114,7 @@ impl QuickDecode {
 		if family.codes.len() >= Self::NUM_CODES_MAX {
 			return Err(AddFamilyError::TooManyCodes(family.codes.len()));
 		}
-        if max_hamming >= Self::HAMMING_MAX {
+        if max_hamming > Self::HAMMING_MAX {
             return Err(AddFamilyError::BigHamming(max_hamming));
         }
 	

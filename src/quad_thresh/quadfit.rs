@@ -1,7 +1,6 @@
 use std::collections::BinaryHeap;
-use rayon::prelude::*;
 
-use crate::{util::{Image, mem::calloc, geom::Point2D}, ApriltagDetector, quad_decode::Quad};
+use crate::{util::{Image, mem::calloc, geom::Point2D, image::Luma}, ApriltagDetector, quad_decode::Quad};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self, LineFitData}, ApriltagQuadThreshParams};
 
@@ -45,6 +44,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
     // can't fit a quad if there are too few points.
     if ksz < 2 {
+        println!("\tIgnored (too few points)");
         return None;
     }
 
@@ -56,7 +56,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
     }
 
     // apply a low-pass filter to errs
-    if true {
+    if false {
         // how much filter to apply?
 
         // XXX Tunable
@@ -80,8 +80,8 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
         // we have fsz = 17.
         let mut f = calloc::<f32>(fsz as usize);
         for i in 0..fsz {
-            let j = (i - fsz / 2);
-            f[i as usize] = f64::exp((-j*j) as f64/ double_sigma_sq) as f32;
+            let j = i - fsz / 2;
+            f[i as usize] = f64::exp((-j*j) as f64 / double_sigma_sq) as f32;
         }
 
         let mut y = calloc::<f64>(sz);
@@ -95,29 +95,29 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
             y[iy] = acc;
         }
 
-        errs.copy_from_slice(&y);
+        errs = y;
     }
 
-    let mut maxima = Vec::<(usize, f64)>::new();
-    // let mut maxima: [usize; sz];
-    // let mut maxima_errs: [f64; sz];
-    // let mut nmaxima = 0;
-
-    for i in 0..sz {
-        if errs[i] > errs[(i+1)%sz] && errs[i] > errs[(i+sz-1)%sz] {
-            maxima.push((i, errs[i]));
-        }
-    }
+    let mut maxima = errs
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(i, err)| {
+            let prev = errs[(i + sz - 1) % errs.len()];
+            let next = errs[(i + 1) % errs.len()];
+            *err > next && *err > prev
+        })
+        .collect::<Vec<_>>();
+    std::mem::drop(errs);
 
     // if we didn't get at least 4 maxima, we can't fit a quad.
     if maxima.len() < 4 {
+        println!("\tIgnored (need 4 maxima, had {})", maxima.len());
         return None;
     }
 
     // select only the best maxima if we have too many
-    let max_nmaxima = qtp.max_nmaxima;
-
-    if maxima.len() > (max_nmaxima as usize) {
+    if maxima.len() > (qtp.max_nmaxima as usize) {
         let mut maxima_errs_copy = maxima
             .iter()
             .map(|(_maximum, err)| *err)
@@ -126,7 +126,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
         // throw out all but the best handful of maxima. Sorts descending.
         maxima_errs_copy.sort_by(|a, b| f64::total_cmp(a, b).reverse());
 
-        let maxima_thresh = maxima_errs_copy[max_nmaxima as usize];
+        let maxima_thresh = maxima_errs_copy[qtp.max_nmaxima as usize];
 
         maxima = maxima
             .into_iter()
@@ -140,6 +140,8 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
     // disallow quads where the angle is less than a critical value.
     let max_dot = qtp.cos_critical_rad; //25*M_PI/180);
 
+    println!("\t{} maxima", maxima.len());
+
     for m0 in 0..(maxima.len() - 3) {
         let (i0, _i0_err) = maxima[m0];
 
@@ -149,6 +151,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
             let line01 = fit_line(lfps, i0, i1);
 
             if line01.mse > qtp.max_line_fit_mse as f64 {
+                // println!("\tBad mse01 {} {}", m0, m1);
                 continue;
             }
 
@@ -157,6 +160,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                 let line12 = fit_line(lfps, i1, i2);
                 if line12.mse > qtp.max_line_fit_mse as f64 {
+                    // println!("\tBad mse12 {} {}", m1, m2);
                     continue;
                 }
 
@@ -170,11 +174,13 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                     let line23 = fit_line(lfps, i2, i3);
                     if line23.mse > qtp.max_line_fit_mse as f64 {
+                        // println!("\tBad mse23 {} {}", m2, m3);
                         continue;
                     }
 
                     let line30 = fit_line(lfps, i3, i0);
                     if line30.mse > qtp.max_line_fit_mse as f64 {
+                        // println!("\tBad mse30 {} {}", m3, m0);
                         continue;
                     }
 
@@ -192,10 +198,12 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
     }
 
     if best_error == f64::INFINITY {
+        println!("\tIgnored (inf maxima error)");
         return None;
     }
 
     if best_error / (sz as f64) >= qtp.max_line_fit_mse as f64 {
+        println!("\tIgnored (failed max_line_fit_mse)");
         return None;
     }
     Some(best_indices)
@@ -329,7 +337,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 
 /// Compute statistics that allow line fit queries to be
 /// efficiently computed for any contiguous range of indices.
-fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
+fn compute_lfps(cluster: &[Pt], im: &impl Image<Luma<u8>>) -> Vec<LineFitPoint> {
     let mut lfps = Vec::with_capacity(cluster.len());
 
     let default = LineFitPoint::default();
@@ -346,7 +354,7 @@ fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
             let iy = y as usize;
             let mut W = 1.;
 
-            if ix > 0 && ix+1 < im.width && iy > 0 && iy+1 < im.height {
+            if ix > 0 && ix+1 < im.width() && iy > 0 && iy+1 < im.height() {
                 let grad_x = ((im[(ix + 1, iy)] as i32) - (im[(ix - 1, iy)] as i32)) as f64;
                 let grad_y = ((im[(ix, iy + 1)] as i32) - (im[(ix, iy - 1)] as i32)) as f64;
 
@@ -369,9 +377,10 @@ fn compute_lfps(cluster: &[Pt], im: &Image) -> Vec<LineFitPoint> {
     lfps
 }
 
-// return 1 if the quad looks okay, 0 if it should be discarded
-fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width: usize, normal_border: bool, reversed_border: bool) -> Option<Quad> {
+/// Return the quad if it's ok
+fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<Pt>, tag_width: usize, normal_border: bool, reversed_border: bool) -> Option<Quad> {
     if cluster.len() < 24 {// Synchronize with later check.
+        println!("\tIgnored (min size)");
         return None;
     }
 
@@ -403,6 +412,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         }
 
         if ((xmax - xmin) as usize) * ((ymax - ymin) as usize) < tag_width {
+            println!("\tIgnored (min size)");
             return None;
         }
 
@@ -447,16 +457,18 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
     // Ensure that the black border is inside the white border.
     let q_reversed_border = dot < 0.;
     if !reversed_border && q_reversed_border {
+        println!("\tIgnored (border)");
         return None;
     }
     if !normal_border && !q_reversed_border {
+        println!("\tIgnored (border2)");
         return None;
     }
 
     // we now sort the points according to theta. This is a prepatory
     // step for segmenting them into four lines.
     if true {
-        ptsort(cluster);
+        ptsort(&mut cluster);
 
         // remove duplicate points. (A byproduct of our segmentation system.)
         if true {
@@ -465,15 +477,22 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
     }
 
     if cluster.len() < 24 {
+        println!("\tIgnored (small2)");
         return None;
     }
 
-    let lfps = compute_lfps(cluster, im);
+    let lfps = compute_lfps(&mut cluster, im);
 
     let indices = if true {
-        quad_segment_maxima(&td.qtp, cluster, &lfps)?
+        match quad_segment_maxima(&td.qtp, &mut cluster, &lfps) {
+            Some(idxs) => idxs,
+            None => {
+                println!("\tIgnored (maxima)");
+                return None;
+            }
+        }
     } else {
-        quad_segment_agg(cluster, &lfps)?
+        quad_segment_agg(&mut cluster, &lfps)?
     };
 
 
@@ -486,6 +505,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         lines[i] = line.lineparm;
 
         if line.err > td.qtp.max_line_fit_mse as f64 {
+            println!("\tIgnored (error)");
             return None;
         }
     }
@@ -518,6 +538,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         let W00 = A11 / det;
         let W01 = -A01 / det;
         if det.abs() < 0.001 {
+            println!("\tIgnored (corner)");
             return None;
         }
 
@@ -570,6 +591,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
         }
 
         if area < (tag_width as f64)*(tag_width as f64) {
+            println!("\tIgnored (size3)");
             return None;
         }
     }
@@ -586,10 +608,13 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut Vec<Pt>, tag_width:
             let cos_dtheta = d1.dot(&d2) / f64::sqrt(d1.dot(&d1) * d2.dot(&d2));
 
             if (cos_dtheta > td.qtp.cos_critical_rad as f64 || cos_dtheta < -td.qtp.cos_critical_rad as f64) || (d1.x() * d2.y() < d1.y() * d2.x()) {
+                println!("\tIgnored (angle)");
                 return None;
             }
         }
     }
+
+    println!("good");
     Some(Quad {
         reversed_border: q_reversed_border,
         corners,
@@ -931,40 +956,34 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut [pt], tag_width: us
     return res;
 }
 */
-pub(super) fn fit_quads(td: &ApriltagDetector, mut clusters: Vec<Vec<Pt>>, im: &Image) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &ApriltagDetector, clusters: Vec<Vec<Pt>>, im: &impl Image<Luma<u8>>) -> Vec<Quad> {
     let mut normal_border = false;
     let mut reversed_border = false;
-    let mut min_tag_width = 1000000;
-    for (family, _) in td.tag_families.iter() {
-        min_tag_width = std::cmp::min(min_tag_width, family.width_at_border);
+    let min_tag_width = {
+        let mut min_tag_width = 1_000_000;
+        for qd in td.tag_families.iter() {
+            min_tag_width = std::cmp::min(min_tag_width, qd.family.width_at_border);
+    
+            normal_border |= !qd.family.reversed_border;
+            reversed_border |= qd.family.reversed_border;
+        }
+        std::cmp::max((min_tag_width as f32 / td.params.quad_decimate) as usize, 3)
+    };
+    println!("min_tag_width={}", min_tag_width);
 
-        normal_border |= !family.reversed_border;
-        reversed_border |= family.reversed_border;
-    }
-    let min_tag_width = std::cmp::max((min_tag_width as f32 / td.params.quad_decimate) as usize, 3);
+    let min_cluster_pixels = td.qtp.min_cluster_pixels as usize;
+    // a cluster should contain only boundary points around the
+    // tag. it cannot be bigger than the whole screen. (Reject
+    // large connected blobs that will be prohibitively slow to
+    // fit quads to.) A typical point along an edge is added three
+    // times (because it has 3 neighbors). The maximum perimeter
+    // is 2w+2h.
+    let max_cluster_pixels = 3*(2*im.width()+2*im.height());
 
-    // let chunksize = 1 + clusters.len() / (APRILTAG_TASKS_PER_THREAD_TARGET * td.params.nthreads);
-
-    let quads = clusters
-        .par_iter_mut()
-        .filter(|cluster| {
-            if cluster.len() < td.qtp.min_cluster_pixels as usize {
-                return false;
-            }
-            // a cluster should contain only boundary points around the
-            // tag. it cannot be bigger than the whole screen. (Reject
-            // large connected blobs that will be prohibitively slow to
-            // fit quads to.) A typical point along an edge is added three
-            // times (because it has 3 neighbors). The maximum perimeter
-            // is 2w+2h.
-            if cluster.len() > 3*(2*im.width+2*im.height) {
-                return false;
-            }
-            true
-        })
-        .filter_map(|cluster| {
-            fit_quad(td, im, cluster, min_tag_width, normal_border, reversed_border)
-        })
-        .collect::<Vec<_>>();
-    quads
+    clusters
+        .into_iter()
+        .filter(|cluster|
+            min_cluster_pixels <= cluster.len() && cluster.len() <= max_cluster_pixels)
+        .filter_map(|cluster| fit_quad(td, im, cluster, min_tag_width, normal_border, reversed_border))
+        .collect::<Vec<_>>()
 }

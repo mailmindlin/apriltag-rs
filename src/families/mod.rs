@@ -1,6 +1,6 @@
 use std::{sync::Arc, borrow::Cow};
 
-use crate::util::Image;
+use crate::util::image::{ImageBuffer, Luma, ImageY8};
 
 
 mod tag16h5;
@@ -50,7 +50,7 @@ impl AprilTagFamily {
         //TODO: cache references
         Some(Arc::new(res))
     }
-    pub fn to_image(&self, idx: usize) -> Image {
+    pub fn to_image(&self, idx: usize) -> ImageBuffer<Luma<u8>> {
         // assert!(idx >= 0 && idx < self.codes.len());
     
         // let code = self.codes[idx];
@@ -83,7 +83,7 @@ impl AprilTagFamily {
 
         let code = self.codes[idx];
 
-        let mut im = Image::<u8>::create(self.total_width as usize, self.total_width as usize);
+        let mut im = ImageY8::zeroed(self.total_width as usize, self.total_width as usize);
 
         let white_border_width = self.width_at_border as usize + if self.reversed_border { 0 } else { 2 };
         let white_border_start = (self.total_width as usize - white_border_width)/2;

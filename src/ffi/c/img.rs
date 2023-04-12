@@ -1,8 +1,8 @@
 use std::{ops::Deref, mem::ManuallyDrop, slice};
 
-use libc::{c_uint};
+use libc::c_uint;
 
-use crate::util::Image;
+use crate::util::image::{ImageBuffer, Luma, HasDimensions, ImageY8};
 
 use super::{drop_boxed_mut, drop_array_mut};
 
@@ -21,14 +21,19 @@ impl Drop for image_u8_t {
     }
 }
 
-impl From<Image<u8>> for image_u8_t {
-    fn from(value: Image<u8>) -> Self {
+impl From<ImageBuffer<Luma<u8>>> for image_u8_t {
+    fn from(value: ImageBuffer<Luma<u8>>) -> Self {
+        let width = value.width() as i32;
+        let height = value.height() as i32;
+        let stride = value.stride() as i32;
+        
         let (buf, len, cap) = value.buf.into_vec().into_raw_parts();
-        assert_eq!(len, cap);
+        assert_eq!(len, cap, "Vector not compact");
+
         Self {
-            width: value.width as i32,
-            height: value.height as i32,
-            stride: value.stride as i32,
+            width,
+            height,
+            stride,
             buf,
         }
     }
@@ -36,7 +41,7 @@ impl From<Image<u8>> for image_u8_t {
 
 impl image_u8_t {
     pub(super) fn pretend_ref<'a>(&'a self) -> FakeImageGuard<'a> {
-        let mut pretend = ManuallyDrop::new(Image::<u8>::create(self.width as usize, self.height as usize));
+        let mut pretend = ManuallyDrop::new(ImageY8::zeroed(self.width as usize, self.height as usize));
         let buf_ptr = unsafe { slice::from_raw_parts_mut(self.buf, pretend.len()) };
         pretend.buf = unsafe { Box::from_raw(buf_ptr as *mut _) };
         FakeImageGuard {
@@ -48,7 +53,7 @@ impl image_u8_t {
 
 pub(super) struct FakeImageGuard<'a> {
     raw: &'a image_u8_t,
-    pretend: ManuallyDrop<Image<u8>>,
+    pretend: ManuallyDrop<ImageBuffer<Luma<u8>>>,
 }
 
 impl<'a> Drop for FakeImageGuard<'a> {
@@ -63,7 +68,7 @@ impl<'a> Drop for FakeImageGuard<'a> {
 }
 
 impl<'a> Deref for FakeImageGuard<'a> {
-    type Target = Image<u8>;
+    type Target = ImageBuffer<Luma<u8>>;
 
     fn deref(&self) -> &Self::Target {
         &self.pretend
@@ -74,7 +79,7 @@ impl<'a> Deref for FakeImageGuard<'a> {
 pub unsafe extern "C" fn image_u8_create(width: c_uint, height: c_uint) -> *mut image_u8_t {
     let width = width as usize;
     let height = height as usize;
-    let img = Image::<u8>::create(width, height);
+    let img = ImageY8::zeroed(width, height);
     
     Box::into_raw(box image_u8_t::from(img))
 }

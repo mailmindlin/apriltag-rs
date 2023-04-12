@@ -2,7 +2,7 @@ use std::{mem, sync::RwLock};
 
 use jni::{JNIEnv, sys::{jlong, jint, jboolean, jdouble, JNI_TRUE}, objects::{JClass, JString}};
 
-use crate::{detector::ApriltagDetector, families::AprilTagFamily};
+use crate::{detector::ApriltagDetector, families::AprilTagFamily, quickdecode::AddFamilyError};
 
 mod util;
 
@@ -80,9 +80,15 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_addFamily<'lo
                 .ok_or_else(|| JavaError::IllegalArgumentException(format!("Unknown AprilTag family: {}", family_name)))?
         };
 
-        detector.add_family_bits(family, bits_corrected as usize);
-
-        Ok(())
+        match detector.add_family_bits(family, bits_corrected as usize) {
+            Ok(()) => Ok(()),
+            Err(AddFamilyError::TooManyCodes(num_codes)) =>
+                Err(JavaError::IllegalArgumentException(format!("Too many codes ({}, max 2**16) in AprilTag family", num_codes))),
+            Err(AddFamilyError::BigHamming(hamming)) =>
+                Err(JavaError::IllegalArgumentException(format!("Hamming out of bounds (actual: {}, expected: 0..3)", hamming))),
+            Err(AddFamilyError::QuickDecodeAllocation(e)) =>
+                Err(JavaError::Exception(format!("Unable to allocate memory for AprilTag family: {}", e))),
+        }
     })
 }
 

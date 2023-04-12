@@ -1,179 +1,114 @@
 use arrayvec::ArrayVec;
 
-use crate::util::{TimeProfile, Image, mem::calloc};
+use crate::util::{TimeProfile, Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, HasDimensions, Pixel, ImageMut}};
 
 use super::ApriltagQuadThreshParams;
 
-pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im: &Image) -> Image {
-    let w = im.width;
-    let h = im.height;
-    assert!(w < 32768);
-    assert!(h < 32768);
-
-    let mut threshim = Image::<u8>::create_alignment(im.width, im.height, im.stride);
-    assert_eq!(threshim.stride, im.stride);
-
-    // The idea is to find the maximum and minimum values in a
-    // window around each pixel. If it's a contrast-free region
-    // (max-min is small), don't try to binarize. Otherwise,
-    // threshold according to (max+min)/2.
-    //
-    // Mark low-contrast regions with value 127 so that we can skip
-    // future work on these areas too.
-
-    // however, computing max/min around every pixel is needlessly
-    // expensive. We compute max/min for tiles. To avoid artifacts
-    // that arise when high-contrast features appear near a tile
-    // edge (and thus moving from one tile to another results in a
-    // large change in max/min value), the max/min values used for
-    // any pixel are computed from all 3x3 surrounding tiles. Thus,
-    // the max/min sampling area for nearby pixels overlap by at least
-    // one tile.
-    //
-    // The important thing is that the windows be large enough to
-    // capture edge transitions; the tag does not need to fit into
-    // a tile.
-
-    // XXX Tunable. Generally, small tile sizes--- so long as they're
-    // large enough to span a single tag edge--- seem to be a winner.
-    let tilesz = 4;
-
+fn tile_minmax<const KW: usize>(im: &impl Image<Luma<u8>>) -> ImageBuffer<[u8; 2]> {
     // the last (possibly partial) tiles along each row and column will
     // just use the min/max value from the last full tile.
-    let tw = w / tilesz;
-    let th = h / tilesz;
+    let tw = im.width().div_floor(KW);
+    let th = im.height().div_floor(KW);
 
-    let mut im_max = calloc::<u8>(tw * th);
-    let mut im_min = calloc::<u8>(tw * th);
+    let mut result = ImageBuffer::<[u8; 2]>::new_packed(tw, th);
 
-    // first, collect min/max statistics for each tile
-    for ty in 0..th {
-        for tx in 0..tw {
-            let mut max = u8::MIN;
-            let mut min = u8::MAX;
+    for ((tx, ty), dst) in result.enumerate_pixels_mut() {
+        let base_y = ty * KW;
+        let base_x = tx * KW;
+        let mut max = u8::MIN;
+        let mut min = u8::MAX;
 
-            for dy in 0..tilesz {
-                for dx in 0..tilesz {
-                    let v = im[(tx * tilesz + dx, ty * tilesz + dy)];
-                    if v < min {
-                        min = v;
-                    }
-                    if v > max {
-                        max = v;
-                    }
+        for dy in 0..KW {
+            for dx in 0..KW {
+                let v = im[(base_x + dx, base_y + dy)];
+                if v < min {
+                    min = v;
                 }
-            }
-
-            im_max[ty*tw+tx] = max;
-            im_min[ty*tw+tx] = min;
-        }
-    }
-
-    // second, apply 3x3 max/min convolution to "blur" these values
-    // over larger areas. This reduces artifacts due to abrupt changes
-    // in the threshold value.
-    if true {
-        let mut im_max_tmp = Image::<u8>::create_stride(tw, th, tw);
-        let mut im_min_tmp = Image::<u8>::create_stride(tw, th, tw);
-
-        for ty in 0..th {
-            for tx in 0..tw {
-                let mut max = u8::MIN;
-                let mut min = u8::MAX;
-
-                for dy in -1isize..=1isize {
-                    let y = ty as isize + dy;
-                    if y < 0 {
-                        continue;
-                    }
-                    let y = y as usize;
-                    if y >= th {
-                        continue;
-                    }
-
-                    for dx in -1isize..=1isize {
-                        let x = tx as isize + dx;
-                        if x < 0 {
-                            continue;
-                        }
-                        let x = x as usize;
-                        if x >= tw {
-                            continue;
-                        }
-
-                        max = std::cmp::max(max, im_max[y*tw+x]);
-                        min = std::cmp::min(min, im_min[y*tw+x]);
-                    }
+                if v > max {
+                    max = v;
                 }
-                im_max_tmp[(tx, ty)] = max;
-                im_min_tmp[(tx, ty)] = min;
             }
         }
-        im_max = im_max_tmp.buf;
-        im_min = im_min_tmp.buf;
+        *dst = [min, max];
+    }
+    result
+}
+
+fn blur(im_minmax: impl Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
+    let mut im_dst = ImageBuffer::<[u8; 2]>::new_packed(im_minmax.width(), im_minmax.height());
+    for ((x, y), dst) in im_dst.enumerate_pixels_mut() {
+        let mut min = u8::MIN;
+        let mut max = u8::MAX;
+        for &[v_min, v_max] in im_minmax.window1(x, y, 1, 1).pixels() {
+            if v_min < min {
+                min = v_min;
+            }
+            if v_max > max {
+                max = v_max;
+            }
+        }
+        *dst = [min, max]
     }
 
-    for ty in 0..th {
-        for tx in 0..tw {
-            let min = im_min[ty*tw + tx];
-            let max = im_max[ty*tw + tx];
+    im_dst
+}
 
-            // low contrast region? (no edges)
-            if max - min < qtp.min_white_black_diff {
-                for dy in 0..tilesz {
-                    let y = ty*tilesz + dy;
+fn build_threshim<'x, const TILESZ: usize>(im: &impl Image<Luma<u8>>, im_minmax: &'x impl Image<'x, [u8; 2]>, qtp: &ApriltagQuadThreshParams) -> ImageY8 {
+    let mut threshim = ImageY8::zeroed(im.width(), im.height());
+    for ((tx, ty), [min, max]) in im_minmax.enumerate_pixels() {
+        // low contrast region? (no edges)
+        if max - min < qtp.min_white_black_diff {
+            for dy in 0..TILESZ {
+                let y = ty*TILESZ + dy;
 
-                    for dx in 0..tilesz {
-                        let x = tx*tilesz + dx;
+                for dx in 0..TILESZ {
+                    let x = tx*TILESZ + dx;
 
-                        threshim[(x, y)] = 127;
-                    }
+                    threshim[(x, y)] = 127;
                 }
-                continue;
             }
+            continue;
+        }
 
-            // otherwise, actually threshold this tile.
+        // otherwise, actually threshold this tile.
 
-            // argument for biasing towards dark; specular highlights
-            // can be substantially brighter than white tag parts
-            let thresh = min + (max - min) / 2;
+        // argument for biasing towards dark; specular highlights
+        // can be substantially brighter than white tag parts
+        let thresh = min + (max - min) / 2;
 
-            for dy in 0..tilesz {
-                let y = ty*tilesz + dy;
+        for dy in 0..TILESZ {
+            let y = ty*TILESZ + dy;
 
-                for dx in 0..tilesz {
-                    let x = tx*tilesz + dx;
+            for dx in 0..TILESZ {
+                let x = tx*TILESZ + dx;
 
-                    let v = im[(x,y)];
-                    threshim[(x, y)] = if v > thresh { 255 } else { 0 };
-                }
+                let v = im[(x,y)];
+                threshim[(x, y)] = if v > thresh { 255 } else { 0 };
             }
         }
     }
 
     // we skipped over the non-full-sized tiles above. Fix those now.
     if true {
-        for y in 0..h {
+        let th = im_minmax.height();
+        let tw = im_minmax.width();
+        for y in 0..im.height() {
 
             // what is the first x coordinate we need to process in this row?
 
-            let x0 = if y >= th*tilesz {
+            let x0 = if y >= th*TILESZ {
                 0 // we're at the bottom; do the whole row.
             } else {
-                tw*tilesz // we only need to do the right most part.
+                tw*TILESZ // we only need to do the right most part.
             };
 
             // compute tile coordinates and clamp.
-            let ty = std::cmp::min(y / tilesz, th - 1);
+            let ty = std::cmp::min(y / TILESZ, th - 1);
             
-            for x in x0..w {
-                let mut tx = x / tilesz;
-                if tx >= tw {
-                    tx = tw - 1;
-                }
+            for x in x0..im.width() {
+                let tx = std::cmp::min(x / TILESZ, tw - 1);
 
-                let max = im_max[ty*tw + tx];
-                let min = im_min[ty*tw + tx];
+                let [min, max] = im_minmax[(tx, ty)];
                 let thresh = min + (max - min) / 2;
 
                 let v = im[(x, y)];
@@ -182,23 +117,68 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
         }
     }
 
-    std::mem::drop(im_min);
-    std::mem::drop(im_max);
+    threshim
+}
+
+/// The idea is to find the maximum and minimum values in a
+/// window around each pixel. If it's a contrast-free region
+/// (max-min is small), don't try to binarize. Otherwise,
+/// threshold according to (max+min)/2.
+///
+/// Mark low-contrast regions with value 127 so that we can skip
+/// future work on these areas too.
+/// 
+/// however, computing max/min around every pixel is needlessly
+/// expensive. We compute max/min for tiles. To avoid artifacts
+/// that arise when high-contrast features appear near a tile
+/// edge (and thus moving from one tile to another results in a
+/// large change in max/min value), the max/min values used for
+/// any pixel are computed from all 3x3 surrounding tiles. Thus,
+/// the max/min sampling area for nearby pixels overlap by at least
+/// one tile.
+///
+/// The important thing is that the windows be large enough to
+/// capture edge transitions; the tag does not need to fit into
+/// a tile.
+pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im: &impl Image<Luma<u8>>) -> ImageBuffer<Luma<u8>> {
+    let w = im.width();
+    let h = im.height();
+    assert!(w < 32768);
+    assert!(h < 32768);
+
+    // first, collect min/max statistics for each tile
+
+    /// XXX Tunable. Generally, small tile sizee -- so long as they're
+    /// large enough to span a single tag edge -- seem to be a winner.
+    const TILESZ: usize = 4;
+
+    let im_minmax = tile_minmax::<TILESZ>(im);
+
+    // second, apply 3x3 max/min convolution to "blur" these values
+    // over larger areas. This reduces artifacts due to abrupt changes
+    // in the threshold value.
+    let im_minmax = if true {
+        blur(im_minmax)
+    } else {
+        im_minmax
+    };
+
+    let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp);
+    std::mem::drop(im_minmax);
 
     // this is a dilate/erode deglitching scheme that does not improve
     // anything as far as I can tell.
-    if false || qtp.deglitch {
-        let mut tmp = Image::<u8>::create(w, h);
+    if qtp.deglitch {
+        let mut tmp = ImageY8::new_packed(w, h);
 
         for y in 1..(h - 1) {
             for x in 1..(w - 1) {
                 let mut max = 0;
-                for dy in (-1isize)..=(1isize) {
-                    for dx in (-1isize)..=(1isize) {
-                        let v = tmp[((x as isize + dx) as usize, (y as isize + dy) as usize)];
-                        if v > max {
-                            max = v;
-                        }
+                let slice = threshim.window1(x, y, 1, 1);
+                for v in slice.pixels() {
+                    let v = v.to_value();
+                    if v > max {
+                        max = v;
                     }
                 }
                 tmp[(x, y)] = max;
@@ -229,13 +209,13 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
 // basically the same as threshold(), but assumes the input image is a
 // bayer image. It collects statistics separately for each 2x2 block
 // of pixels. NOT WELL TESTED.
-pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &Image) -> Image {
-    let w = im.width;
-    let h = im.height;
-    let s = im.stride;
+pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &impl Image<Luma<u8>>) -> ImageY8 {
+    let w = im.width();
+    let h = im.height();
+    let s = im.stride();
 
-    let mut threshim = Image::<u8>::create_alignment(w, h, s);
-    assert_eq!(threshim.stride, s);
+    let mut threshim = ImageY8::with_alignment(w, h, s);
+    assert_eq!(threshim.stride(), s);
 
     let tilesz = 32;
     assert_eq!(tilesz & 1, 0); // must be multiple of 2

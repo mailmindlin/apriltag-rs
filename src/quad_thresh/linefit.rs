@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::util::mem::SafeZero;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) struct Pt {
     // Note: these represent 2*actual value.
     pub x: u16,
@@ -16,13 +16,16 @@ pub(super) struct Pt {
 impl SafeZero for Pt {}
 
 impl Pt {
-    fn compare_angle(&self, rhs: &Pt) -> Ordering {
+    pub(crate) fn compare_angle(&self, rhs: &Pt) -> Ordering {
         f32::total_cmp(&self.slope, &rhs.slope)
     }
 }
 
 #[inline]
 pub(super) fn ptsort(pts: &mut [Pt]) {
+    //TODO: speed test
+    pts.sort_by(Pt::compare_angle);
+    return;
     #[inline(always)]
     fn MAYBE_SWAP(arr: &mut [Pt], apos: usize, bpos: usize) {
         if Pt::compare_angle(&arr[apos], &arr[bpos]).is_gt() {
@@ -110,8 +113,8 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
     let mut Mx;
     let mut My;
     let mut Mxx;
-    let mut Myy;
     let mut Mxy;
+    let mut Myy;
     let mut W;
     let N; // how many points are included in the set?
 
@@ -150,6 +153,8 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
 
         N = lfps.len() - i0 + i1 + 1;
     }
+
+    // println!("Mx={Mx} My={My} Mxx={Mxx} Mxy={Mxy} Myy={Myy} W={W} N={N}");
 
     assert!(N >= 2);
 

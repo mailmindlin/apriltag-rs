@@ -1,0 +1,48 @@
+loading ./examples/tags.pnm
+image: ./examples/tags.pnm 646x299
+11 gradient clusters
+min_tag_width=3
+fit_quad 1538
+	Dedup from 1538 to 1028
+	Cluster size: 1028
+	10 maxima
+good
+fit_quad 1496
+	Dedup from 1496 to 1021
+	Cluster size: 1021
+	5 maxima
+good
+fit_quad 1417
+	Ignored (border)
+fit_quad 284
+	Ignored (border)
+fit_quad 1591
+	Ignored (border)
+fit_quad 423
+	Dedup from 423 to 285
+	Cluster size: 285
+	8 maxima
+	Ignored (error)
+fit_quad 185
+	Dedup from 185 to 125
+	Cluster size: 125
+	5 maxima
+good
+Found 3 quads
+Has im_samples: true
+Found 0 tags
+ 0 init                         0.000 ms        0.000 ms
+ 1 decimate                     1.750 ms        1.750 ms
+ 2 blur/sharp                   0.000 ms        1.751 ms
+ 3 threshold                    4.083 ms        5.835 ms
+ 4 unionfind                   13.503 ms       19.339 ms
+ 5 make clusters               16.424 ms       35.763 ms
+ 6 fit quads to clusters        2.999 ms       38.763 ms
+ 7 quads                        0.003 ms       38.766 ms
+ 8 decode+refinement           10.999 ms       49.766 ms
+ 9 reconcile                    0.001 ms       49.767 ms
+10 debug output               876.516 ms      926.284 ms
+11 cleanup                      0.004 ms      926.288 ms
+hamm     0     0     0     0     0     0     0     0     0     0        0.926s   3
+Summary
+hamm     0     0     0     0     0     0     0     0     0     0        0.926     3

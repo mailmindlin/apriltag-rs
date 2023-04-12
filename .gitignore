@@ -18,3 +18,5 @@ Cargo.lock
 /build
 *.whl
 /*.egg-info
+*.pnm
+*.ps

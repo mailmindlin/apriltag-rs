@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice, ptr};
 
-use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::geom::Point2D, ffi::c::{drop_array, drop_str}, Image};
+use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::{geom::Point2D, image::ImageY8}, ffi::c::{drop_array, drop_str}};
 use libc::{c_int, c_double, c_void, c_char};
 
 use super::{util::zarray, img::image_u8_t, matd_t, FFIConvertError};
@@ -315,7 +315,7 @@ pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c
     assert!(idx >= 0 && (idx as u32) < fam.ncodes);
     let code = *fam.codes.offset(idx as isize);
 
-    let mut im = Image::<u8>::create(fam.total_width as usize, fam.total_width as usize);
+    let mut im = ImageY8::zeroed(fam.total_width as usize, fam.total_width as usize);
 
     let white_border_width = fam.width_at_border as usize + (if fam.reversed_border { 0 } else { 2 });
     let white_border_start = (fam.total_width as usize - white_border_width)/2;

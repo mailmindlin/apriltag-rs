@@ -1,10 +1,9 @@
-use std::{fs::{File, OpenOptions}, io::Write, cmp::Ordering, sync::{Arc, Mutex}};
+use std::{cmp::Ordering, sync::{Arc, Mutex}};
 
 use rand::thread_rng;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use rayon::prelude::*;
 
-use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript, PostScriptWriter}}, families::AprilTagFamily, quickdecode::{QuickDecode, AddFamilyError}, quad_decode::QuadDecodeInfo, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
+use crate::{util::{TimeProfile, Image, geom::{Point2D, Poly2D}, math::mat::Mat, color::RandomColor, image::{ImageWritePNM, ImageWritePostscript, PostScriptWriter, ImageBuffer, ImageY8, Pixel, ImageMut, HasDimensions, pixel::PixelConvert}}, families::AprilTagFamily, quickdecode::{QuickDecode, AddFamilyError}, quad_decode::{QuadDecodeInfo, Quad}, quad_thresh::{ApriltagQuadThreshParams, apriltag_quad_thresh}};
 
 pub struct AprilTagParams {
 	/// How many threads should be used?
@@ -58,8 +57,14 @@ impl Default for AprilTagParams {
 }
 
 impl AprilTagParams {
-	pub(crate) fn generate_debug_image(&self) -> bool {
+	#[cfg(feature="debug")]
+	pub(crate) const fn generate_debug_image(&self) -> bool {
 		self.debug
+	}
+
+	#[cfg(not(feature="debug"))]
+	pub(crate) const fn generate_debug_image(&self) -> bool {
+		false
 	}
 }
 
@@ -74,7 +79,7 @@ pub struct ApriltagDetector {
 	// Not freed on apriltag_destroy; a tag family can be shared
 	// between multiple users. The user should ultimately destroy the
 	// tag family passed into the constructor.
-	pub(crate) tag_families: Vec<(Arc<AprilTagFamily>, QuickDecode)>,
+	pub(crate) tag_families: Vec<QuickDecode>,
 
 	// Used to manage multi-threading.
 	pub(crate) wp: ThreadPool,
@@ -96,7 +101,7 @@ impl Default for ApriltagDetector {
 impl ApriltagDetector {
 	pub fn remove_family(&mut self, fam: &AprilTagFamily) {
 		// quick_decode_uninit(fam);
-		if let Some(idx) = self.tag_families.iter().position(|(x, _)| x.as_ref() == fam) {
+		if let Some(idx) = self.tag_families.iter().position(|qd| qd.family.as_ref() == fam) {
 			self.tag_families.remove(idx);
 		}
 	}
@@ -105,8 +110,8 @@ impl ApriltagDetector {
 	/// 
 	/// A single instance should only be provided to one apriltag detector instance.
 	pub fn add_family_bits(&mut self, fam: Arc<AprilTagFamily>, bits_corrected: usize) -> Result<(), AddFamilyError> {
-		let qd = QuickDecode::init(&fam, bits_corrected)?;
-		self.tag_families.push((fam, qd));
+		let qd = QuickDecode::init(fam, bits_corrected)?;
+		self.tag_families.push(qd);
 		Ok(())
 	}
 
@@ -114,10 +119,10 @@ impl ApriltagDetector {
 		self.tag_families.clear();
 	}
 
-	pub fn detect(&self, im_orig: &Image) -> DetectionResult {
+	pub fn detect(&self, im_orig: &ImageY8) -> Detections {
 		if self.tag_families.len() == 0 {
 			println!("AprilTag: No tag families enabled.");
-			return DetectionResult::default();
+			return Detections::default();
 		}
 
 		// Statistics relating to last processed frame
@@ -129,6 +134,7 @@ impl ApriltagDetector {
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
 		let mut quad_im = if self.params.quad_decimate > 1. {
+			println!("Decimate value {}", self.params.quad_decimate);
 			let quad_im = im_orig.decimate(self.params.quad_decimate);
 
 			tp.stamp("decimate");
@@ -166,16 +172,13 @@ impl ApriltagDetector {
 					let orig = quad_im.clone();
 					quad_im.gaussian_blur(sigma as f64, ksz);
 
-					for y in 0..orig.height {
-						for x in 0..orig.width {
-							let vorig = orig[(x, y)];
-							let vblur = quad_im[(x, y)];
+					for ((x, y), vorig) in orig.enumerate_pixels() {
+						let vblur = quad_im[(x, y)];
 
-							// Prevent overflow
-							let v = ((vorig as i16) * 2).saturating_sub(vblur as i16);
+						// Prevent overflow
+						let v = ((vorig.to_value() as i16) * 2).saturating_sub(vblur as i16);
 
-							*quad_im.cell_mut(x, y) = v.clamp(0, 255) as u8;
-						}
+						quad_im[(x, y)] = (v.clamp(0, 255) as u8).into();
 					}
 				}
 			}
@@ -188,6 +191,9 @@ impl ApriltagDetector {
 		}
 
 		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
+		std::mem::drop(quad_im);
+
+		println!("Found {} quads", quads.len());
 
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
@@ -198,8 +204,6 @@ impl ApriltagDetector {
 				}
 			}
 		}
-
-		std::mem::drop(quad_im);
 
 		let nquads: u32 = quads.len().try_into().unwrap();
 
@@ -213,7 +217,7 @@ impl ApriltagDetector {
 			let mut rng = thread_rng();
 
 			for quad in quads.iter() {
-				let color = rng.gen_color_gray(100);
+				let color = rng.gen_color_gray(100).into();
 
 				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 				im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
@@ -229,8 +233,10 @@ impl ApriltagDetector {
 		let detections = if true {
 			let im_samples = if self.params.generate_debug_image() { Some(Mutex::new(im_orig.clone())) } else { None };
 
+			println!("Has im_samples: {}", im_samples.is_some());
+
 			let detections = self.wp.install(|| {
-				quads.par_iter_mut()
+				quads.iter_mut()
 					.flat_map(|quad| {
 						quad.decode_task(QuadDecodeInfo {
 							det_params: &self.params,
@@ -242,8 +248,11 @@ impl ApriltagDetector {
 					.collect::<Vec<_>>()
 			});
 
-			if let Some(im_samples) = &mut im_samples {
-				let im_samples = im_samples.get_mut().unwrap();
+			println!("Found {} detections", detections.len());
+
+			#[cfg(feature="debug")]
+			if let Some(im_samples) = im_samples {
+				let im_samples = im_samples.into_inner().unwrap();
 				im_samples.save_to_pnm("debug_samples.pnm").unwrap();
 			}
 			detections
@@ -259,7 +268,7 @@ impl ApriltagDetector {
 			let mut rng = thread_rng();
 
 			for quad in quads.iter() {
-				let color = rng.gen_color_gray(100);
+				let color = rng.gen_color_gray(100).into();
 
 				im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 				im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
@@ -358,108 +367,16 @@ impl ApriltagDetector {
 
 		tp.stamp("reconcile");
 
-		let mut rng = thread_rng();
-
 		////////////////////////////////////////////////////////////////
 		// Produce final debug output
-		if self.params.debug {
-
-			// assume letter, which is 612x792 points.
-			let mut f = File::create("debug_output.ps").unwrap();
-			{
-				let mut darker = im_orig.clone();
-				darker.darken();
-				darker.darken();
-
-				write!(f, "%%!PS\n\n").unwrap();
-				let scale = f32::min(612.0f32 / darker.width as f32, 792.0f32 / darker.height as f32);
-				writeln!(f, "{} {} scale", scale, scale).unwrap();
-				writeln!(f, "0 {} translate", darker.height).unwrap();
-				writeln!(f, "1 -1 scale").unwrap();
-				
-				darker.write_postscript(&mut PostScriptWriter::new(&mut f)).unwrap();
-			}
-
-			for det in detections.iter() {
-				let rgb = rng.gen_color_rgb(100.);
-
-				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255., rgb[1]/255., rgb[2]/255.).unwrap();
-				writeln!(f, "{} {} moveto {} {} lineto {} {} lineto {} {} lineto {} {} lineto stroke",
-						det.corners[0].x(), det.corners[0].y(),
-						det.corners[1].x(), det.corners[1].y(),
-						det.corners[2].x(), det.corners[2].y(),
-						det.corners[3].x(), det.corners[3].y(),
-						det.corners[0].x(), det.corners[0].y()).unwrap();
-			}
-
-			writeln!(f, "showpage").unwrap();
-		}
-
-		if self.params.debug {
-			let mut darker = im_orig.clone();
-			darker.darken();
-			darker.darken();
-
-			let mut out = Image::<[u8;3]>::create(darker.width, darker.height);
-			for y in 0..im_orig.height {
-				for x in 0..im_orig.width {
-					*out.cell_mut(x, y) = [*darker.cell(x, y); 3];
-				}
-			}
-
-			for det in detections.iter() {
-				let rgb = rng.gen_color_rgb(100.);
-
-				for j in 0..4 {
-					let k = (j + 1) & 3;
-					out.draw_line(
-						det.corners[j], det.corners[k],
-						&[rgb[0] as u8, rgb[1] as u8, rgb[2] as u8 ],
-						1);
-				}
-			}
-
-			out.save_to_pnm("debug_output.pnm").unwrap();
-		}
-
-		// deallocate
-		if self.params.debug {
-			let mut f = OpenOptions::new()
-				.create(true)
-				.write(true)
-				.open("debug_quads.ps")
-				.unwrap();
-			write!(f, "%%!PS\n\n").unwrap();
-
-			let mut rng = thread_rng();
-
-			{
-				let mut darker = im_orig.clone();
-				darker.darken();
-				darker.darken();
-
-				// assume letter, which is 612x792 points.
-				let scale = f32::min(612.0f32/darker.width as f32, 792.0f32/darker.height as f32);
-				writeln!(f, "{} {} scale", scale, scale).unwrap();
-				writeln!(f, "0 {} translate", darker.height).unwrap();
-				writeln!(f, "1 -1 scale").unwrap();
-
-				darker.write_postscript(&mut PostScriptWriter::new(&mut f)).unwrap();
-			}
-
-			for q in quads.iter() {
-				let rgb = rng.gen_color_rgb(100f32);
-
-				writeln!(f, "{} {} {} setrgbcolor", rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0).unwrap();
-				write!(f, "{} {} moveto {} {} lineto {} {} lineto {} {} lineto {} {} lineto stroke\n",
-						q.corners[0].x(), q.corners[0].y(),
-						q.corners[1].x(), q.corners[1].y(),
-						q.corners[2].x(), q.corners[2].y(),
-						q.corners[3].x(), q.corners[3].y(),
-						q.corners[0].x(), q.corners[0].y()).unwrap();
-			}
-
-			write!(f, "showpage\n").unwrap();
+		#[cfg(feature="debug")]
+		if self.params.generate_debug_image() {
+			debug_output_ps(im_orig, &detections)
+				.expect("Error generating debug_output.ps");
+			debug_output_pnm(im_orig, &detections)
+				.expect("Error generating debug_output.pnm");
+			debug_quads_ps(im_orig, &quads)
+				.expect("Error generating debug_quads.ps");
 		}
 
 		tp.stamp("debug output");
@@ -470,7 +387,7 @@ impl ApriltagDetector {
 
 		tp.stamp("cleanup");
 
-		DetectionResult {
+		Detections {
 			tp,
 			nquads,
 			detections,
@@ -478,46 +395,144 @@ impl ApriltagDetector {
 	}
 }
 
-// Represents the detection of a tag. These are returned to the user
-// and must be individually destroyed by the user.
+#[cfg(feature="debug")]
+fn debug_output_ps(im_orig: &ImageY8, detections: &[ApriltagDetection]) -> std::io::Result<()> {
+	// assume letter, which is 612x792 points.
+	let mut f = std::fs::File::create("debug_output.ps")?;
+	let mut f = PostScriptWriter::new(&mut f)?;
+	{
+		let mut darker = im_orig.clone();
+		darker.darken();
+		darker.darken();
+
+		let scale = f32::min(612.0f32 / darker.width() as f32, 792.0f32 / darker.height() as f32);
+		f.scale(scale, scale)?;
+		f.translate(0., darker.height() as f32)?;
+		f.scale(1., -1.)?;
+		
+		darker.write_postscript(&mut f)?;
+	}
+
+	let mut rng = thread_rng();
+	for det in detections.iter() {
+		let rgb = rng.gen_color_rgb(100);
+
+		f.setrgbcolor(&rgb)?;
+		f.command(|mut c| {
+			c.moveto(&det.corners[0])?;
+			c.lineto(&det.corners[1])?;
+			c.lineto(&det.corners[2])?;
+			c.lineto(&det.corners[3])?;
+			c.lineto(&det.corners[0])?;
+			c.stroke()
+		})?;
+	}
+
+	f.showpage()
+}
+
+#[cfg(feature="debug")]
+fn debug_output_pnm(im_orig: &ImageY8, detections: &[ApriltagDetection]) -> std::io::Result<()> {
+	let mut darker = im_orig.clone();
+	darker.darken();
+	darker.darken();
+
+	let mut out = darker.map(|p| p.to_rgb());
+
+	let mut rng = thread_rng();
+	for det in detections.iter() {
+		let rgb = rng.gen_color_rgb::<u8>(100);
+
+		for j in 0..4 {
+			let k = (j + 1) & 3;
+			out.draw_line(
+				det.corners[j], det.corners[k],
+				&rgb,
+				1
+			);
+		}
+	}
+
+	out.save_to_pnm("debug_output.pnm")
+}
+
+#[cfg(feature="debug")]
+fn debug_quads_ps(im_orig: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
+	let mut f = std::fs::File::create("debug_quads.ps")?;
+	let mut f = PostScriptWriter::new(&mut f)?;
+	let mut rng = thread_rng();
+
+	{
+		let mut darker = im_orig.clone();
+		darker.darken();
+		darker.darken();
+
+		// assume letter, which is 612x792 points.
+		let scale = f32::min(612.0f32/darker.width() as f32, 792.0f32/darker.height() as f32);
+		f.scale(scale, scale)?;
+		f.translate(0., darker.height() as f32)?;
+		f.scale(1., -1.)?;
+
+		darker.write_postscript(&mut f)?;
+	}
+
+	for q in quads.iter() {
+		let rgb = rng.gen_color_rgb(100);
+
+		f.setrgbcolor(&rgb)?;
+		f.command(|mut c| {
+			c.moveto(&q.corners[0])?;
+			c.lineto(&q.corners[1])?;
+			c.lineto(&q.corners[2])?;
+			c.lineto(&q.corners[3])?;
+			c.lineto(&q.corners[0])?;
+			c.stroke()
+		})?;
+	}
+
+	f.showpage()
+}
+
+/// Represents the detection of a tag. These are returned to the user
+/// and must be individually destroyed by the user.
 pub struct ApriltagDetection {
-	// a pointer for convenience. not freed by apriltag_detection_destroy.
+	/// a pointer for convenience. not freed by apriltag_detection_destroy.
 	pub family: Arc<AprilTagFamily>,
 
-	// The decoded ID of the tag
+	/// The decoded ID of the tag
 	pub id: usize,
 
-	// How many error bits were corrected? Note: accepting large numbers of
-	// corrected errors leads to greatly increased false positive rates.
-	// NOTE: As of this implementation, the detector cannot detect tags with
-	// a hamming distance greater than 2.
+	/// How many error bits were corrected? Note: accepting large numbers of
+	/// corrected errors leads to greatly increased false positive rates.
+	/// NOTE: As of this implementation, the detector cannot detect tags with
+	/// a hamming distance greater than 2.
 	pub hamming: i16,
 
-	// A measure of the quality of the binary decoding process: the
-	// average difference between the intensity of a data bit versus
-	// the decision threshold. Higher numbers roughly indicate better
-	// decodes. This is a reasonable measure of detection accuracy
-	// only for very small tags-- not effective for larger tags (where
-	// we could have sampled anywhere within a bit cell and still
-	// gotten a good detection.)
+	/// A measure of the quality of the binary decoding process: the
+	/// average difference between the intensity of a data bit versus
+	/// the decision threshold. Higher numbers roughly indicate better
+	/// decodes. This is a reasonable measure of detection accuracy
+	/// only for very small tags-- not effective for larger tags (where
+	/// we could have sampled anywhere within a bit cell and still
+	/// gotten a good detection.)
 	pub decision_margin: f32,
 
-	// The 3x3 homography matrix describing the projection from an
-	// "ideal" tag (with corners at (-1,-1), (1,-1), (1,1), and (-1,
-	// 1)) to pixels in the image. This matrix will be freed by
-	// apriltag_detection_destroy.
+	/// The 3x3 homography matrix describing the projection from an
+	/// "ideal" tag (with corners at (-1,-1), (1,-1), (1,1), and (-1,
+	/// 1)) to pixels in the image. This matrix will be freed by
+	/// apriltag_detection_destroy.
 	pub H: Mat,
 
-	// The center of the detection in image pixel coordinates.
+	/// The center of the detection in image pixel coordinates.
 	pub center: Point2D,
 
-	// The corners of the tag in image pixel coordinates. These always
-	// wrap counter-clock wise around the tag.
+	/// The corners of the tag in image pixel coordinates. These always
+	/// wrap counter-clock wise around the tag.
 	pub corners: [Point2D; 4],
 }
 
 #[derive(Default)]
-pub struct DetectionResult {
+pub struct Detections {
 	pub tp: TimeProfile,
 	pub nquads: u32,
 	pub detections: Vec<ApriltagDetection>,

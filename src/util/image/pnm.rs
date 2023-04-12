@@ -2,6 +2,22 @@ use std::{path::Path, io::{self, BufReader, BufRead, Read}, fs::OpenOptions};
 
 use crate::util::mem::calloc;
 
+pub trait ImageWritePNM {
+	/// Save to PNM file
+	fn save_to_pnm(&self, outfile: impl AsRef<Path>) -> io::Result<()> {
+		let mut f = OpenOptions::new()
+			.create(true)
+			.write(true)
+			.open(outfile)?;
+		
+		self.write_pnm(&mut f)
+	}
+
+	/// Write PNM data
+	fn write_pnm(&self, f: &mut impl io::Write) -> io::Result<()>;
+}
+
+
 #[derive(PartialEq, Eq)]
 pub(super) enum PNMFormat {
     Binary = 4,

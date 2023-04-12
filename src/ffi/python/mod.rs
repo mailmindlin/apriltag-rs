@@ -1,7 +1,9 @@
 use std::sync::RwLock;
 
-use cpython::{PyResult, py_class, PyString, PyBool, py_module_initializer, PySequence, exc, PyErr};
-use crate::{ApriltagDetector, ApriltagDetection};
+use cpython::{PyResult, py_class, PyString, PyBool, py_module_initializer, PySequence, exc, PyErr, PyObject, buffer::PyBuffer};
+use crate::{ApriltagDetector, ApriltagDetection, AprilTagFamily as ATFamily, quickdecode::AddFamilyError};
+
+
 
 py_class!(class Detection |py| {
     data detection: ApriltagDetection;
@@ -30,7 +32,7 @@ py_class!(class Detection |py| {
 
 py_class!(class Detector |py| {
     data detector: RwLock<ApriltagDetector>;
-    def __new__(_cls, families: PySequence, nthreads: Option<usize>, quad_decimate: Option<f32>, quad_sigma: Option<f32>, refine_edges: Option<bool>, decode_sharpening: Option<f64>, debug: Option<bool>, camera_params: Option<PySequence>) -> PyResult<Detector> {
+    def __new__(_cls, families: Option<PySequence>, nthreads: Option<usize>, quad_decimate: Option<f32>, quad_sigma: Option<f32>, refine_edges: Option<bool>, decode_sharpening: Option<f64>, debug: Option<bool>, camera_params: Option<PySequence>) -> PyResult<Detector> {
         let mut detector = ApriltagDetector::default();
         if let Some(nthreads) = nthreads {
             detector.params.nthreads = nthreads;
@@ -53,8 +55,15 @@ py_class!(class Detector |py| {
         if let Some(refine_edges) = refine_edges {
             detector.params.refine_edges = refine_edges;
         }
+
+        if let Some(families) = families {
+            for family in families.iter(py)? {
+                let family = family?;
+            }
+        }
         Self::create_instance(py, RwLock::new(detector))
     }
+
 
     @property def nthreads(&self) -> PyResult<usize> {
         let det = self.detector(py).read().unwrap();
@@ -137,6 +146,34 @@ py_class!(class Detector |py| {
         } else {
             Err(PyErr::new::<exc::NotImplementedError, _>(py, "Cannot delete debug"))
         }
+    }
+
+    def add_family(&self, family: PyString, num_bits: Option<usize>) -> PyResult<PyObject> {
+        let num_bits = num_bits.unwrap_or(2);
+        let mut det = self.detector(py).write().unwrap();
+
+        let family_name = family.to_string(py)?;
+        let family = ATFamily::for_name(&family_name)
+            .ok_or_else(|| PyErr::new::<exc::ValueError, _>(py, format!("Unknown AprilTag family: {}", family_name)))?;
+        
+        match det.add_family_bits(family, num_bits) {
+            Ok(_) => Ok(py.None()),
+            Err(AddFamilyError::TooManyCodes(num_codes)) =>
+                Err(PyErr::new::<exc::ValueError, _>(py, format!("Too many codes ({}, max 2**16) in AprilTag family {}", num_codes, family_name))),
+            Err(AddFamilyError::BigHamming(hamming)) =>
+                Err(PyErr::new::<exc::ValueError, _>(py, format!("Too many hamming bits ({}, max 3) when adding AprilTag family {}", hamming, family_name))),
+            Err(AddFamilyError::QuickDecodeAllocation(e)) =>
+                Err(PyErr::new::<exc::ValueError, _>(py, format!("Unable to allocate memory for AprilTag family {}: {}", family_name, e))),
+        }
+    }
+
+    def detect(&self, image: PyObject) -> PyResult<Vec<Detection>> {
+        let img_buf = PyBuffer::get(py, &image)?;
+        if img_buf.dimensions() != 2 {
+            return Err(PyErr::new::<exc::ValueError, _>(py, format!("Expected 2d numpy array")));
+        }
+        println!("img_buf format: {:?}", img_buf.format());
+        Ok(Vec::new())
     }
 });
 
