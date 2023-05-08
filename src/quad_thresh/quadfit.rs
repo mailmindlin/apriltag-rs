@@ -44,6 +44,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
     // can't fit a quad if there are too few points.
     if ksz < 2 {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (too few points)");
         return None;
     }
@@ -112,6 +113,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
     // if we didn't get at least 4 maxima, we can't fit a quad.
     if maxima.len() < 4 {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (need 4 maxima, had {})", maxima.len());
         return None;
     }
@@ -140,6 +142,7 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
     // disallow quads where the angle is less than a critical value.
     let max_dot = qtp.cos_critical_rad; //25*M_PI/180);
 
+    #[cfg(feature="extra_debug")]
     println!("\t{} maxima", maxima.len());
 
     for m0 in 0..(maxima.len() - 3) {
@@ -198,11 +201,13 @@ fn quad_segment_maxima(qtp: &ApriltagQuadThreshParams, cluster: &[Pt], lfps: &[L
     }
 
     if best_error == f64::INFINITY {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (inf maxima error)");
         return None;
     }
 
     if best_error / (sz as f64) >= qtp.max_line_fit_mse as f64 {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (failed max_line_fit_mse)");
         return None;
     }
@@ -380,6 +385,7 @@ fn compute_lfps(cluster: &[Pt], im: &impl Image<Luma<u8>>) -> Vec<LineFitPoint> 
 /// Return the quad if it's ok
 fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<Pt>, tag_width: usize, normal_border: bool, reversed_border: bool) -> Option<Quad> {
     if cluster.len() < 24 {// Synchronize with later check.
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (min size)");
         return None;
     }
@@ -412,6 +418,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         }
 
         if ((xmax - xmin) as usize) * ((ymax - ymin) as usize) < tag_width {
+            #[cfg(feature="extra_debug")]
             println!("\tIgnored (min size)");
             return None;
         }
@@ -457,10 +464,12 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
     // Ensure that the black border is inside the white border.
     let q_reversed_border = dot < 0.;
     if !reversed_border && q_reversed_border {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (border)");
         return None;
     }
     if !normal_border && !q_reversed_border {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (border2)");
         return None;
     }
@@ -477,6 +486,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
     }
 
     if cluster.len() < 24 {
+        #[cfg(feature="extra_debug")]
         println!("\tIgnored (small2)");
         return None;
     }
@@ -487,6 +497,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         match quad_segment_maxima(&td.qtp, &mut cluster, &lfps) {
             Some(idxs) => idxs,
             None => {
+                #[cfg(feature="extra_debug")]
                 println!("\tIgnored (maxima)");
                 return None;
             }
@@ -505,6 +516,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         lines[i] = line.lineparm;
 
         if line.err > td.qtp.max_line_fit_mse as f64 {
+            #[cfg(feature="extra_debug")]
             println!("\tIgnored (error)");
             return None;
         }
@@ -538,6 +550,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         let W00 = A11 / det;
         let W01 = -A01 / det;
         if det.abs() < 0.001 {
+            #[cfg(feature="extra_debug")]
             println!("\tIgnored (corner)");
             return None;
         }
@@ -591,6 +604,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         }
 
         if area < (tag_width as f64)*(tag_width as f64) {
+            #[cfg(feature="extra_debug")]
             println!("\tIgnored (size3)");
             return None;
         }
@@ -614,6 +628,7 @@ fn fit_quad(td: &ApriltagDetector, im: &impl Image<Luma<u8>>, mut cluster: Vec<P
         }
     }
 
+    #[cfg(feature="extra_debug")]
     println!("good");
     Some(Quad {
         reversed_border: q_reversed_border,
@@ -969,6 +984,7 @@ pub(super) fn fit_quads(td: &ApriltagDetector, clusters: Vec<Vec<Pt>>, im: &impl
         }
         std::cmp::max((min_tag_width as f32 / td.params.quad_decimate) as usize, 3)
     };
+    #[cfg(feature="extra_debug")]
     println!("min_tag_width={}", min_tag_width);
 
     let min_cluster_pixels = td.qtp.min_cluster_pixels as usize;

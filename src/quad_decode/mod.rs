@@ -419,8 +419,6 @@ impl Quad {
             ];
         }
 
-        println!("corr_arr={corr_arr:?}");
-
         // XXX Tunable
         let H = homography_compute2(corr_arr)?;
         let Hinv = H.inv()

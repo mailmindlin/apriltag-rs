@@ -50,7 +50,6 @@ pub struct matd_t {
 impl matd_t {
     fn new(nrows: c_uint, ncols: c_uint, data: Box<[c_double]>) -> Box<matd_t> {
         //See: https://stackoverflow.com/questions/67171086/how-can-a-dynamically-sized-object-be-constructed-on-the-heap
-        use std::mem;
         use std::alloc::Layout;
         let base_layout = {
             #[repr(C)]

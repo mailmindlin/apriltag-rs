@@ -169,6 +169,7 @@ pub(crate) fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, 
     tp.stamp("unionfind");
 
     let clusters = gradient_clusters(td, &threshim, &mut uf);
+    #[cfg(feature="extra_debug")]
     println!("{} gradient clusters", clusters.len());
     
     #[cfg(feature="debug")]
