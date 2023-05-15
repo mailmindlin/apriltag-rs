@@ -134,7 +134,6 @@ impl ApriltagDetector {
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
 		let mut quad_im = if self.params.quad_decimate > 1. {
-			println!("Decimate value {}", self.params.quad_decimate);
 			let quad_im = im_orig.decimate(self.params.quad_decimate);
 
 			tp.stamp("decimate");
@@ -193,6 +192,7 @@ impl ApriltagDetector {
 		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
 		std::mem::drop(quad_im);
 
+		#[cfg(feature="extra_debug")]
 		println!("Found {} quads", quads.len());
 
 		// adjust centers of pixels so that they correspond to the
@@ -209,7 +209,8 @@ impl ApriltagDetector {
 
 		tp.stamp("quads");
 
-		if self.params.debug {
+		#[cfg(feature="debug")]
+		if self.params.generate_debug_image() {
 			let mut im_quads = im_orig.clone();
 			im_quads.darken();
 			im_quads.darken();
@@ -248,6 +249,7 @@ impl ApriltagDetector {
 					.collect::<Vec<_>>()
 			});
 
+			#[cfg(feature="extra_debug")]
 			println!("Found {} detections", detections.len());
 
 			#[cfg(feature="debug")]
@@ -260,6 +262,7 @@ impl ApriltagDetector {
 			Vec::new()
 		};
 
+		#[cfg(feature="debug")]
 		if self.params.generate_debug_image() {
 			let mut im_quads = im_orig.clone();
 			im_quads.darken();
