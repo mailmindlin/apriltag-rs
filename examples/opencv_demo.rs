@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use apriltag_rs::{ApriltagDetector, AprilTagFamily, Image};
+use apriltag_rs::util::ImageY8;
+use apriltag_rs::{ApriltagDetector, AprilTagFamily};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -108,11 +109,11 @@ fn main() {
         let mut gray = Mat::default();
         cvt_color(&mut frame, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0).unwrap();
         // Make an image_u8_t header for the Mat data
-        let mut im = Image::<u8>::create(gray.cols() as usize, gray.rows() as usize);
-        for y in 0..im.height {
-            for x in 0..im.width {
-                im[(x, y)] = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
-            }
+        let mut im = ImageY8::zeroed(gray.cols() as usize, gray.rows() as usize);
+        for ((x, y), dst) in im.enumerate_pixels_mut() {
+            let v = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
+
+            *dst = v.into();
         }
 
         let detections = detector.detect(&im);
