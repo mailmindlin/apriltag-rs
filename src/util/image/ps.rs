@@ -4,6 +4,10 @@ use crate::util::{image::Pixel, geom::Point2D};
 
 use super::Rgb;
 
+pub trait ImageWritePostscript {
+	/// Write PostScript data
+	fn write_postscript(&self, f: &mut PostScriptWriter<impl io::Write>) -> io::Result<()>;
+}
 
 pub struct PostScriptWriter<'a, W: io::Write> {
     inner: &'a mut W,
@@ -41,7 +45,7 @@ impl<'a, W: io::Write> PostScriptWriter<'a, W> {
         )
     }
 
-    pub fn command(&mut self, callback: impl FnOnce(&mut PSCommandWriter<W>) -> Result<()>) -> Result<()> {
+    pub(crate) fn command(&mut self, callback: impl FnOnce(&mut PSCommandWriter<W>) -> Result<()>) -> Result<()> {
         {
             let mut child = PSCommandWriter(self.inner);
             callback(&mut child)?;
@@ -54,7 +58,7 @@ impl<'a, W: io::Write> PostScriptWriter<'a, W> {
     }
 }
 
-struct PSCommandWriter<'a, W: Write>(&'a mut W);
+pub (crate) struct PSCommandWriter<'a, W: Write>(&'a mut W);
 
 impl<'a, W: Write> PSCommandWriter<'a, W> {
     pub fn moveto(&mut self, point: &Point2D) -> Result<()> {
