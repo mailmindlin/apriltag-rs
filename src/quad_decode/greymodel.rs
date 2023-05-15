@@ -1,4 +1,6 @@
-use crate::apriltag_math::mat33_sym_solve;
+use std::ops::Add;
+
+use crate::{apriltag_math::mat33_sym_solve, util::math::Vec2};
 
 /// Regresses a model of the form:
 /// intensity(x,y) = C0*x + C1*y + CC2
@@ -8,8 +10,8 @@ use crate::apriltag_math::mat33_sym_solve;
 ///        [ ...     ]
 ///  The A matrix is J'J
 pub(super) struct Graymodel {
-	A: [[f64; 3]; 3],
-	B: [f64; 3],
+	pub(super) A: [[f64; 3]; 3],
+	pub(super) B: [f64; 3],
 }
 
 impl Graymodel {
@@ -37,16 +39,30 @@ impl Graymodel {
 
 	pub fn solve(self) -> SolvedGraymodel {
 		let C = mat33_sym_solve(&self.A, &self.B);
-		SolvedGraymodel { C }
+		SolvedGraymodel::new(C)
 	}
 }
 
 pub(super) struct SolvedGraymodel {
-	C: [f64; 3],
+	C: [f64; 3]
 }
 
 impl SolvedGraymodel {
-	pub fn interpolate(&self, x: f64, y: f64) -> f64 {
-		return self.C[0]*x + self.C[1]*y + self.C[2];
+	pub fn new(C: [f64; 3]) -> Self {
+		Self { C }
 	}
+	pub fn interpolate(&self, xy: Vec2) -> f64 {
+		return self.C[0]*xy.x() + self.C[1]*xy.y() + self.C[2];
+	}
+}
+
+impl Add<SolvedGraymodel> for SolvedGraymodel {
+    type Output = SolvedGraymodel;
+    fn add(self, rhs: SolvedGraymodel) -> Self::Output {
+        Self::new([
+			self.C[0] + rhs.C[0],
+			self.C[1] + rhs.C[1],
+			self.C[2] + rhs.C[2],
+		])
+    }
 }
