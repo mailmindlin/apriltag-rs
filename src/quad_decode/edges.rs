@@ -1,11 +1,11 @@
 use arrayvec::ArrayVec;
 
-use crate::{detector::AprilTagParams, util::{Image, math::Vec2, geom::Point2D, image::Luma}};
+use crate::{detector::AprilTagParams, util::{math::Vec2, geom::Point2D, image::ImageY8}};
 
 use super::Quad;
 
 impl Quad {
-    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &impl Image<Luma<u8>>) {
+    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &ImageY8) {
         let lines = {
             let mut lines = ArrayVec::<(Vec2, Vec2), 4>::new(); // for each line, [E,n]
 
@@ -151,7 +151,7 @@ impl Quad {
             if det.abs() > 1e-3 {
                 // solve
                 let W0 = Vec2::of(A11, -A01) / det;
-                let L0 = W0.dot(&B);
+                let L0 = W0.dot(B);
 
                 // compute intersection
                 self.corners[i] = Point2D::from_vec(lineA_E + &(Vec2::of(A00, A10) * L0));
