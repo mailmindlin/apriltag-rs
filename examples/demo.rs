@@ -1,6 +1,6 @@
 use std::{path::{PathBuf, Path}, time::Duration, io};
 
-use apriltag_rs::{ApriltagDetector, AprilTagFamily, Image};
+use apriltag_rs::{ApriltagDetector, AprilTagFamily, util::ImageY8, TimeProfileStatistics};
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -65,10 +65,10 @@ fn build_detector(args: &Args) -> ApriltagDetector {
     detector
 }
 
-fn load_image(path: &Path) -> io::Result<Image<u8>> {
+fn load_image(path: &Path) -> io::Result<ImageY8> {
     if let Some(extension) = path.extension() {
         if extension.eq_ignore_ascii_case("pnm") {
-            return Image::<u8>::create_from_pnm(path);
+            return ImageY8::create_from_pnm(path);
         }
     }
 
@@ -76,7 +76,7 @@ fn load_image(path: &Path) -> io::Result<Image<u8>> {
     let reader = ImageReader::open(path)?;
     let image = reader.decode().unwrap().into_luma8();
 
-    let mut result = Image::<u8>::create(image.width() as usize, image.height() as usize);
+    let mut result = ImageY8::zeroed(image.width() as usize, image.height() as usize);
     for (x, y, value) in image.enumerate_pixels() {
         let value = value.0[0];
         result[(x as usize, y as usize)] = value;
@@ -89,15 +89,15 @@ fn main() {
     let detector = build_detector(&args);
 
     let quiet = args.quiet;
-    let maxiters = args.iters;
+    let mut acc = TimeProfileStatistics::default();
 
-    for iter in 0..maxiters {
+    for iter in 0..args.iters {
         let mut total_quads = 0;
         let mut total_hamm_hist = [0usize; HAMM_HIST_MAX];
         let mut total_time = Duration::ZERO;
 
-        if maxiters > 1 {
-            println!("iter {} / {}", iter + 1, maxiters);
+        if args.iters > 1 {
+            println!("iter {} / {}", iter + 1, args.iters);
         }
 
         for input in args.input_files.iter() {
@@ -118,7 +118,7 @@ fn main() {
                 }
             };
 
-            println!("image: {} {}x{}", input.display(), im.width, im.height);
+            println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
             let detections = detector.detect(&im);
 
@@ -126,7 +126,7 @@ fn main() {
 
             for (i, det) in detections.detections.iter().enumerate() {
                 if !quiet {
-                    println!("detection {:3}: id ({:2}x{:2})-%-{:4}, hamming {}, margin {:8.3}",
+                    println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
                            i,
                            det.family.bits.len(),
                            det.family.min_hamming,
@@ -141,7 +141,8 @@ fn main() {
             }
 
             if !quiet {
-                detections.tp.display();
+                print!("{}", detections.tp);
+                acc.add(&detections.tp);
             }
 
             total_quads += detections.nquads;
@@ -172,5 +173,9 @@ fn main() {
         print!("{:12.3} ", total_time.as_secs_f32());
         print!("{:5}", total_quads);
         println!();
+    }
+
+    if args.iters > 1 {
+        acc.display();
     }
 }
