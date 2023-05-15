@@ -421,7 +421,7 @@ fn debug_output_ps(im_orig: &ImageY8, detections: &[ApriltagDetection]) -> std::
 		let rgb = rng.gen_color_rgb(100);
 
 		f.setrgbcolor(&rgb)?;
-		f.command(|mut c| {
+		f.command(|c| {
 			c.moveto(&det.corners[0])?;
 			c.lineto(&det.corners[1])?;
 			c.lineto(&det.corners[2])?;
@@ -483,7 +483,7 @@ fn debug_quads_ps(im_orig: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 		let rgb = rng.gen_color_rgb(100);
 
 		f.setrgbcolor(&rgb)?;
-		f.command(|mut c| {
+		f.command(|c| {
 			c.moveto(&q.corners[0])?;
 			c.lineto(&q.corners[1])?;
 			c.lineto(&q.corners[2])?;
