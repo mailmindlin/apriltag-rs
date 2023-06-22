@@ -86,6 +86,10 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
 
 fn main() {
     let args = Args::parse();
+    if args.debug {
+        println!("Arguments:");
+        println!(" - threads: {}", args.threads);
+    }
     let detector = build_detector(&args);
 
     let quiet = args.quiet;
