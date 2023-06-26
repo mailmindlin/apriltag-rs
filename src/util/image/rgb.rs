@@ -1,13 +1,15 @@
+use std::ops::Deref;
 use std::{path::Path, io};
 
 use crate::util::mem::SafeZero;
 
 use super::pixel::PixelConvert;
-use super::{ImageBuffer, ImageRow, ImageMut, HasDimensions};
+use super::{ImageBuffer, SubpixelArray};
 
-use super::{Image, PNM, pnm::PNMFormat, ImageWritePNM, Luma, pixel::{Primitive, Pixel}};
+use super::{PNM, pnm::PNMFormat, ImageWritePNM, Luma, pixel::{Primitive, Pixel}};
 
 #[derive(Copy, Clone)]
+#[repr(transparent)]
 pub struct Rgb<T>(pub [T; 3]);
 
 impl<T: Primitive> Pixel for Rgb<T> {
@@ -29,15 +31,17 @@ impl<T: Primitive> Pixel for Rgb<T> {
     }
 
     fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
-        todo!()
+        assert_eq!(slice.len(), Self::CHANNEL_COUNT);
+        unsafe { &*(slice.as_ptr() as *const Rgb<T>) }
     }
 
     fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
-        todo!()
+        slice.try_into().unwrap()
     }
 
     fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
-        todo!()
+        assert_eq!(slice.len(), Self::CHANNEL_COUNT);
+        unsafe { &mut *(slice.as_mut_ptr() as *mut Rgb<T>) }
     }
 
     fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
@@ -75,11 +79,11 @@ impl<T: Primitive> ImageBuffer<Rgb<T>> {
     /// for 16byte-wide RGB processing). (It's possible that 48 would be enough).
     const DEFAULT_ALIGNMENT: usize = 192;
     pub fn create(width: usize, height: usize) -> Self where T: SafeZero {
-        Self::with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
+        Self::zeroed_with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
     }
 }
 
-impl ImageBuffer<Rgb<u8>> {
+impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
     // Create an RGB image from PNM
     pub fn create_from_pnm(path: &Path) -> io::Result<Self> {
         let pnm = PNM::create_from_file(path)?;
@@ -88,10 +92,16 @@ impl ImageBuffer<Rgb<u8>> {
             PNMFormat::Gray => {
                 let mut im = Self::create(pnm.width, pnm.height);
 
+                let mut max_x = 0;
+                let mut max_y = 0;
                 for ((x, y), dst) in im.enumerate_pixels_mut() {
                     let gray = pnm.buf[y*pnm.width + x];
                     *dst = Rgb([gray; 3]);
+                    max_x = std::cmp::max(max_x, x);
+                    max_y = std::cmp::max(max_y, y);
                 }
+                dbg!(max_x);
+                dbg!(max_y);
                 Ok(im)
             },
             PNMFormat::RGB => {
@@ -111,7 +121,7 @@ impl ImageBuffer<Rgb<u8>> {
     }
 }
 
-impl ImageWritePNM for ImageBuffer<Rgb<u8>> {
+impl<Container: Deref<Target=SubpixelArray<Rgb<u8>>>> ImageWritePNM for ImageBuffer<Rgb<u8>, Container> {
     fn write_pnm(&self, f: &mut impl io::Write) -> io::Result<()> {
         // Only outputs to RGB
         writeln!(f, "P6")?;

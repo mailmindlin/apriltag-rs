@@ -1,10 +1,11 @@
-use std::{io::{self, Write}, path::Path};
+use std::{io::{self, Write}, path::Path, ops::{DerefMut, Deref}};
 
 use crate::util::mem::{calloc, SafeZero};
 
-use super::{Image, ImageBuffer, pnm::PNM, pixel::{Primitive, Pixel, PixelConvert}, Rgb, ImageMut, ImageRowMut, HasDimensions, ImageWritePNM, ImageWritePostscript, ImageRow};
+use super::{ImageBuffer, pnm::PNM, pixel::{Primitive, Pixel, PixelConvert, DefaultAlignment}, Rgb, ImageWritePNM, ImageWritePostscript, SubpixelArray};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(transparent)]
 pub struct Luma<T>(pub [T; 1]);
 
 impl From<u8> for Luma<u8> {
@@ -31,20 +32,26 @@ impl<T: Primitive> Pixel for Luma<T> {
         self.0[0]
     }
 
+    #[inline(always)]
     fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
-        todo!()
+        assert_eq!(slice.len(), Self::CHANNEL_COUNT);
+        unsafe { &*(slice.as_ptr() as *const Luma<T>) }
     }
 
+    #[inline(always)]
     fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
-        todo!()
+        &slice[0]
     }
 
+    #[inline(always)]
     fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
-        todo!()
+        assert_eq!(slice.len(), Self::CHANNEL_COUNT);
+        unsafe { &mut *(slice.as_mut_ptr() as *mut Luma<T>) }
     }
 
+    #[inline(always)]
     fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
-        todo!()
+        &mut slice[0]
     }
 }
 
@@ -58,6 +65,12 @@ impl<T: Primitive> PixelConvert for Luma<T> {
     fn to_luma(&self) -> Luma<Self::Subpixel> {
         *self
     }
+}
+
+impl DefaultAlignment for Luma<u8> {
+    /// least common multiple of 64 (sandy bridge cache line) and 24 (stride
+    /// needed for RGB in 8-wide vector processing)
+    const DEFAULT_ALIGNMENT: usize = 96;
 }
 
 impl<T: SafeZero> SafeZero for Luma<T> {}
@@ -91,24 +104,15 @@ fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
 }
 
 /// Grayscale image
-impl ImageBuffer<Luma<u8>> {
-    /// least common multiple of 64 (sandy bridge cache line) and 24 (stride
-    /// needed for RGB in 8-wide vector processing)
-    const DEFAULT_ALIGNMENT: usize = 96;
-
-    /// Create new grayscale image of dimensions
-    pub fn zeroed(width: usize, height: usize) -> Self {
-        Self::with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
-    }
-
+impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
     pub fn create_from_pnm(path: &Path) -> io::Result<Self> {
-        Self::create_from_pnm_alignment(path, Self::DEFAULT_ALIGNMENT)
+        Self::create_from_pnm_alignment(path, Luma::<u8>::DEFAULT_ALIGNMENT)
     }
 
     pub fn create_from_pnm_alignment(path: &Path, alignment: usize) -> io::Result<Self> {
         let pnm = PNM::create_from_file(path)?;
         let width = pnm.width;
-        let mut im = Self::with_alignment(pnm.width, pnm.height, alignment);
+        let mut im = Self::zeroed_with_alignment(pnm.width, pnm.height, alignment);
 
         match pnm.format {
             super::pnm::PNMFormat::Gray => {
@@ -174,12 +178,6 @@ impl ImageBuffer<Luma<u8>> {
         Ok(im)
     }
 
-    pub fn darken(&mut self) {
-        self.apply(|pixel| {
-            pixel.0[0] /= 2;
-        });
-    }
-
     pub fn decimate(&self, ffactor: f32) -> Self {
         let width = self.width();
         let height = self.height();
@@ -226,20 +224,27 @@ impl ImageBuffer<Luma<u8>> {
             let sheight = 1 + (height - 1) / factor;
 
             let mut decim = Self::zeroed(swidth, sheight);
-            let mut sy = 0;
-            for row in self.rows() {
-
-            }
+            let mut dy = 0;
             for y in (0..height).step_by(factor) {
-                let mut sx = 0;
+                let mut dr = decim.row_mut(dy);
+                let sr = self.row(y);
+                let mut dx = 0;
                 for x in (0..width).step_by(factor) {
-                    decim[(sx, sy)] = self[(x, y)];
-                    sx += 1;
+                    dr[dx] = sr[x];
+                    dx += 1;
                 }
-                sy += 1;
+                dy += 1;
             }
             decim
         }
+    }
+}
+
+impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, Container> {
+    pub fn darken(&mut self) {
+        self.apply(|pixel| {
+            pixel.0[0] /= 2;
+        });
     }
 
     pub fn convolve2d_mut(&mut self, kernel: &[u8]) {
@@ -317,7 +322,7 @@ impl ImageBuffer<Luma<u8>> {
     }
 }
 
-impl ImageWritePNM for ImageBuffer<Luma<u8>> {
+impl<C: Deref<Target=[u8]>> ImageWritePNM for ImageBuffer<Luma<u8>, C> {
     fn write_pnm(&self, f: &mut impl io::Write) -> io::Result<()> {
         // Only outputs to RGB
         writeln!(f, "P5")?;
@@ -340,7 +345,7 @@ impl ImageWritePostscript for ImageBuffer<Luma<u8>> {
         writeln!(f, "{{currentfile picstr readhexstring pop}}")?;
         writeln!(f, "image")?;
 
-        for ((x, y), v) in self.enumerate_pixels() {
+        for ((x, _y), v) in self.enumerate_pixels() {
             write!(f, "{:02x}", v.to_value())?;
             if (x % 32) == 31 {
                 writeln!(f)?;
@@ -351,15 +356,3 @@ impl ImageWritePostscript for ImageBuffer<Luma<u8>> {
         Ok(())
     }
 }
-
-/*impl From<dyn Image<Luma<f32>>> for ImageBuffer<Luma<u8>> {
-    fn from(value: dyn Image<Luma<f32>>) -> Self {
-        let mut res = Self::create(value.width(), value.height());
-        for y in 0..value.height {
-            for x in 0..value.width {
-                res[(x, y)] = (255. * value[(x, y)]).round() as u8;
-            }
-        }
-        res
-    }
-}*/
