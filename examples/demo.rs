@@ -1,6 +1,6 @@
 use std::{path::{PathBuf, Path}, time::Duration, io};
 
-use apriltag_rs::{ApriltagDetector, AprilTagFamily, util::ImageY8, TimeProfileStatistics};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::ImageY8, TimeProfileStatistics};
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -38,8 +38,9 @@ struct Args {
     input_files: Vec<PathBuf>,
 }
 
-fn build_detector(args: &Args) -> ApriltagDetector {
-    let mut detector = ApriltagDetector::default();
+fn build_detector(args: &Args) -> AprilTagDetector {
+    println!("refine_edges: {}", args.refine_edges);
+    let mut detector = AprilTagDetector::default();
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
             family
@@ -159,7 +160,7 @@ fn main() {
                 print!("{:5} ", hamm_hist[i]);
             }
 
-            let t = detections.tp.total_utime();
+            let t = detections.tp.total_duration();
             total_time += t;
             print!("{:12.3}s", t.as_secs_f32());
             print!("{:4}", detections.nquads);
