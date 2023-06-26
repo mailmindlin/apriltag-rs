@@ -59,12 +59,3 @@ impl<T> From<(T, T)> for Index2D<T> {
         }
     }
 }
-
-impl<T: Copy> Index2D<T> {
-    pub const fn transposed(&self) -> Self {
-		Self {
-            x: self.y,
-            y: self.x,
-        }
-	}
-}
