@@ -1,14 +1,23 @@
-use std::ops::{Add, Sub, Neg};
+use std::{ops::{Add, Sub, Neg}, fmt::Debug};
 
-use crate::util::math::Vec2;
+use crate::util::math::{Vec2, Vec2Builder};
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Point2D(Vec2);
 
-impl Add<&Vec2> for &Point2D {
+impl Debug for Point2D {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Point2D")
+            .field(&self.0.x())
+            .field(&self.0.y())
+            .finish()
+    }
+}
+
+impl Add<Vec2> for &Point2D {
     type Output = Point2D;
 
-    fn add(self, rhs: &Vec2) -> Self::Output {
+    fn add(self, rhs: Vec2) -> Self::Output {
         Point2D(self.0 + rhs)
     }
 }
@@ -46,12 +55,13 @@ impl Neg for Point2D {
 }
 
 impl Point2D {
-    pub const fn zero() -> Self {
+    #[inline(always)]
+    pub fn zero() -> Self {
         Self(Vec2::zero())
     }
 
     #[inline]
-    pub const fn of(x: f64, y: f64) -> Self {
+    pub fn of(x: f64, y: f64) -> Self {
         Self(Vec2::of(x, y))
     }
     
@@ -71,7 +81,7 @@ impl Point2D {
     }
 
     #[inline(always)]
-    pub fn vec(&self) -> &Vec2 {
+    pub const fn vec(&self) -> &Vec2 {
         &self.0
     }
 
@@ -89,6 +99,10 @@ impl Point2D {
     pub fn angle_to(&self, other: &Point2D) -> f64 {
         let delta = self - other;
         delta.angle()
+    }
+
+    pub fn as_array(&self) -> [f64; 2] {
+        [self.x(), self.y()]
     }
 }
 
