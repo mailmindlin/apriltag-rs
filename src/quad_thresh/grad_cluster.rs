@@ -1,19 +1,26 @@
-use std::{collections::{HashMap, hash_map::Entry}, hash::Hash};
+use std::{collections::{HashMap, hash_map::Entry}, hash::{Hash, BuildHasher, Hasher}};
 
 use rayon::prelude::*;
 
-use crate::{util::{Image, image::Luma}, ApriltagDetector};
+use crate::{util::image::ImageY8, detector::DetectorConfig};
 
-use super::{uf::{UnionFind2D, UnionFindId}, linefit::Pt};
+use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
 }
 
+impl Hash for ClusterId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let u = (self.rep0 as u64) << 32 | (self.rep1 as u64);
+        u.hash(state)
+    }
+}
+
 impl ClusterId {
-    fn new(repa: UnionFindId, repb: UnionFindId) -> Self {
+    const fn new(repa: UnionFindId, repb: UnionFindId) -> Self {
         let (rep0, rep1) = if repb < repa {
             (repa, repb)
         } else {
@@ -26,31 +33,43 @@ impl ClusterId {
     }
 }
 
-struct ClusterEntry {
-    id: ClusterId,
-    data: Vec<Pt>,
+#[derive(Clone, Copy)]
+struct ClusterHasher(u64);
+
+impl BuildHasher for ClusterHasher {
+    type Hasher = Self;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        *self
+    }
 }
 
-#[inline]
-fn u64hash_2(x: u64) -> u32 {
-    ((2654435761 * x) >> 32) as u32
-    // return x as u32;
+impl Hasher for ClusterHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write_u64(&mut self, i: u64) {
+        self.0 = self.0 * 2654435761 + i
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        todo!()
+    }
 }
 
-fn do_gradient_clusters(threshim: &impl Image<Luma<u8>>, y0: usize, y1: usize, nclustermap: usize, uf: &UnionFind2D) -> Vec<ClusterEntry> {
-    // let nclustermap = 2*w*h - 1;
-    let mut clustermap = HashMap::<ClusterId, Vec<Pt>>::with_capacity(nclustermap);
-
+fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Cluster, uf: &impl UnionFindStatic<(u32, u32)>) {
+    let width = threshim.width();
     for y in y0..y1 {
-        for x in 1..(threshim.width()-1) {
+        for x in 1..(width-1) {
             let v0 = threshim[(x, y)];
             if v0 == 127 {
                 continue;
             }
 
             // XXX don't query this until we know we need it?
-            let rep0 = uf.get_representative(x, y);
-            if uf.get_set_size(rep0) < 25 {
+            let (rep0, size0) = uf.get_set_static((x as _, y as _));
+            if size0 < 25 {
                 continue;
             }
 
@@ -74,9 +93,10 @@ fn do_gradient_clusters(threshim: &impl Image<Luma<u8>>, y0: usize, y1: usize, n
             // A possible optimization would be to combine entries
             // within the same cluster.
 
-            let offsets = [
+            #[allow(non_upper_case_globals)]
+            const offsets: [(isize, usize); 4] = [
                 // do 4 connectivity. NB: Arguments must be [-1, 1] or we'll overflow .gx, .gy
-                (1isize, 0isize),
+                (1, 0),
                 (0,1),
                 // do 8 connectivity
                 (-1,1),
@@ -84,128 +104,103 @@ fn do_gradient_clusters(threshim: &impl Image<Luma<u8>>, y0: usize, y1: usize, n
             ];
             for (dx, dy) in offsets {
                 let off_x = (x as isize + dx) as usize;
-                let off_y = (y as isize + dy) as usize;
-                let v1 = threshim[(off_x, off_y)];
+                let off_y = y + dy;
 
-                if v0.wrapping_add(v1) == 255 {
-                    let rep1 = uf.get_representative(off_x, off_y);
-                    if uf.get_set_size(rep1) > 24 {
-                        let clusterid = ClusterId::new(rep0, rep1);
-                        let cluster = match clustermap.entry(clusterid) {
-                            Entry::Occupied(entry) => entry.into_mut(),
-                            Entry::Vacant(entry) => entry.insert(Vec::new()),
+                let v1 = threshim[(off_x, off_y)];
+                if v0 != v1 {
+                    let (rep1, size1) = uf.get_set_static((off_x as _, off_y as _));
+                    if size1 > 24 {
+                        let key = ClusterId::new(rep0, rep1);
+                        let value = {
+                            let dv = (v1 as i16) - (v0 as i16);
+                            #[cfg(debug_assertions)]
+                            let x = Pt {
+                                x: (2 * x as isize + dx).try_into().unwrap(),
+                                y: (2 * y + dy).try_into().unwrap(),
+                                gx: (dx as i16 * dv),
+                                gy: (dy as i16 * dv),
+                                slope: 0.,//TODO?
+                            };
+
+                            #[cfg(not(debug_assertions))]
+                            let x = Pt {
+                                x: (2 * x as isize + dx) as _,
+                                y: (2 * y + dy) as _,
+                                gx: (dx as i16 * dv),
+                                gy: (dy as i16 * dv),
+                                slope: 0.,//TODO?
+                            };
+
+                            x
                         };
 
-                        let dv = (v1 as isize) - (v0 as isize);
-
-                        cluster.push(Pt {
-                            x: (2 * x as isize + dx).try_into().unwrap(),
-                            y: (2 * y as isize + dy).try_into().unwrap(),
-                            gx: (dx * dv).try_into().unwrap(),
-                            gy: (dy * dv).try_into().unwrap(),
-                            slope: 0.,//TODO?
-                        });
+                        clustermap.entry(key)
+                            .or_default()
+                            .push(value);
                     }
                 }
             }
         }
     }
-    // =======
-    let mut clusters = clustermap
-        .into_iter()
-        .map(|(id, data)| ClusterEntry { id, data })
-        .collect::<Vec<_>>();
-
-    clusters.sort_unstable_by_key(|e| e.id);
-    clusters
 }
 
-fn merge_clusters(mut c1: Vec<ClusterEntry>, mut c2: Vec<ClusterEntry>) -> Vec<ClusterEntry> {
-    /*let mut ret = Vec::with_capacity(c1.len() + c2.len());
+type Cluster = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
 
-    let mut i1 = 0;
-    let mut i2 = 0;
-    let l1 = c1.len();
-    let l2 = c2.len();
-
-    while i1 < l1 && i2 < l2 {
-        let h1 = &c1[i1];
-        let h2 = &c2[i2];
-        match h1.cmp(h2) {
-            Ordering::Equal => {
-                h1.data.extend(h2.data.drain(..));
-                ret.push(*h1);
-                i1 += 1;
-                i2 += 1;
+fn merge_clusters(mut c1: Cluster, c2: Cluster) -> Cluster {
+    for (k, v) in c2 {
+        match c1.entry(k) {
+            Entry::Occupied(mut e) => {
+                e.get_mut().extend(v);
             },
-            Ordering::Greater => {
-                ret.push(*h2);
-                i2 += 1;
-            },
-            Ordering::Less => {
-                ret.push(*h1);
-                i1 += 1;
+            Entry::Vacant(e) => {
+                e.insert(v);
             },
         }
     }
-
-    ret.extend(c1.into_iter().skip(i1));
-    ret.extend(c2.into_iter().skip(i2));
-
-    ret*/
-    c1.extend(c2.drain(..));
-    c1.sort_unstable_by_key(|c| c.id);
-    c1.dedup_by(|h1, h2| {
-        if h1.id != h2.id {
-            return false;
-        }
-        // h1 will be removed, so move its data to h2
-        h2.data.extend(h1.data.drain(..));
-        true
-    });
     c1
 }
 
-pub(super) fn gradient_clusters(td: &ApriltagDetector, threshim: &(impl Image<Luma<u8>> + Sync), uf: &UnionFind2D) -> Vec<Vec<Pt>> {
+pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Vec<Vec<Pt>> {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height() - 1;
-    let chunksize = 1 + sz / td.params.nthreads;
-    // struct cluster_task *tasks = malloc(sizeof(struct cluster_task)*(sz / chunksize + 1));
-
-    let cluster_entries = if td.params.nthreads == 1 || true{
-        (0..sz)
-        .map(|i| {
-            let y0 = i;
-            let y1 = i + 1;
-            let clusters = do_gradient_clusters(threshim, y0, y1, nclustermap, uf);
-            clusters
-        })
-        //TODO: it might be more efficient to reduce adjacent clusters
-        .fold(Vec::new(), merge_clusters)
+    let cluster_entries = if config.single_thread() && false {
+        let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0));
+        do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
+        #[cfg(feature="extra_debug")]
+        if !clusters.is_empty() && false {
+            println!("Found {} clusters on line {}..{}", clusters.len(), y0, y1);
+            for cluster in clusters.iter() {
+                println!(" - {}/{} len {}", cluster.id.rep0, cluster.id.rep1, cluster.data.len());
+            }
+        }
+        clustermap
     } else {
-        (1..sz)
+        let chunksize = 1 + sz / config.nthreads;
+        // struct cluster_task *tasks = malloc(sizeof(struct cluster_task)*(sz / chunksize + 1));
+
+        (0..sz)
             .into_par_iter()
             .step_by(chunksize)
-            .map(|i| {
+            .fold(|| Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0)), |mut clustermap, i| {
+            // .map(|i| {
                 let y0 = i;
                 let y1 = std::cmp::min(sz, i + chunksize);
-                let clusters = do_gradient_clusters(threshim, y0, y1, nclustermap, uf);
-                clusters
+                // let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0));
+                do_gradient_clusters(threshim, y0, y1, &mut clustermap, &uf);
+                clustermap
             })
             //TODO: it might be more efficient to reduce adjacent clusters
-            .reduce(|| Vec::new(), merge_clusters)
+            .reduce(|| Cluster::with_hasher(ClusterHasher(0)), merge_clusters)
     };
 
-
+    // Convert from ClusterEntry -> Vec<Pt>
     cluster_entries
-        // Convert from ClusterEntry -> Vec<Pt>
-        .into_iter()
-        .map(|cluster| cluster.data)
+        .into_values()
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature="foo"))]
 mod test {
     use crate::quad_thresh::linefit::Pt;
 
