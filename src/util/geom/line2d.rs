@@ -1,4 +1,4 @@
-use crate::util::math::Vec2;
+use crate::util::math::{Vec2, FMA, Vec2Builder};
 
 use super::Point2D;
 
@@ -15,7 +15,7 @@ impl Line2D {
     }
 
     pub fn get_coordinate(&self, q: &Point2D) -> f64 {
-        (q - &self.p).dot(self.u.vec())
+        (q - &self.p).dot(*self.u.vec())
     }
 
     // Compute intersection of two line segments. If they intersect,
@@ -43,9 +43,14 @@ impl Line2D {
 
         let b = other.p - &self.p;
 
-        let x00 = i.dot(&b);
+        let x00 = i.dot(b);
 
-        Some(Point2D::from_vec((self.u.vec() * x00) + self.p.vec()))
+        Some(Point2D::from_vec(
+            self.p.vec().fma(
+                *self.u.vec(),
+                Vec2::dup(x00)
+            )
+        ))
     }
 }
 
@@ -74,9 +79,12 @@ impl LineSegment2D {
             c.clamp(b, a)
         };
 
-        Point2D::of(
-            self.line.p.x() + c * self.line.u.x(),
-            self.line.p.y() + c * self.line.u.y()
+        Point2D::from_vec(
+            self.line.p.vec()
+            .fma(
+                *self.line.u.vec(),
+                Vec2::dup(c)
+            )
         )
     }
 
