@@ -6,3 +6,5 @@ pub(crate) mod python;
 
 #[cfg(feature="cffi")]
 pub(crate) mod c;
+
+mod util;
