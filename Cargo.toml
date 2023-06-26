@@ -9,7 +9,7 @@ edition = "2021"
 [features]
 cpython = ["dep:cpython"]
 jni = ["dep:jni"]
-cffi = ["dep:libc"]
+cffi = ["dep:libc", "dep:nix"]
 debug = []
 extra_debug = ["debug"]
 
@@ -27,20 +27,29 @@ arrayvec = "0.7.2"
 rand = "0.8.5"
 rayon = "1.6.1"
 datasize = "0.2.14"
+clap = { version = "4.2.1", features=["derive"] }
+errno = "0.3.1"
+parking_lot = "0.12.1"
 
+# Feature: Python FFI
 [dependencies.cpython]
 version = "0.7.1"
 optional = true
 features=["extension-module"]
+# Feature: Java FFI
 [dependencies.jni]
-version = "0.20.0"
+version = "0.21.1"
 optional = true
+
+# Feature: C FFI
 [dependencies.libc]
 version = "0.2.139"
+optional = true
+[dependencies.nix]
+version = "0.26.2"
 optional = true
 
 
 [dev-dependencies]
-clap = { version = "4.2.1", features=["derive"] }
 image = "0.24.6"
-opencv = "0.78.2"
+opencv = "0.82.1"
