@@ -109,7 +109,7 @@ impl TimeProfile {
     }
 
     /// Get total 
-    pub fn total_utime(&self) -> Duration {
+    pub fn total_duration(&self) -> Duration {
         let stamps = &self.stamps;
         if stamps.len() == 0 {
             return Duration::ZERO;
