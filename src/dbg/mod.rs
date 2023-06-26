@@ -1,4 +1,3 @@
-mod table;
 mod debug_img;
 mod timeprofile;
 
