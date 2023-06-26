@@ -1,17 +1,17 @@
-use super::{math::mat::{Mat, SvdOptions}, geom::Point2D};
+use std::ops::Mul;
+
+use super::{math::{mat::{Mat, SvdOptions, Mat33}, Vec3}, geom::Point2D};
 
 
 
 //void homography_project(const matd_t *H, double x, double y, double *ox, double *oy);
 #[inline]
-pub(crate) fn homography_project(H: &Mat, x: f64, y: f64) -> Point2D {
-    let xx = H[(0, 0)]*x + H[(0, 1)]*y + H[(0, 2)];
-    let yy = H[(1, 0)]*x + H[(1, 1)]*y + H[(1, 2)];
-    let zz = H[(2, 0)]*x + H[(2, 1)]*y + H[(2, 2)];
+pub(crate) fn homography_project(H: &Mat33, x: f64, y: f64) -> Point2D {
+    let v = H.mul(&Vec3::of(x, y, 1.));
 
     Point2D::of(
-        xx / zz, // x
-        yy / zz, // y
+        v.0 / v.2, // x
+        v.1 / v.2, // y
     )
 }
 
@@ -255,7 +255,7 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
 /// R20 = H20
 /// R21 = H21
 /// TZ  = H22
-pub fn homography_to_pose(H: &Mat, fx: f64, fy: f64, cx: f64, cy: f64) -> Mat {
+pub fn homography_to_pose(H: &Mat33, fx: f64, fy: f64, cx: f64, cy: f64) -> Mat {
     // Note that every variable that we compute is proportional to the scale factor of H.
     let mut R20 = H[(2, 0)];
     let mut R21 = H[(2, 1)];
