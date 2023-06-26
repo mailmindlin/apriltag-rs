@@ -151,18 +151,18 @@ impl AprilTagFamily {
 }
 
 #[derive(Debug, Clone)]
-pub struct ApriltagId {
+pub struct AprilTagId {
     pub family: Arc<AprilTagFamily>,
     pub id: usize,
 }
 
-impl ApriltagId {
+impl AprilTagId {
     pub fn code(&self) -> u64 {
         self.family.codes[self.id]
     }
 }
 
-impl PartialEq for ApriltagId {
+impl PartialEq for AprilTagId {
     fn eq(&self, other: &Self) -> bool {
         if self.id != other.id {
             return false;
@@ -186,4 +186,4 @@ impl PartialEq for ApriltagId {
     }
 }
 
-impl Eq for ApriltagId {}
+impl Eq for AprilTagId {}
