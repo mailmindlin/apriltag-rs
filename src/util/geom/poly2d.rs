@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use crate::util::math::{Vec2, mod2pi};
+use crate::util::math::{Vec2, mod2pi, Vec2Builder};
 
 use super::{Point2D, LineSegment2D, Line2D};
 
@@ -160,7 +160,7 @@ impl Poly2D {
                 } else {
                     // we already have a line (p,q). is point thisq RIGHT OF line (p, q)?
                     let e = thisq - &p;
-                    let dot = e.dot(&n);
+                    let dot = e.dot(n);
 
                     if dot > 0. {
                         // it is. change our line.
@@ -190,7 +190,7 @@ impl Poly2D {
 
                 let e = o - &p;
 
-                if n.dot(&e) == 0. {
+                if n.dot(e) == 0. {
                     colinear = true;
                 }
             }
@@ -300,7 +300,7 @@ impl Poly2D {
                             q.x() - p.x(),
                         );
 
-                        let dot = n.dot(&(p0 - &q));
+                        let dot = n.dot(p0 - &q);
                         if dot < 0. {
                             quad_acc -= 2;
                         } else {
@@ -367,7 +367,7 @@ impl Poly2D {
         let b = self[1];
         let c = self[2];
 
-        Point2D::from_vec((a.vec() + b.vec() + c.vec()) / 3.)
+        Point2D::from_vec((*a.vec() + b.vec() + c.vec()) / 3.)
     }
 
     pub fn overlaps_polygon(&self, other: &Poly2D) -> bool {
