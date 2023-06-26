@@ -1,4 +1,4 @@
-use std::{alloc::AllocError, mem::MaybeUninit};
+use std::{alloc::AllocError, mem::MaybeUninit, fmt::Debug};
 
 use datasize::DataSize;
 
@@ -11,7 +11,7 @@ struct Entry<V> {
 
 impl<V> Entry<V> {
 	#[inline]
-	const fn empty() -> Self where V: ~const Default {
+	fn empty() -> Self where V: Default {
 		Self {
 			key: u64::MAX,
             value: Default::default(),
@@ -19,7 +19,7 @@ impl<V> Entry<V> {
 	}
 
 	#[inline]
-	fn is_empty(&self) -> bool {
+	const fn is_empty(&self) -> bool {
 		self.key == u64::MAX
 	}
 }
@@ -41,7 +41,7 @@ impl Iterator for BucketIter {
     }
 }
 
-#[derive(DataSize)]
+#[derive(Clone, DataSize)]
 pub(super) struct LookupTable<V> {
     entries: Box<[Entry<V>]>,
 }
@@ -51,7 +51,6 @@ impl<V> LookupTable<V> {
 	pub(super) fn with_capacity(capacity: usize) -> Result<Self, AllocError> where V: Default + Copy {
 		let entries = {
 			let mut entries = Box::try_new_zeroed_slice(capacity)?;
-					// println!("Failed to allocate hamming decode table for family {}: {:?}", family.name, e);
 			
 			entries.fill(MaybeUninit::new(Entry::empty()));
 
@@ -63,7 +62,7 @@ impl<V> LookupTable<V> {
 		})
 	}
 
-    fn bucket_iter(&self, initial_value: u64) -> BucketIter {
+    const fn bucket_iter(&self, initial_value: u64) -> BucketIter {
 		let capacity = self.entries.len();
 		let current = initial_value as usize % capacity;
 		BucketIter {
@@ -72,7 +71,7 @@ impl<V> LookupTable<V> {
 		}
 	}
 
-    pub(super) fn add(&mut self, key: u64, value: V) -> Result<(), V> {
+    pub(super) fn add(&mut self, key: u64, value: V) -> Result<(), V> where V: Debug {
         // Make sure we don't try to insert the 'empty' marker
         assert_ne!(key, u64::MAX, "Cannot insert key 2**64");
         let bucket = self.bucket_iter(key)
@@ -97,14 +96,11 @@ impl<V> LookupTable<V> {
 
     pub(super) fn get(&self, key: u64) -> Option<&V> {
         for bucket in self.bucket_iter(key) {
-            println!("Test bucket {}", bucket);
             let entry = &self.entries[bucket];
             if entry.is_empty() {
-                println!("qd End");
                 break;
             }
 
-            println!("\trcode {key} vs {}", entry.key);
             if entry.key == key {
                 return Some(&entry.value);
             }
@@ -112,6 +108,7 @@ impl<V> LookupTable<V> {
         None
     }
 
+    #[cfg(feature="extra_debug")]
     pub(super) fn stats(&self) -> (f64, usize) {
         let mut longest_run = 0;
         let mut run = 0usize;
