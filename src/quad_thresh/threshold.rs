@@ -1,16 +1,16 @@
 use arrayvec::ArrayVec;
 
-use crate::util::{TimeProfile, Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, HasDimensions, Pixel, ImageMut}};
+use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel}}, dbg::TimeProfile};
 
-use super::ApriltagQuadThreshParams;
+use super::AprilTagQuadThreshParams;
 
-fn tile_minmax<const KW: usize>(im: &impl Image<Luma<u8>>) -> ImageBuffer<[u8; 2]> {
+fn tile_minmax<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
     // the last (possibly partial) tiles along each row and column will
     // just use the min/max value from the last full tile.
     let tw = im.width().div_floor(KW);
     let th = im.height().div_floor(KW);
 
-    let mut result = ImageBuffer::<[u8; 2]>::new_packed(tw, th);
+    let mut result = ImageBuffer::<[u8; 2]>::zeroed_packed(tw, th);
 
     for ((tx, ty), dst) in result.enumerate_pixels_mut() {
         let base_y = ty * KW;
@@ -34,12 +34,11 @@ fn tile_minmax<const KW: usize>(im: &impl Image<Luma<u8>>) -> ImageBuffer<[u8; 2
     result
 }
 
-fn blur(im_minmax: impl Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
-    let mut im_dst = ImageBuffer::<[u8; 2]>::new_packed(im_minmax.width(), im_minmax.height());
-    for ((x, y), dst) in im_dst.enumerate_pixels_mut() {
-        let mut min = u8::MIN;
-        let mut max = u8::MAX;
-        for &[v_min, v_max] in im_minmax.window1(x, y, 1, 1).pixels() {
+fn blur(im_minmax: Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
+    im_minmax.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
+        let mut min = u8::MAX;
+        let mut max = u8::MIN;
+        for &[v_min, v_max] in im.window(x, y, 1, 1).pixels() {
             if v_min < min {
                 min = v_min;
             }
@@ -47,13 +46,11 @@ fn blur(im_minmax: impl Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
                 max = v_max;
             }
         }
-        *dst = [min, max]
-    }
-
-    im_dst
+        [min, max]
+    })
 }
 
-fn build_threshim<'x, const TILESZ: usize>(im: &impl Image<Luma<u8>>, im_minmax: &'x impl Image<'x, [u8; 2]>, qtp: &ApriltagQuadThreshParams) -> ImageY8 {
+fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>, qtp: &AprilTagQuadThreshParams) -> ImageY8 {
     let mut threshim = ImageY8::zeroed(im.width(), im.height());
     for ((tx, ty), [min, max]) in im_minmax.enumerate_pixels() {
         // low contrast region? (no edges)
@@ -140,7 +137,7 @@ fn build_threshim<'x, const TILESZ: usize>(im: &impl Image<Luma<u8>>, im_minmax:
 /// The important thing is that the windows be large enough to
 /// capture edge transitions; the tag does not need to fit into
 /// a tile.
-pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im: &impl Image<Luma<u8>>) -> ImageBuffer<Luma<u8>> {
+pub(super) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im: &ImageY8) -> ImageBuffer<Luma<u8>> {
     let w = im.width();
     let h = im.height();
     assert!(w < 32768);
@@ -153,6 +150,7 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
     const TILESZ: usize = 4;
 
     let im_minmax = tile_minmax::<TILESZ>(im);
+    tp.stamp("tile_minmax");
 
     // second, apply 3x3 max/min convolution to "blur" these values
     // over larger areas. This reduces artifacts due to abrupt changes
@@ -162,19 +160,33 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
     } else {
         im_minmax
     };
+    tp.stamp("blur");
+
+    #[cfg(feature="extra_debug")]
+    {
+        im_minmax
+            .map(|v| Luma([v[0]]))
+            .save_to_pnm("debug_threshim_min.pnm")
+            .unwrap();
+        im_minmax
+            .map(|v| Luma([v[1]]))
+            .save_to_pnm("debug_threshim_max.pnm")
+            .unwrap();
+    }
 
     let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp);
     std::mem::drop(im_minmax);
+    tp.stamp("build_threshim");
 
     // this is a dilate/erode deglitching scheme that does not improve
     // anything as far as I can tell.
     if qtp.deglitch {
-        let mut tmp = ImageY8::new_packed(w, h);
+        let mut tmp = ImageY8::zeroed_packed(w, h);
 
         for y in 1..(h - 1) {
             for x in 1..(w - 1) {
                 let mut max = 0;
-                let slice = threshim.window1(x, y, 1, 1);
+                let slice = threshim.window(x, y, 1, 1);
                 for v in slice.pixels() {
                     let v = v.to_value();
                     if v > max {
@@ -209,12 +221,12 @@ pub(super) fn threshold(qtp: &ApriltagQuadThreshParams, tp: &mut TimeProfile, im
 // basically the same as threshold(), but assumes the input image is a
 // bayer image. It collects statistics separately for each 2x2 block
 // of pixels. NOT WELL TESTED.
-pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &impl Image<Luma<u8>>) -> ImageY8 {
+pub(super) fn threshold_bayer(tp: &mut TimeProfile, im: &ImageY8) -> ImageY8 {
     let w = im.width();
     let h = im.height();
     let s = im.stride();
 
-    let mut threshim = ImageY8::with_alignment(w, h, s);
+    let mut threshim = ImageY8::zeroed_with_alignment(w, h, s);
     assert_eq!(threshim.stride(), s);
 
     let tilesz = 32;
