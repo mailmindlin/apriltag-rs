@@ -1,33 +1,20 @@
-use std::{str::Chars, iter::Peekable, borrow::Cow};
+use std::{str::Chars, iter::Peekable, borrow::Cow, num::ParseFloatError};
 
 use super::Mat;
 
-fn count_args(expr: &str) -> usize {
-    let mut nargs = 0;
-    for p in expr.chars() {
-        match p {
-            'M' | 'F' => {
-                nargs += 1;
-            }
-            _ => {}
-        }
-    }
-    nargs
-}
-
-enum UnaryOpKind {
+pub(crate) enum UnaryOpKind {
     Transpose,
     Inverse,
     UnaryMinus,
 }
 
-enum BinaryOpKind {
+pub(crate) enum BinaryOpKind {
     Add,
     Subtract,
     Multiply,
 }
 
-enum MatdExpression {
+pub(crate) enum MatdExpression {
     NextArg,
     Literal {
         value: f64,
@@ -43,18 +30,35 @@ enum MatdExpression {
     },
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum ParseOrEvalError {
+    Parse(MatdParseError),
+    Eval(EvalError),
+}
+
+impl From<MatdParseError> for ParseOrEvalError {
+    fn from(value: MatdParseError) -> Self {
+        Self::Parse(value)
+    }
+}
+
+impl From<EvalError> for ParseOrEvalError {
+    fn from(value: EvalError) -> Self {
+        Self::Eval(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum EvalError {
-    NotEnoughArguments,
+    ArityMismatch {
+        expected: usize,
+        actual: usize,
+    },
     InvalidOperation,
 }
 
 impl MatdExpression {
-    pub fn next_arg() -> Box<MatdExpression> {
-        box MatdExpression::NextArg
-    }
-
-    pub fn nargs(&self) -> usize {
+    pub const fn nargs(&self) -> usize {
         //TODO: non-recursive version?
         match self {
             MatdExpression::NextArg => 1,
@@ -81,7 +85,7 @@ impl MatdExpression {
             MatdExpression::NextArg => {
                 match args.next() {
                     Some(arg) => Ok(Cow::Borrowed(arg)),
-                    None => Err(EvalError::NotEnoughArguments),
+                    None => Err(EvalError::ArityMismatch { expected: 1, actual: 0 }),
                 }
             },
             MatdExpression::Literal { value } => {
@@ -143,6 +147,10 @@ impl MatdExpression {
         }
     }
     pub fn eval(&self, args: &[&Mat]) -> Result<Mat, EvalError> {
+        let arity = self.nargs();
+        if args.len() != arity {
+            return Err(EvalError::ArityMismatch { expected: arity, actual: args.len() })
+        }
         let mut iter = args.iter().copied();
         let res = self.eval_inner(&mut iter)?;
         Ok(match res {
@@ -150,6 +158,18 @@ impl MatdExpression {
             Cow::Owned(res) => res,
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum MatdParseError {
+    UnexpectedEOF,
+    UnexpectedChar {
+        expected: char,
+        actual: char,
+    },
+    InvalidScalarLiteral(ParseFloatError),
+    Empty,
+    ConstantExpression,
 }
 
 struct MatdExpressionParser<'a> {
@@ -163,42 +183,51 @@ impl<'a> MatdExpressionParser<'a> {
         }
     }
 
-    pub fn parse(expr: &'a str) -> Box<MatdExpression> {
+    pub fn parse(expr: &'a str) -> Result<Box<MatdExpression>, MatdParseError> {
         let mut parser = Self::new(expr);
-        parser.parse_recurse(None, false)
+        let res = parser.parse_recurse(None, false)?;
+        if res.nargs() == 0 {
+            return Err(MatdParseError::ConstantExpression);
+        }
+        Ok(res)
     }
 
     fn peek(&mut self) -> Option<&char> {
         self.expr.peek()
     }
-    fn expect(&mut self, expected: char) {
-        let actual = self.expr.next().expect("Unexpected EOF");
-        assert_eq!(expected, actual, "Unexpected character");
+
+    fn expect(&mut self, expected: char) -> Result<(), MatdParseError> {
+        let actual = self.expr.next()
+            .ok_or(MatdParseError::UnexpectedEOF)?;
+        if expected != actual {
+            return Err(MatdParseError::UnexpectedChar { expected, actual });
+        }
+        Ok(())
     }
 
-    fn parse_transpose(&mut self, acc: Option<Box<MatdExpression>>) -> Box<MatdExpression> {
-        self.expect('\'');
-        box MatdExpression::UnaryOp {
+    fn parse_transpose(&mut self, acc: Option<Box<MatdExpression>>) -> Result<Box<MatdExpression>, MatdParseError> {
+        self.expect('\'')?;
+        Ok(Box::new(MatdExpression::UnaryOp {
             kind: UnaryOpKind::Transpose,
             // either a syntax error or a math op failed, producing null
             inner: acc.expect("missing acc")
-        }
+        }))
     }
 
-    fn parse_inverse(&mut self, acc: Option<Box<MatdExpression>>) -> Box<MatdExpression> {
+    fn parse_inverse(&mut self, acc: Option<Box<MatdExpression>>) -> Result<Box<MatdExpression>, MatdParseError> {
         let acc = acc.unwrap();
         // handle inverse ^-1. No other exponents are allowed.
-        self.expect('^');
-        self.expect('-');
-        self.expect('1');
+        self.expect('^')?;
+        self.expect('-')?;
+        self.expect('1')?;
 
-        box MatdExpression::UnaryOp {
+        Ok(Box::new(MatdExpression::UnaryOp {
             kind: UnaryOpKind::Inverse,
             inner: acc,
-        }
+        }))
     }
 
-    fn parse_scalar(&mut self) -> Box<MatdExpression> {
+    fn parse_scalar(&mut self) -> Result<Box<MatdExpression>, MatdParseError> {
         //TODO: this is probably not quite right
         let text = {
             let mut text = String::new();
@@ -214,30 +243,29 @@ impl<'a> MatdExpressionParser<'a> {
             text
         };
 
-        assert_ne!(text.len(), 0, "Empty scalar literal");
-
-        let value = text.parse::<f64>().expect("Unable to parse literal");
-        
-        box MatdExpression::Literal { value }
+        match text.parse::<f64>() {
+            Ok(value) => Ok(Box::new(MatdExpression::Literal { value })),
+            Err(e) => Err(MatdParseError::InvalidScalarLiteral(e)),
+        }
     }
 
     /// handle right-associative operators, greedily consuming them. These
     /// include transpose and inverse. This is called by the main recursion
     /// method.
-    fn gobble_right(&mut self, mut acc: Option<Box<MatdExpression>>) -> Box<MatdExpression> {
+    fn gobble_right(&mut self, mut acc: Option<Box<MatdExpression>>) -> Result<Box<MatdExpression>, MatdParseError> {
         while let Some(c) = self.peek() {
             acc = Some(match c {
-                '\'' => self.parse_transpose(acc),
-                '^' => self.parse_inverse(acc),
+                '\'' => self.parse_transpose(acc)?,
+                '^' => self.parse_inverse(acc)?,
                 _ => break,
             })
         }
-        acc.unwrap()
+        Ok(acc.unwrap())
     }
     
     fn implicit_mul(acc: Option<Box<MatdExpression>>, rhs: Box<MatdExpression>) -> Box<MatdExpression> {
         if let Some(acc) = acc {
-            box MatdExpression::BinaryOp { kind: BinaryOpKind::Multiply, lhs: acc, rhs }
+            Box::new(MatdExpression::BinaryOp { kind: BinaryOpKind::Multiply, lhs: acc, rhs })
         } else {
             rhs
         }
@@ -245,45 +273,45 @@ impl<'a> MatdExpressionParser<'a> {
 
     /// @garb, garbpos  A list of every matrix allocated during evaluation... used to assist cleanup.
     /// @oneterm: we should return at the end of this term (i.e., stop at a PLUS, MINUS, LPAREN).
-    fn parse_recurse(&mut self, mut acc: Option<Box<MatdExpression>>, oneterm: bool) -> Box<MatdExpression> {
+    fn parse_recurse(&mut self, mut acc: Option<Box<MatdExpression>>, oneterm: bool) -> Result<Box<MatdExpression>, MatdParseError> {
         while let Some(c) = self.peek() {
             match *c {
                 '(' => {
                     if oneterm {
                         if let Some(acc) = acc {
-                            return acc;
+                            return Ok(acc);
                         }
                     }
-                    self.expect('(');
-                    let rhs = self.parse_recurse(None, false);
-                    let rhs = self.gobble_right(Some(rhs));
+                    self.expect('(')?;
+                    let rhs = self.parse_recurse(None, false)?;
+                    let rhs = self.gobble_right(Some(rhs))?;
                     
                     acc = Some(Self::implicit_mul(acc, rhs));
                 },
                 ')' => {
                     if !oneterm {
-                        self.expect(')');
+                        self.expect(')')?;
                     }
-                    return acc.unwrap();
+                    return Ok(acc.unwrap());
                 },
                 '*' => {
-                    self.expect('*');
-                    let rhs = self.parse_recurse(None, true);
-                    let rhs = self.gobble_right(Some(rhs));
+                    self.expect('*')?;
+                    let rhs = self.parse_recurse(None, true)?;
+                    let rhs = self.gobble_right(Some(rhs))?;
     
                     acc = Some(Self::implicit_mul(acc, rhs));
                 },
                 'F' => {
-                    self.expect('F');
-                    let rhs = box MatdExpression::NextArg;
-                    let rhs = self.gobble_right(Some(rhs));
+                    self.expect('F')?;
+                    let rhs = Box::new(MatdExpression::NextArg);
+                    let rhs = self.gobble_right(Some(rhs))?;
     
                     acc = Some(Self::implicit_mul(acc, rhs));
                 },
                 'M' => {
-                    self.expect('M');
-                    let rhs = box MatdExpression::NextArg;
-                    let rhs = self.gobble_right(Some(rhs));
+                    self.expect('M')?;
+                    let rhs = Box::new(MatdExpression::NextArg);
+                    let rhs = self.gobble_right(Some(rhs))?;
 
                     acc = Some(Self::implicit_mul(acc, rhs));
                 },
@@ -296,44 +324,43 @@ impl<'a> MatdExpressionParser<'a> {
                 } */
                 // a constant (SCALAR) defined inline. Treat just like M, creating a matd_t on the fly.
                 '0'..='9' | '.' => {
-                    let rhs = self.parse_scalar();
-                    let rhs = self.gobble_right(Some(rhs));
+                    let rhs = self.parse_scalar()?;
+                    let rhs = self.gobble_right(Some(rhs))?;
                     acc = Some(Self::implicit_mul(acc, rhs));
                 },
                 '+' => {
-                    self.expect('+');
+                    self.expect('+')?;
                     // don't support unary plus
                     let _acc = acc.expect("Unary plus not supported");
                     if oneterm {
-                        return _acc;
+                        return Ok(_acc);
                     }
 
-                    let rhs = self.parse_recurse(None, true);
-                    let rhs = self.gobble_right(Some(rhs));
+                    let rhs = self.parse_recurse(None, true)?;
+                    let rhs = self.gobble_right(Some(rhs))?;
 
-                    acc = Some(box MatdExpression::BinaryOp { kind: BinaryOpKind::Add, lhs: _acc, rhs });
+                    acc = Some(Box::new(MatdExpression::BinaryOp { kind: BinaryOpKind::Add, lhs: _acc, rhs }));
                 },
                 '-' => {
                     if let Some(_acc) = acc {
                         if oneterm {
-                            return _acc;
+                            return Ok(_acc);
                         }
 
                         // subtract
-                        self.expect('-');
-                        let rhs = self.parse_recurse(None, true);
-                        let rhs = self.gobble_right(Some(rhs));
+                        self.expect('-')?;
+                        let rhs = self.parse_recurse(None, true)?;
+                        let rhs = self.gobble_right(Some(rhs))?;
 
-                        acc = Some(box MatdExpression::BinaryOp { kind: BinaryOpKind::Subtract, lhs: _acc, rhs });
+                        acc = Some(Box::new(MatdExpression::BinaryOp { kind: BinaryOpKind::Subtract, lhs: _acc, rhs }));
                     } else {
-
-                        self.expect('-');
+                        self.expect('-')?;
 
                         // unary minus
-                        let rhs = self.parse_recurse(None, true);
-                        let rhs = self.gobble_right(Some(rhs));
+                        let rhs = self.parse_recurse(None, true)?;
+                        let rhs = self.gobble_right(Some(rhs))?;
 
-                        acc = Some(box MatdExpression::UnaryOp { kind: UnaryOpKind::UnaryMinus, inner: rhs });
+                        acc = Some(Box::new(MatdExpression::UnaryOp { kind: UnaryOpKind::UnaryMinus, inner: rhs }));
                     }
                 }
                 ' ' => {
@@ -345,7 +372,7 @@ impl<'a> MatdExpressionParser<'a> {
             }
         }
 
-        acc.unwrap()
+        acc.ok_or(MatdParseError::Empty)
     }
 }
 
@@ -355,13 +382,14 @@ impl<'a> MatdExpressionParser<'a> {
 // that was an input argument!
 
 impl Mat {
-    pub(crate) fn op(expr: &str, args: &[&Mat]) -> Result<Mat, EvalError> {
-        let expr = MatdExpressionParser::parse(expr);
+    pub(crate) fn compile_op(expr: &str) -> Result<Box<MatdExpression>, MatdParseError> {
+        MatdExpressionParser::parse(expr)
+    }
 
-        let nargs = expr.nargs();
-        assert_ne!(nargs, 0, "Empty expression");
-        assert_eq!(nargs, args.len(), "Arity mismatch");
+    pub(crate) fn op(expr: &str, args: &[&Mat]) -> Result<Mat, ParseOrEvalError> {
+        let expr = MatdExpressionParser::parse(expr)?;
 
-        expr.eval(args)
+        let res = expr.eval(args)?;
+        Ok(res)
     }
 }
