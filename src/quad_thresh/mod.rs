@@ -1,17 +1,19 @@
-mod uf;
+mod unionfind;
 mod linefit;
 mod quadfit;
 mod grad_cluster;
 mod threshold;
-use std::{fs::{File}, f64::consts as f64c};
+use std::{fs::File, f64::consts as f64c};
 
 use rand::thread_rng;
 
-use crate::{detector::ApriltagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageMut, HasDimensions, ImageRGB8, PostScriptWriter, ImageY8}, TimeProfile}, quad_decode::Quad};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8}}, quad_decode::Quad, dbg::TimeProfile};
 
-use self::{uf::{connected_components, UnionFind2D}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
+use self::{unionfind::{connected_components, UnionFind}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
 
-pub struct ApriltagQuadThreshParams {
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "cffi", repr(C))]
+pub struct AprilTagQuadThreshParams {
     /// Reject quads containing too few pixels
     pub min_cluster_pixels: u32,
 
@@ -22,8 +24,6 @@ pub struct ApriltagQuadThreshParams {
     /// Reject quads where pairs of edges have angles that are close to
     /// straight or close to 180 degrees. Zero means that no quads are
     /// rejected. (In radians).
-    #[deprecated]
-    pub critical_rad: f32,
     pub cos_critical_rad: f32,
 
     /// When fitting lines to the contours, what is the maximum mean
@@ -44,13 +44,11 @@ pub struct ApriltagQuadThreshParams {
     pub deglitch: bool,
 }
 
-impl Default for ApriltagQuadThreshParams {
+impl Default for AprilTagQuadThreshParams {
     fn default() -> Self {
-        #[allow(deprecated)]
         Self {
             min_cluster_pixels: 5,
             max_nmaxima: 10,
-            critical_rad: Default::default(),
             cos_critical_rad: (10. * f64c::PI / 180.).cos() as f32,
             max_line_fit_mse: 10.,
             min_white_black_diff: 5,
@@ -60,15 +58,15 @@ impl Default for ApriltagQuadThreshParams {
 }
 
 #[cfg(feature="debug")]
-fn debug_segmentation(w: usize, h: usize, uf: &UnionFind2D, qtp: &ApriltagQuadThreshParams) -> std::io::Result<()> {
+fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &mut impl UnionFind<(u32, u32)>, qtp: &AprilTagQuadThreshParams) -> std::io::Result<()> {
     let mut d = ImageBuffer::<Rgb<u8>>::create(w, h);
     let mut rng = thread_rng();
 
     let mut colors = calloc::<Option<Rgb<u8>>>(d.len());
     for ((x, y), dst) in d.enumerate_pixels_mut() {
-        let v = uf.get_representative(x, y);
+        let (v, v_size) = uf.get_set((x as _, y as _));
 
-        if uf.get_set_size(v) < qtp.min_cluster_pixels {
+        if v_size < qtp.min_cluster_pixels {
             continue;
         }
 
@@ -85,11 +83,13 @@ fn debug_segmentation(w: usize, h: usize, uf: &UnionFind2D, qtp: &ApriltagQuadTh
         };
     }
 
-    d.save_to_pnm("debug_segmentation.pnm")
+    d.write_pnm(&mut f)
 }
 
 #[cfg(feature="debug")]
-fn debug_clusters(w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<()> {
+fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<()> {
+    use crate::util::image::ImageRGB8;
+
     let mut d = ImageRGB8::create(w, h);
     let mut rng = thread_rng();
     for cluster in clusters.iter() {
@@ -101,12 +101,11 @@ fn debug_clusters(w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<(
         }
     }
 
-    d.save_to_pnm("debug_clusters.pnm")
+    d.write_pnm(&mut f)
 }
 
 #[cfg(feature="debug")]
-fn debug_lines(im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
-    let mut f = File::create("debug_lines.ps")?;
+fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
     let mut ps = PostScriptWriter::new(&mut f)?;
 
     let mut im2 = im.clone();
@@ -124,8 +123,8 @@ fn debug_lines(im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
     let mut rng = thread_rng();
 
     for q in quads.iter() {
-        ps.setrgbcolor(&rng.gen_color_rgb(100));
-        ps.command(|mut c| {
+        ps.setrgbcolor(&rng.gen_color_rgb(100))?;
+        ps.command(|c| {
             c.moveto(&q.corners[0])?;
             c.lineto(&q.corners[0])?;
             c.lineto(&q.corners[1])?;
@@ -139,61 +138,50 @@ fn debug_lines(im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn apriltag_quad_thresh(td: &ApriltagDetector, tp: &mut TimeProfile, im: &ImageY8) -> Vec<Quad> {
-    ////////////////////////////////////////////////////////
-    // step 1. threshold the image, creating the edge image.
+pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8) -> Vec<Quad> {
+    let clusters = {
+        ////////////////////////////////////////////////////////
+        // step 1. threshold the image, creating the edge image.
 
-    let w = im.width();
-    let h = im.height();
+        let threshim = threshold::threshold(&td.params.qtp, tp, im);
 
-    let threshim = threshold::threshold(&td.qtp, tp, im);
+        #[cfg(feature="debug")]
+        td.params.debug_image("debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
 
-    #[cfg(feature="debug")]
-    if td.params.generate_debug_image() {
-        threshim.save_to_pnm("debug_threshold.pnm")
-            .expect("Error writing debug_threshold.pnm");
-    }
+        ////////////////////////////////////////////////////////
+        // step 2. find connected components.
 
-    ////////////////////////////////////////////////////////
-    // step 2. find connected components.
+        let mut uf = connected_components(&td.params, &threshim);
 
-    let mut uf = connected_components(td, &threshim);
+        // make segmentation image.
+        #[cfg(feature="debug")]
+        td.params.debug_image("debug_segmentation.pnm", |f| debug_segmentation(f, im.width(), im.height(), &mut uf, &td.params.qtp));
 
-    // make segmentation image.
-    #[cfg(feature="debug")]
-    if td.params.generate_debug_image() {
-        debug_segmentation(w, h, &uf, &td.qtp)
-            .expect("Error generating debug_segmentation.pnm");
-    }
+        tp.stamp("unionfind");
 
-    tp.stamp("unionfind");
+        gradient_clusters(&td.params, &threshim, uf)
+    };
 
-    let clusters = gradient_clusters(td, &threshim, &mut uf);
     #[cfg(feature="extra_debug")]
     println!("{} gradient clusters", clusters.len());
     
     #[cfg(feature="debug")]
-    if td.params.generate_debug_image() {
-        debug_clusters(w, h, &clusters)
-            .expect("Error generating debug_clusters.pnm");
-    }
-
-    std::mem::drop(threshim);
+    td.params.debug_image("debug_clusters.pnm", |f| debug_clusters(f, im.width(), im.height(), &clusters));
     tp.stamp("make clusters");
 
     ////////////////////////////////////////////////////////
     // step 3. process each connected component.
     let quads = fit_quads(td, clusters, im);
 
-    #[cfg(feature="debug")]
-    if td.params.generate_debug_image() {
-        debug_lines(im, &quads)
-            .expect("Error generating debug_lines.ps");
+    #[cfg(feature="extra_debug")]
+    for quad in quads.iter() {
+        println!("Quad corner: {:?}", quad.corners);
     }
 
-    tp.stamp("fit quads to clusters");
+    #[cfg(feature="debug")]
+    td.params.debug_image("debug_lines.ps", |f| debug_lines(f, im, &quads));
 
-    std::mem::drop(uf);
+    tp.stamp("fit quads to clusters");
 
     quads
 }
