@@ -1,11 +1,9 @@
-mod timeprofile;
 pub(crate) mod homography;
-pub(crate) mod image;
+pub mod image;
 pub(crate) mod geom;
 pub(crate) mod math;
 pub(crate) mod mem;
 pub(crate) mod color;
-mod dims;
+pub(crate) mod dims;
 
-pub(crate) use timeprofile::TimeProfile;
-pub use self::image::{Image, ImageWritePNM};
+pub use self::image::{ImageBuffer, ImageRGB8, Image, ImageY8};
