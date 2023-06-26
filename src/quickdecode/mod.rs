@@ -1,13 +1,13 @@
 mod table;
 use std::{alloc::AllocError, sync::Arc};
 
-use datasize::{DataSize};
+use datasize::DataSize;
 
-use crate::families::AprilTagFamily;
+use crate::families::{AprilTagFamily, Rotation, rotate90};
 
 use self::table::LookupTable;
 
-#[derive(Default, Copy, Clone, DataSize)]
+#[derive(Default, Copy, Clone, DataSize, Debug)]
 struct QuickDecodeValue {
     /// Tag ID
 	id: u16,
@@ -22,23 +22,30 @@ pub(crate) struct QuickDecodeResult {
 	/// How many errors were corrected?
 	pub hamming: u8,
 	/// Number of rotations [0, 3]
-	pub rotation: u8,
+	pub rotation: Rotation,
 }
 
 /// Helper for quickly decoding an AprilTag code
+#[derive(Clone)]
 pub(crate) struct QuickDecode {
 	pub family: Arc<AprilTagFamily>,
 	table: LookupTable<QuickDecodeValue>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AddFamilyError {
 	/// Too many codes in an AprilTag family
 	TooManyCodes(usize),
 	/// Error allocating QD table
-	QuickDecodeAllocation(AllocError),
+	QuickDecodeAllocation,
 	/// Hamming value was too big
 	BigHamming(usize),
+}
+
+impl From<AllocError> for AddFamilyError {
+    fn from(_: AllocError) -> Self {
+        Self::QuickDecodeAllocation
+    }
 }
 
 impl std::fmt::Display for AddFamilyError {
@@ -46,60 +53,12 @@ impl std::fmt::Display for AddFamilyError {
         match self {
             AddFamilyError::TooManyCodes(num_codes) =>
 				write!(f, "Too many codes in AprilTag family to create QuickDecode (actual: {}, max: {})", num_codes, QuickDecode::NUM_CODES_MAX),
-            AddFamilyError::QuickDecodeAllocation(e) =>
-				write!(f, "Error allocating QuickDecode table: {}", e),
+            AddFamilyError::QuickDecodeAllocation =>
+				write!(f, "Error allocating QuickDecode table"),
             AddFamilyError::BigHamming(hamming) =>
 				write!(f, "Hamming too big for QuickDecode: (actual: {}, max: {})", hamming, QuickDecode::HAMMING_MAX),
         }
     }
-}
-
-/// Assuming we are drawing the image one quadrant at a time, what would the rotated image look like?
-/// Special care is taken to handle the case where there is a middle pixel of the image.
-/// 
-/// if the bits in w were arranged in a d*d grid and that grid was
-/// rotated, what would the new bits in w be?
-/// The bits are organized like this (for d = 3):
-///
-/// ```text
-///  8 7 6       2 5 8      0 1 2
-///  5 4 3  ==>  1 4 7 ==>  3 4 5    (rotate90 applied twice)
-///  2 1 0       0 3 6      6 7 8
-/// ```
-fn rotate90(w: u64, numBits: u64) -> u64 {
-	/*let mut wr = 0;
-
-	for r in (0..d).rev() {
-		for c in 0..d {
-			let b = r + d*c;
-
-			wr <<= 1;
-
-			if (w & (1u64 << b)) != 0 {
-				wr |= 1;
-			}
-		}
-	}
-
-	wr*/
-
-	// Odd/even
-    let (p, l) = if numBits % 4 == 1 {
-		(numBits - 1, 1)
-	} else {
-		(numBits, 0)
-	};
-
-    let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
-    w & (1u64 << numBits) - 1
-}
-
-#[cfg(test)]
-#[test]
-fn test_rotate90() {
-	let w_orig = 0b1010_1010_1010_1010;
-	let w_rot  = 0b0000_1111_0000_1111;
-	assert_eq!(rotate90(w_orig, 16), w_rot);
 }
 
 impl QuickDecode {
@@ -109,13 +68,13 @@ impl QuickDecode {
     pub const HAMMING_MAX: usize = 3;
 
 	/// Create new QuickDecode for some AprilTag family
-	pub fn init(family: Arc<AprilTagFamily>, max_hamming: usize) -> Result<Self, AddFamilyError> {
+	pub(crate) fn new(family: Arc<AprilTagFamily>, bits_corrected: usize) -> Result<Self, AddFamilyError> {
         // Parameter validation
 		if family.codes.len() >= Self::NUM_CODES_MAX {
 			return Err(AddFamilyError::TooManyCodes(family.codes.len()));
 		}
-        if max_hamming > Self::HAMMING_MAX {
-            return Err(AddFamilyError::BigHamming(max_hamming));
+        if bits_corrected > Self::HAMMING_MAX {
+            return Err(AddFamilyError::BigHamming(bits_corrected));
         }
 	
 		let nbits = family.bits.len();
@@ -123,22 +82,21 @@ impl QuickDecode {
 		let capacity = {
 			let ncodes = family.codes.len();
 			let mut capacity = ncodes;
-			if max_hamming >= 1 {
+			if bits_corrected >= 1 {
 				capacity += ncodes * nbits;
 			}
-			if max_hamming >= 2 {
+			if bits_corrected >= 2 {
 				capacity += ncodes * nbits * (nbits - 1);
 			}
-			if max_hamming >= 3 {
+			if bits_corrected >= 3 {
 				capacity += ncodes * nbits * (nbits - 1) * (nbits - 2);
 			}
-			capacity
+			capacity * 3
 		};
 
 		// Create QuickDecode with capacity
 		let mut qd = {
-			let table = LookupTable::with_capacity(capacity)
-				.map_err(|e| AddFamilyError::QuickDecodeAllocation(e))?;
+			let table = LookupTable::with_capacity(capacity)?;
 	
 			Self {
 				family: family.clone(),
@@ -151,7 +109,7 @@ impl QuickDecode {
 			// add exact code (hamming = 0)
 			qd.add(*code, i, 0);
 			
-			match max_hamming {
+			match bits_corrected {
 				0 => {},
 				1 => {
 					// add hamming 1
@@ -188,7 +146,7 @@ impl QuickDecode {
 				},
 				_ => {
 					// println!("Error: maxhamming beyond 3 not supported");
-					return Err(AddFamilyError::BigHamming(max_hamming));
+					return Err(AddFamilyError::BigHamming(bits_corrected));
 				},
 			}
 		}
@@ -196,6 +154,7 @@ impl QuickDecode {
         
         #[cfg(feature="extra_debug")]
 		{
+			use datasize::data_size;
             println!("quick decode: capacity {}, size {:.0} kB", capacity, data_size(&qd.table) as f64 / 1024.0);
 
             let (avg_run, longest_run) = qd.table.stats();
@@ -216,17 +175,44 @@ impl QuickDecode {
 		let dim = self.family.bits.len().try_into()
             .expect("AprilTag family has too many bits");
 		
-		for ridx in 0..4 {
+		for rotation in Rotation::values() {
             if let Some(entry) = self.table.get(rcode) {
                 return Some(QuickDecodeResult {
                     id: entry.id,
                     hamming: entry.hamming,
-                    rotation: ridx,
+                    rotation,
                 });
             }
             rcode = rotate90(rcode, dim);
 		}
 
 		None
+	}
+}
+
+#[cfg(test)]
+mod test {
+    use crate::AprilTagFamily;
+
+    use super::QuickDecode;
+
+	#[test]
+	fn build_qd() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let _ = QuickDecode::new(family, 1).unwrap();
+	}
+
+	#[test]
+	fn lookup_qd() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family, 0).unwrap();
+		qd.decode_codeword(57948543051).unwrap();
+	}
+
+	#[test]
+	fn lookup_qd_rotated() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family, 0).unwrap();
+		qd.decode_codeword(51559569327).unwrap();
 	}
 }
