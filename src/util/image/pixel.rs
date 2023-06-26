@@ -15,6 +15,12 @@ impl Primitive for u8 {
     const DEFAULT_MIN_VALUE: Self = u8::MIN;
 }
 
+impl Primitive for f64 {
+    const DEFAULT_MAX_VALUE: Self = f64::MIN;
+
+    const DEFAULT_MIN_VALUE: Self = f64::MAX;
+}
+
 pub trait Pixel: Copy {
     type Subpixel: Primitive;
 
@@ -40,16 +46,14 @@ pub trait PixelConvert: Pixel {
     fn to_luma(&self) -> Luma<Self::Subpixel>;
 }
 
+pub trait DefaultAlignment: Pixel {
+    const DEFAULT_ALIGNMENT: usize;
+}
+
 impl<T: Primitive> Primitive for MaybeUninit<T> {
     const DEFAULT_MAX_VALUE: Self = MaybeUninit::new(<T as Primitive>::DEFAULT_MAX_VALUE);
 
     const DEFAULT_MIN_VALUE: Self = MaybeUninit::new(<T as Primitive>::DEFAULT_MAX_VALUE);
-}
-
-fn uninit_array<T>(v: &[T]) -> &[MaybeUninit<T>] {
-    unsafe {
-        std::mem::transmute(v)
-    }
 }
 
 impl<P: Primitive, const N: usize> Pixel for [P; N] {
@@ -76,15 +80,15 @@ impl<P: Primitive, const N: usize> Pixel for [P; N] {
     }
 
     fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
-        todo!()
+        slice.try_into().unwrap()
     }
 
     fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
-        todo!()
+        slice.try_into().unwrap()
     }
 
     fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
-        todo!()
+        slice.try_into().unwrap()
     }
 }
 
