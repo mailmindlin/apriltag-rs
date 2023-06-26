@@ -7,13 +7,48 @@ mod tag16h5;
 mod tag25h9;
 mod tag36h10;
 mod tag36h11;
+pub mod generator;
+mod util;
+pub use util::{rotate90, rotations};
 
 pub use tag16h5::tag16h5_create;
 pub use tag25h9::tag25h9_create;
 pub use tag36h10::tag36h10_create;
 pub use tag36h11::tag36h11_create;
 
-#[derive(Debug, PartialEq, Clone)]
+pub(crate) type Code = u64;
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum Rotation {
+	Identity,
+	Deg90,
+	Deg180,
+	Deg270,
+}
+
+impl Rotation {
+    pub const fn values() -> [Rotation; 4] {
+        [Self::Identity, Self::Deg90, Self::Deg180, Self::Deg270]
+    }
+
+    #[inline(always)]
+    pub const fn count(&self) -> usize {
+        match self {
+            Rotation::Identity => 0,
+            Rotation::Deg90 => 1,
+            Rotation::Deg180 => 2,
+            Rotation::Deg270 => 3,
+        }
+    }
+
+    #[inline]
+    pub fn theta(&self) -> f64 {
+        self.count() as f64 * core::f64::consts::FRAC_PI_2
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
@@ -50,6 +85,15 @@ impl AprilTagFamily {
         //TODO: cache references
         Some(Arc::new(res))
     }
+
+    fn similar_to(&self, other: &Self) -> bool {
+        self.bits == other.bits
+            && (self.width_at_border == other.width_at_border)
+            && (self.total_width == other.total_width)
+            && (self.reversed_border == other.reversed_border)
+            && (self.min_hamming == other.min_hamming) //TODO: we might not care
+    }
+
     pub fn to_image(&self, idx: usize) -> ImageBuffer<Luma<u8>> {
         // assert!(idx >= 0 && idx < self.codes.len());
     
@@ -105,3 +149,41 @@ impl AprilTagFamily {
         im
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ApriltagId {
+    pub family: Arc<AprilTagFamily>,
+    pub id: usize,
+}
+
+impl ApriltagId {
+    pub fn code(&self) -> u64 {
+        self.family.codes[self.id]
+    }
+}
+
+impl PartialEq for ApriltagId {
+    fn eq(&self, other: &Self) -> bool {
+        if self.id != other.id {
+            return false;
+        }
+        if Arc::ptr_eq(&self.family, &other.family) {
+            return true;
+        }
+        // Check if the families is substantially similar, and specifically at the index
+        if !self.family.similar_to(&other.family) {
+            return false;
+        }
+        let code1 = match self.family.codes.get(self.id) {
+            Some(code) => code,
+            None => return false,
+        };
+        let code2 = match other.family.codes.get(self.id) {
+            Some(code) => code,
+            None => return false,
+        };
+        code1 == code2
+    }
+}
+
+impl Eq for ApriltagId {}
