@@ -24,7 +24,7 @@ impl Pt {
 #[inline]
 pub(super) fn ptsort(pts: &mut [Pt]) {
     //TODO: speed test
-    pts.sort_by(Pt::compare_angle);
+    pts.sort_unstable_by(Pt::compare_angle);
     return;
     #[inline(always)]
     fn MAYBE_SWAP(arr: &mut [Pt], apos: usize, bpos: usize) {
@@ -81,7 +81,7 @@ pub(super) fn ptsort(pts: &mut [Pt]) {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy)]
 pub(super) struct LineFitPoint {
     pub(super) Mx: f64,
     pub(super) My: f64,
@@ -100,42 +100,34 @@ pub(super) struct LineFitData {
 }
 
 
-/// lfps contains *cumulative* moments for N points, with
-/// index j reflecting points [0,j] (inclusive).
-///
-/// fit a line to the points [i0, i1] (inclusive). i0, i1 are both [0,
-/// sz) if i1 < i0, we treat this as a wrap around.
-pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitData {
+#[inline(always)]
+fn sqrtf(x: f64) -> f64 {
+    f32::sqrt(x as f32) as f64
+}
+
+fn get_point(lfps: &[LineFitPoint], i0: usize, i1: usize) -> (LineFitPoint, usize) {
     assert_ne!(i0, i1, "i0 and i1 equal");
     assert!(i0 < lfps.len(), "i0 out of bounds");
     assert!(i1 < lfps.len(), "i0 out of bounds");
 
-    let mut Mx;
-    let mut My;
-    let mut Mxx;
-    let mut Mxy;
-    let mut Myy;
-    let mut W;
-    let N; // how many points are included in the set?
-
     if i0 < i1 {
-        N = i1 - i0 + 1;
+        let N = i1 - i0 + 1;
 
-        Mx  = lfps[i1].Mx;
-        My  = lfps[i1].My;
-        Mxx = lfps[i1].Mxx;
-        Mxy = lfps[i1].Mxy;
-        Myy = lfps[i1].Myy;
-        W   = lfps[i1].W;
-
-        if i0 > 0 {
-            Mx  -= lfps[i0-1].Mx;
-            My  -= lfps[i0-1].My;
-            Mxx -= lfps[i0-1].Mxx;
-            Mxy -= lfps[i0-1].Mxy;
-            Myy -= lfps[i0-1].Myy;
-            W   -= lfps[i0-1].W;
-        }
+        let pt = if i0 > 0 {
+            let a = &lfps[i1];
+            let b = &lfps[i0 - 1];
+            LineFitPoint {
+                Mx: a.Mx - b.Mx,
+                My: a.My - b.My,
+                Mxx: a.Mxx - b.Mxx,
+                Myy: a.Myy - b.Myy,
+                Mxy: a.Mxy - b.Mxy,
+                W: a.W - b.W,
+            }
+        } else {
+            lfps[i1].clone()
+        };
+        (pt, N)
     } else {
         // i0 > i1, e.g. [15, 2]. Wrap around.
         debug_assert!(i0 > 0);
@@ -144,75 +136,42 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
         let pt_i0 = &lfps[i0 - 1];
         let pt_i1 = &lfps[i1];
 
-        Mx  = (pt_last.Mx   - pt_i0.Mx)   + pt_i1.Mx;
-        My  = (pt_last.My   - pt_i0.My)   + pt_i1.My;
-        Mxx = (pt_last.Mxx  - pt_i0.Mxx)  + pt_i1.Mxx;
-        Mxy = (pt_last.Mxy  - pt_i0.Mxy)  + pt_i1.Mxy;
-        Myy = (pt_last.Myy  - pt_i0.Myy)  + pt_i1.Myy;
-        W   = (pt_last.W    - pt_i0.W)    + pt_i1.W;
+        let pt = LineFitPoint {
+            Mx:  (pt_last.Mx   - pt_i0.Mx)   + pt_i1.Mx,
+            My:  (pt_last.My   - pt_i0.My)   + pt_i1.My,
+            Mxx: (pt_last.Mxx  - pt_i0.Mxx)  + pt_i1.Mxx,
+            Myy: (pt_last.Mxy  - pt_i0.Mxy)  + pt_i1.Mxy,
+            Mxy: (pt_last.Myy  - pt_i0.Myy)  + pt_i1.Myy,
+            W:   (pt_last.W    - pt_i0.W)    + pt_i1.W,
+        };
 
-        N = lfps.len() - i0 + i1 + 1;
+        let N = lfps.len() - i0 + i1 + 1;
+        (pt, N)
     }
+}
 
-    // println!("Mx={Mx} My={My} Mxx={Mxx} Mxy={Mxy} Myy={Myy} W={W} N={N}");
+pub(crate) struct LineFitError {
+    pub(crate) err: f64,
+    /// mean squared error
+    pub(crate) mse: f64,
+}
+
+pub(super) fn fit_line_error(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitError {
+    let (pt, N) = get_point(lfps, i0, i1);
 
     assert!(N >= 2);
 
-    let Ex = Mx / W;
-    let Ey = My / W;
-    let Cxx = Mxx / W - Ex*Ex;
-    let Cxy = Mxy / W - Ex*Ey;
-    let Cyy = Myy / W - Ey*Ey;
+    let W = pt.W;
+    let Ex = pt.Mx / W;
+    let Ey = pt.My / W;
+    let Cxx = pt.Mxx / W - Ex*Ex;
+    let Cxy = pt.Mxy / W - Ex*Ey;
+    let Cyy = pt.Myy / W - Ey*Ey;
 
-    let (nx, ny) = if true {
-        // on iOS about 5% of total CPU spent in these trig functions.
-        // 85 ms per frame on 5S, example.pnm
-        //
-        // XXX this was using the double-precision atan2. Was there a case where
-        // we needed that precision? Seems doubtful.
-        let normal_theta = 0.5 * f32::atan2(-2.*Cxy as f32, (Cyy - Cxx) as f32);
-        let (ny,nx) = normal_theta.sin_cos();
-        (nx as f64, ny as f64)
-    } else {
-        // 73.5 ms per frame on 5S, example.pnm
-        let ty = -2.*Cxy;
-        let mut tx = Cyy - Cxx;
-        let mag = ty*ty + tx*tx;
+    // let eig = 0.5*((pt.Mxx / W - (pt.Mx / W)*(pt.Mx / W)) + (pt.Myy / W - (pt.My / W)*(pt.My / W)) + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
 
-        if mag == 0. {
-            (1., 0.)
-        } else {
-            let norm = f64::hypot(tx, ty);
-            tx /= norm;
-
-            // ty is now sin(2theta)
-            // tx is now cos(2theta). We want sin(theta) and cos(theta)
-
-            // due to precision err, tx could still have slightly too large magnitude.
-            if tx > 1. {
-                (1., 0.)
-            } else if tx < -1. {
-                (0., 1.)
-            } else {
-                // half angle formula
-                let mut ny = ((1. - tx)/2.).sqrt();
-                let nx = ((1. + tx)/2.).sqrt();
-
-                // pick a consistent branch cut
-                if ty < 0. {
-                    ny = -ny;
-                }
-                (nx, ny)
-            }
-        }
-    };
-
-    let lineparm = [
-        Ex,
-        Ey,
-        nx,
-        ny,
-    ];
+    // Instead of using the above cos/sin method, pose it as an eigenvalue problem.
+    let eig = 0.5*(Cxx + Cyy + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
 
     // sum of squared errors =
     //
@@ -223,12 +182,65 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
     //  nx*nx*N*Cxx + 2nx*ny*N*Cxy + ny*ny*N*Cyy
 
     // sum of squared errors
-    let err = {
-        let N = N as f64;
-        nx*nx*N*Cxx + 2.*nx*ny*N*Cxy + ny*ny*N*Cyy
+    let err = N as f64 * eig;
+    LineFitError { err, mse: eig }
+}
+
+/// lfps contains *cumulative* moments for N points, with
+/// index j reflecting points [0,j] (inclusive).
+///
+/// fit a line to the points [i0, i1] (inclusive). i0, i1 are both [0,
+/// sz) if i1 < i0, we treat this as a wrap around.
+pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitData {
+    let (pt, N) = get_point(lfps, i0, i1);
+
+    let W = pt.W;
+    let Ex = pt.Mx / W;
+    let Ey = pt.My / W;
+    let Cxx = pt.Mxx / W - Ex*Ex;
+    let Cxy = pt.Mxy / W - Ex*Ey;
+    let Cyy = pt.Myy / W - Ey*Ey;
+
+    // Instead of using the above cos/sin method, pose it as an eigenvalue problem.
+    let eig = 0.5*(Cxx + Cyy + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
+    let nx1 = Cxx - eig;
+    let ny1 = Cxy;
+    let M1 = nx1*nx1 + ny1*ny1;
+    let nx2 = Cxy;
+    let ny2 = Cyy - eig;
+    let M2 = nx2*nx2 + ny2*ny2;
+
+    let (nx, ny, M) = if M1 > M2 {
+        (nx1, ny1, M1)
+    } else {
+        (nx2, ny2, M2)
     };
 
-    let mse = nx*nx*Cxx + 2.*nx*ny*Cxy + ny*ny*Cyy;
+
+    let length = sqrtf(M);
+
+    let lineparm = [
+        Ex,
+        Ey,
+        nx / length,
+        ny / length,
+    ];
+
+
+    // sum of squared errors =
+    //
+    // SUM_i ((p_x - ux)*nx + (p_y - uy)*ny)^2
+    // SUM_i  nx*nx*(p_x - ux)^2 + 2nx*ny(p_x -ux)(p_y-uy) + ny*ny*(p_y-uy)*(p_y-uy)
+    //  nx*nx*SUM_i((p_x -ux)^2) + 2nx*ny*SUM_i((p_x-ux)(p_y-uy)) + ny*ny*SUM_i((p_y-uy)^2)
+    //
+    //  nx*nx*N*Cxx + 2nx*ny*N*Cxy + ny*ny*N*Cyy
+
+    // sum of squared errors
+    let err = N as f64 * eig;
+
+    // mean squared error
+    let mse = eig;
+
     LineFitData {
         lineparm,
         err,
