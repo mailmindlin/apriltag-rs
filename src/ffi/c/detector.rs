@@ -1,134 +1,180 @@
 #![allow(non_camel_case_types)]
-use std::{ffi::{c_float, CStr, CString}, sync::Arc, slice, ptr};
+use core::slice;
+use std::{ffi::{c_float}, sync::Arc, ops::Deref, collections::HashMap};
+use crate::{AprilTagDetector, util::{image::ImageY8, geom::Point2D, math::mat::Mat33}, detector::{DetectorBuilder, DetectorBuildError}, AprilTagQuadThreshParams, AprilTagFamily, ffi::util::AtomicManagedPtr, AprilTagDetection};
+use errno::{set_errno, Errno};
+use libc::{c_int, c_double, boolean_t as c_bool};
 
-use crate::{ApriltagDetector, ApriltagDetection, families::AprilTagFamily, util::{geom::Point2D, image::ImageY8}, ffi::c::{drop_array, drop_str}};
-use libc::{c_int, c_double, c_void, c_char};
+use parking_lot::RwLock;
+use super::{zarray::ZArray, img_u8_t::image_u8_t, family::apriltag_family_t, matd_ptr, timeprofile_t, FFIConvertError};
+use super::super::util::{drop_boxed_mut, ManagedPtr};
 
-use super::{util::zarray, img::image_u8_t, matd_t, FFIConvertError};
-
-type apriltag_detector_t = ApriltagDetector;
-
-#[repr(C)]
-pub struct apriltag_family_t {
-    // How many codes are there in this tag family?
-    ncodes: u32,
-
-    // The codes in the family.
-    codes: *const u64,
-
-    width_at_border: c_int,
-    total_width: c_int,
-    reversed_border: bool,
-
-    // The bit locations.
-    nbits: u32,
-    bit_x: *const u32,
-    bit_y: *const u32,
-
-    // minimum hamming distance between any two codes. (e.g. 36h11 => 11)
-    h: u32,
-
-    // a human-readable name, e.g., "tag36h11"
-    name: *const c_char,
-
-    // some detector implementations may preprocess codes in order to
-    // accelerate decoding.  They put their data here. (Do not use the
-    // same apriltag_family instance in more than one implementation)
-    ximpl: *const c_void,
+enum LazyDetector {
+    Building(DetectorBuilder),
+    Detector(AprilTagDetector),
+    Invalid,
 }
 
-impl Drop for apriltag_family_t {
-    fn drop(&mut self) {
-        drop_array(&mut self.codes, self.ncodes as usize);
-
-        drop_array(&mut self.bit_x, self.nbits as usize);
-        drop_array(&mut self.bit_y, self.nbits as usize);
-        drop_str(&mut self.name);
-        assert!(self.ximpl.is_null());
-    }
-}
-
-impl From<AprilTagFamily> for apriltag_family_t {
-    fn from(mut value: AprilTagFamily) -> Self {
-        let mut bits_x = Vec::with_capacity(value.bits.len());
-        let mut bits_y = Vec::with_capacity(value.bits.len());
-        for (bit_x, bit_y) in value.bits.iter() {
-            bits_x.push(bit_x);
-            bits_y.push(bit_y);
-        }
-        bits_x.shrink_to_fit();
-        bits_y.shrink_to_fit();
-
-        value.codes.shrink_to_fit();
-        let (codes, ncodes, codes_cap) = value.codes.into_raw_parts();
-        assert_eq!(ncodes, codes_cap);
-
-        Self {
-            ncodes: ncodes as _,
-            codes: codes,
-            width_at_border: value.width_at_border as _,
-            total_width: value.total_width as _,
-            reversed_border: value.reversed_border,
-            nbits: value.bits.len() as _,
-            bit_x: bits_x.into_raw_parts().0 as *const _,
-            bit_y: bits_y.into_raw_parts().0 as *const _,
-            h: value.min_hamming as _,
-            name: CString::new(value.name.as_ref()).unwrap().into_raw(),
-            ximpl: std::ptr::null(),
+impl LazyDetector {
+    fn as_builder(&mut self) -> &mut DetectorBuilder {
+        match self {
+            LazyDetector::Building(builder) => builder,
+            LazyDetector::Detector(_) => {
+                let builder = if let LazyDetector::Detector(detector) = std::mem::replace(self, LazyDetector::Invalid) {
+                    DetectorBuilder::from(detector)
+                } else {
+                    unreachable!()
+                };
+                *self = Self::Building(builder);
+                if let LazyDetector::Building(builder) = self {
+                    builder
+                } else {
+                    unreachable!()
+                }
+            },
+            LazyDetector::Invalid => unreachable!(),
         }
     }
-}
 
-impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
-    type Error = FFIConvertError;
+    fn as_detector(&mut self) -> Result<&AprilTagDetector, DetectorBuildError> {
+        match self {
+            LazyDetector::Building(builder) => {
+                let detector = builder.clone().build()?;
+                *self = Self::Detector(detector);
 
-    fn try_from(value: &apriltag_family_t) -> Result<Self, Self::Error> {
-        let codes = {
-            let mut codes = Vec::with_capacity(value.ncodes as usize);
-            if value.ncodes == 0 {
-                // Skip
-            } else if value.codes.is_null() {
-                return Err(FFIConvertError::NullPointer);
-            } else {
-                let codes_raw = unsafe { slice::from_raw_parts(value.codes, value.ncodes as usize) };
-                codes.extend_from_slice(codes_raw);
-            }
-            codes
-        };
-        let bits = {
-            let mut bits = Vec::with_capacity(value.nbits as usize);
-            if value.nbits == 0 {
-                // Skip
-            } else if value.bit_x.is_null() || value.bit_y.is_null() {
-                return Err(FFIConvertError::NullPointer);
-            } else {
-                let bits_x = unsafe { slice::from_raw_parts(value.bit_x, value.nbits as usize) };
-                let bits_y = unsafe { slice::from_raw_parts(value.bit_y, value.nbits as usize) };
-                for (bit_x, bit_y) in bits_x.iter().zip(bits_y.iter()) {
-                    bits.push((*bit_x, *bit_y));
+                if let Self::Detector(det) = self {
+                    return Ok(det);
+                } else {
+                    unreachable!()
                 }
             }
-            bits
-        };
-        let name = unsafe { CStr::from_ptr(value.name as *const i8) }
-            .to_string_lossy();
-        
-        Ok(Arc::new(AprilTagFamily {
-            codes,
-            bits,
-            width_at_border: value.width_at_border as u32,
-            total_width: value.total_width as u32,
-            reversed_border: value.reversed_border,
-            min_hamming: value.h.into(),
-            name,
-        }))
+            LazyDetector::Detector(det) => Ok(det),
+            LazyDetector::Invalid => unreachable!(),
+        }
+    }
+}
+
+struct ExtraData {
+    detector: RwLock<LazyDetector>,
+}
+
+impl ExtraData {
+    fn update(&self, callback: impl FnOnce(&mut DetectorBuilder) -> ()) {
+        let mut detector_wlock = self.detector.write();
+
+        let builder = detector_wlock.as_builder();
+        callback(builder);
+    }
+
+    fn detector<'a, R>(&'a self, callback: impl FnOnce(&AprilTagDetector) -> R) -> Result<R, DetectorBuildError> {
+        let mut rlock = self.detector.upgradable_read();
+        loop {
+            if let LazyDetector::Detector(det) = rlock.deref() {
+                return Ok(callback(det));
+            }
+            // Hopefully we are guaraunteed to only loop once, but it's not clear if the lock goes from write->unlocked->read or write->read
+            rlock.with_upgraded(|data| -> Result<(), DetectorBuildError> {
+                data.as_detector()?;
+                Ok(())
+            })?;
+        }
+    }
+}
+
+#[repr(C)]
+pub struct apriltag_detector_t {
+    // User-configurable parameters.
+
+    /// How many threads should be used?
+    pub nthreads: c_int,
+
+    /// detection of quads can be done on a lower-resolution image,
+    /// improving speed at a cost of pose accuracy and a slight
+    /// decrease in detection rate. Decoding the binary payload is
+    /// still done at full resolution. .
+    pub quad_decimate: c_float,
+
+    /// What Gaussian blur should be applied to the segmented image
+    /// (used for quad detection?)  Parameter is the standard deviation
+    /// in pixels.  Very noisy images benefit from non-zero values
+    /// (e.g. 0.8).
+    pub quad_sigma: c_float,
+
+    /// When true, the edges of the each quad are adjusted to "snap
+    /// to" strong gradients nearby. This is useful when decimation is
+    /// employed, as it can increase the quality of the initial quad
+    /// estimate substantially. Generally recommended to be on (true).
+    ///
+    /// Very computationally inexpensive. Option is ignored if
+    /// quad_decimate = 1.
+    pub refine_edges: c_bool,
+
+    /// How much sharpening should be done to decoded images? This
+    /// can help decode small tags but may or may not help in odd
+    /// lighting conditions or low light conditions.
+    ///
+    /// The default value is 0.25.
+    pub decode_sharpening: c_double,
+
+    /// When true, write a variety of debugging images to the
+    /// current working directory at various stages through the
+    /// detection process. (Somewhat slow).
+    pub debug: c_bool,
+
+    pub qtp: AprilTagQuadThreshParams,
+
+    ///////////////////////////////////////////////////////////////
+    // Statistics relating to last processed frame
+    tp: AtomicManagedPtr<Box<timeprofile_t>>,
+
+    nedges: u32,
+    nsegments: u32,
+    pub nquads: u32,
+
+    ///////////////////////////////////////////////////////////////
+    // Internal variables below
+    wp: ExtraData,
+}
+
+impl apriltag_detector_t {
+    fn new() -> Self {
+        let builder = DetectorBuilder::default();
+        Self {
+            nthreads: builder.config.nthreads as _,
+            quad_decimate: builder.config.quad_decimate,
+            quad_sigma: builder.config.quad_sigma,
+            refine_edges: builder.config.refine_edges as _,
+            decode_sharpening: builder.config.decode_sharpening,
+            debug: if builder.config.debug { 1 } else { 0 },
+            qtp: builder.config.qtp,
+            tp: AtomicManagedPtr::null(),
+            nedges: 0,
+            nsegments: 0,
+            nquads: 0,
+            wp: ExtraData {
+                detector: RwLock::new(LazyDetector::Building(DetectorBuilder::default())),
+            },
+        }
+    }
+    fn update(&mut self, callback: impl FnOnce(&mut DetectorBuilder) -> ()) {
+        self.wp.update(|builder| {
+            builder.config.nthreads = self.nthreads as _;
+            builder.config.quad_decimate = self.quad_decimate;
+            builder.config.quad_sigma = self.quad_sigma;
+            builder.config.refine_edges = self.refine_edges != 0;
+            builder.config.decode_sharpening = self.decode_sharpening;
+            builder.config.debug = self.debug != 0;
+            builder.config.qtp = self.qtp;
+
+            callback(builder);
+        });
     }
 }
 
 #[repr(C)]
 pub struct apriltag_detection_t {
     /// a pointer for convenience. not freed by apriltag_detection_destroy.
-    family: *const apriltag_family_t,
+    family: ManagedPtr<Arc<apriltag_family_t>>,
 
     /// The decoded ID of the tag
     id: c_int,
@@ -152,7 +198,7 @@ pub struct apriltag_detection_t {
     /// "ideal" tag (with corners at (-1,1), (1,1), (1,-1), and (-1,
     /// -1)) to pixels in the image. This matrix will be freed by
     /// apriltag_detection_destroy.
-    H: *const matd_t,
+    H: matd_ptr,
 
     // The center of the detection in image pixel coordinates.
     c: [c_double; 2],
@@ -162,100 +208,95 @@ pub struct apriltag_detection_t {
     p: [[c_double; 2]; 4],
 }
 
-impl From<ApriltagDetection> for apriltag_detection_t {
-    fn from(value: ApriltagDetection) -> Self {
-        Self {
-            family: Box::into_raw(Box::new(apriltag_family_t::from(value.family.as_ref().clone()))),
-            id: value.id as c_int,
-            hamming: value.hamming as c_int,
-            decision_margin: value.decision_margin,
-            H: matd_t::convert(&value.H),
-            c: value.center.into(),
-            p: [
-                value.corners[0].into(),
-                value.corners[1].into(),
-                value.corners[2].into(),
-                value.corners[3].into(),
-            ],
-        }
-    }
-}
-
-impl TryFrom<*const apriltag_detection_t> for ApriltagDetection {
-    
+impl TryFrom<&apriltag_detection_t> for AprilTagDetection {
     type Error = FFIConvertError;
 
-    fn try_from(value: *const apriltag_detection_t) -> Result<Self, Self::Error> {
-        let value = unsafe { value.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
-        let family_raw = unsafe { value.family.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
+    fn try_from(value: &apriltag_detection_t) -> Result<Self, Self::Error> {
+        let family = value.family.get()
+            .ok_or(FFIConvertError::NullPointer)?
+            .as_arc();
 
+        if value.H.ncols().cloned() != Some(3) && value.H.nrows().cloned() != Some(3) {
+            return Err(FFIConvertError::FieldOverflow);
+        }
+        let H = match value.H.data() {
+            Some(ptr) => {
+                let slice = unsafe { slice::from_raw_parts(ptr, 9) };
+                let arr = <[f64; 9]>::try_from(slice)
+                    .unwrap();
+                Mat33::of(arr)
+            },
+            None => return Err(FFIConvertError::NullPointer),
+        };
         Ok(Self {
-            family: family_raw.try_into()?,
-            id: value.id as usize,
-            hamming: value.hamming as i16,
+            family,
+            id: value.id as _,
+            hamming: value.hamming as _,
             decision_margin: value.decision_margin,
-            H: value.H.try_into()?,
-            center: Point2D::from(value.c),
+            H,
+            center: Point2D::of(value.c[0], value.c[1]),
             corners: [
-                value.p[0].into(),
-                value.p[1].into(),
-                value.p[2].into(),
-                value.p[3].into(),
-            ],
+                Point2D::of(value.p[0][0], value.p[0][1]),
+                Point2D::of(value.p[1][0], value.p[1][1]),
+                Point2D::of(value.p[2][0], value.p[2][1]),
+                Point2D::of(value.p[3][0], value.p[3][1]),
+            ]
         })
     }
 }
 
 /// don't forget to add a family!
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_create() -> *mut apriltag_detector_t {
-    let detector = box ApriltagDetector::default();
-
-    Box::into_raw(detector)
+pub unsafe extern "C" fn apriltag_detector_create() -> ManagedPtr<Box<apriltag_detector_t>> {
+    ManagedPtr::from(Box::new(apriltag_detector_t::new()))
 }
 
 /// add a family to the apriltag detector. caller still "owns" the family.
 /// a single instance should only be provided to one apriltag detector instance.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: *mut apriltag_detector_t, fam: *const apriltag_family_t, bits_corrected: c_int) {
-    let detector = td.as_mut().unwrap();
-    let fam = fam.as_ref().unwrap().try_into().unwrap();
-    let bits_corrected = bits_corrected.try_into().unwrap();
-    
-    detector.add_family_bits(fam, bits_corrected).unwrap();
+pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: *mut apriltag_detector_t, fam: ManagedPtr<Arc<apriltag_family_t>>, bits_corrected: c_int) {
+    let detector = td.as_mut()
+        .expect("Null parameter: td");
+    let fam = fam.get()
+        .expect("Null parameter: fam");
+    let bits_corrected = bits_corrected
+        .try_into()
+        .expect("Invalid value for bits_corrected");
+
+    detector.update(|b| b.add_family_bits(fam.as_arc(), bits_corrected).expect("Error adding family"));
 }
 
 /// Tunable, but really, 2 is a good choice. Values of >=3
 /// consume prohibitively large amounts of memory, and otherwise
 /// you want the largest value possible.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_add_family(td: *mut apriltag_detector_t, fam: *const apriltag_family_t) {
+pub unsafe extern "C" fn apriltag_detector_add_family(td: *mut apriltag_detector_t, fam: ManagedPtr<Arc<apriltag_family_t>>) {
     apriltag_detector_add_family_bits(td, fam, 2)
 }
 
 /// does not deallocate the family.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_remove_family(td: *mut apriltag_detector_t, fam: *const apriltag_family_t) {
-    let detector = td.as_mut().unwrap();
-    let fam: Arc<AprilTagFamily> = fam.as_ref().unwrap().try_into().unwrap();
-    detector.remove_family(&fam);
+pub unsafe extern "C" fn apriltag_detector_remove_family(td: *mut apriltag_detector_t, fam: ManagedPtr<Arc<apriltag_family_t>>) {
+    let detector = td.as_mut().expect("Null parameter: td");
+    let fam = fam.get()
+        .expect("Null parameter: fam")
+        .as_arc();
+    
+    detector.update(|b| b.remove_family(&fam));
 }
 
 /// unregister all families, but does not deallocate the underlying tag family objects.
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_clear_families(td: *mut apriltag_detector_t) {
     let detector = td.as_mut().unwrap();
-    detector.clear_families();
+    detector.update(|b| b.clear_families());
 }
 
 /// Destroy the april tag detector (but not the underlying
 /// apriltag_family_t used to initialize it.)
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_destroy(td: *mut apriltag_detector_t) {
-    if td.is_null() {
-        return;
-    }
-    drop(Box::from_raw(td));
+pub unsafe extern "C" fn apriltag_detector_destroy(mut td: *mut apriltag_detector_t) {
+    drop_boxed_mut(&mut td);
 }
 
 /// Detect tags from an image and return an array of
@@ -263,53 +304,120 @@ pub unsafe extern "C" fn apriltag_detector_destroy(td: *mut apriltag_detector_t)
 /// free the array and the detections it contains, or call
 /// _detection_destroy and zarray_destroy yourself.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, im_orig: *const image_u8_t) -> *mut zarray {
-    let detector = if let Some(det) = td.as_mut() {
-        det
-    } else {
-        return ptr::null_mut();
+pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, im_orig: *const image_u8_t) -> ManagedPtr<Box<ZArray<ManagedPtr<Box<apriltag_detection_t>>>>> {
+    let td = match td.as_mut() {
+        Some(td) => td,
+        None => return ManagedPtr::null(),
     };
-    let im_orig = if let Some(im_orig) = im_orig.as_ref() {
-        im_orig
-    } else {
-        return ptr::null_mut();
+    let im_orig = match im_orig.as_ref() {
+        Some(img) => img,
+        None => return ManagedPtr::null(),
     };
-    
+
+    let detections = match td.wp.detector(|detector| detector.detect(&im_orig.pretend_ref())) {
+        Ok(Ok(detections)) => detections,
+        Ok(Err(e)) => {
+            #[cfg(feature="debug")]
+            eprintln!("apriltag_detector_detect error: {e:?}");
+            return ManagedPtr::null();
+        },
+        Err(DetectorBuildError::Threadpool(t)) => {
+            #[cfg(feature="debug")]
+            eprintln!("apriltag_detector_detect error: {t:?}");
+            set_errno(Errno(libc::EAGAIN));
+            return ManagedPtr::null();
+        },
+        // Other build errors
+        #[allow(unreachable_patterns)]
+        Err(e) => {
+            #[cfg(feature="debug")]
+            eprintln!("apriltag_detector_detect error: {e:?}");
+            return ManagedPtr::null();
+        }
+    };
+
+    // Store timeprofile on detector
+    #[cfg(feature="debug")]
+    {
+        let prev = match Box::try_new(detections.tp) {
+            Ok(tp) => td.tp.swap(tp),
+            Err(_) => td.tp.take(),
+        };
+        // Drop previous value
+        drop(prev);
+
+        td.nquads = detections.nquads;
+    }
+
+    fn alloc_error<T>() -> ManagedPtr<Box<T>> {
+        set_errno(Errno(libc::ENOMEM));
+        ManagedPtr::null()
+    }
+
     let res_vec = {
-        let results = detector.detect(&im_orig.pretend_ref());
-        //TODO: store time profile on apriltag_detector_t
+        let mut res_vec: Vec<ManagedPtr<Box<apriltag_detection_t>>> = Vec::new();
+        if let Err(_) = res_vec.try_reserve_exact(detections.detections.len()) {
+            return alloc_error();
+        }
 
-        results.detections
-            .into_iter()
-            .map(|det| det.try_into().unwrap())
-            .collect::<Vec<apriltag_detection_t>>()
+        let mut families = HashMap::<Arc<AprilTagFamily>, Arc<apriltag_family_t>>::new();
+
+        for detection in detections.detections.into_iter() {
+            let family = match families.entry(detection.family) {
+                std::collections::hash_map::Entry::Occupied(e) => e.get().clone(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    let value = match apriltag_family_t::wrap(e.key().clone()) {
+                        Ok(fam) => fam,
+                        Err(_) => return alloc_error(),
+                    };
+                    e.insert(value).clone()
+                }
+            };
+            let H = match matd_ptr::new(3, 3, detection.H.data()) {
+                Ok(H) => H,
+                Err(_) => return alloc_error(),
+            };
+
+            let native = Box::new(apriltag_detection_t {
+                family: ManagedPtr::from(family),
+                id: detection.id as _,
+                hamming: detection.hamming as _,
+                decision_margin: detection.decision_margin,
+                H,
+                c: detection.center.as_array(),
+                p: [
+                    detection.corners[0].as_array(),
+                    detection.corners[1].as_array(),
+                    detection.corners[2].as_array(),
+                    detection.corners[3].as_array(),
+                ],
+            });
+
+            res_vec.push(ManagedPtr::from(native));
+        }
+        res_vec
     };
 
-    Box::into_raw(box zarray::from(res_vec))
+    ManagedPtr::from(Box::new(ZArray::from(res_vec)))
 }
 
 /// Call this method on each of the tags returned by apriltag_detector_detect
 //TODO
-/*#[no_mangle]
-pub unsafe extern "C" fn apriltag_detection_destroy(det: *mut apriltag_detection_t) {
-
-}*/
+#[no_mangle]
+pub unsafe extern "C" fn apriltag_detection_destroy(mut detection: ManagedPtr<Box<apriltag_detection_t>>) {
+    let _ = detection.take();
+}
 
 // destroys the array AND the detections within it.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detections_destroy(detections: *mut zarray) {
-    if detections.is_null() {
-        return;
-    }
-    let detections = unsafe { Box::from_raw(detections) };
-    let detections: Vec<apriltag_detection_t> = Box::into_inner(detections).into();
-    std::mem::drop(detections)
+pub unsafe extern "C" fn apriltag_detections_destroy(mut detections: ManagedPtr<Box<ZArray<apriltag_detection_t>>>) {
+    let _ = detections.take();
 }
 
 /// Renders the apriltag.
 /// Caller is responsible for calling image_u8_destroy on the image
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c_int) -> *mut image_u8_t {
+pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c_int) -> ManagedPtr<Box<image_u8_t>> {
     let fam = fam.as_ref().unwrap();
     
     assert!(idx >= 0 && (idx as u32) < fam.ncodes);
@@ -317,7 +425,7 @@ pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c
 
     let mut im = ImageY8::zeroed(fam.total_width as usize, fam.total_width as usize);
 
-    let white_border_width = fam.width_at_border as usize + (if fam.reversed_border { 0 } else { 2 });
+    let white_border_width = fam.width_at_border as usize + (if fam.reversed_border != 0 { 0 } else { 2 });
     let white_border_start = (fam.total_width as usize - white_border_width)/2;
     // Make 1px white border
     for i in 0..(white_border_width-1) {
@@ -335,6 +443,5 @@ pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c
             im[(bit_x + border_start, bit_y + border_start)] = 255;
         }
     }
-    let im = image_u8_t::from(im);
-    Box::into_raw(Box::new(im))
+    ManagedPtr::from(Box::new(image_u8_t::from(im)))
 }

@@ -2,9 +2,9 @@ use std::{ops::Deref, mem::ManuallyDrop, slice};
 
 use libc::c_uint;
 
-use crate::util::image::{ImageBuffer, Luma, HasDimensions, ImageY8};
+use crate::util::image::{ImageBuffer, Luma, ImageY8};
 
-use super::{drop_boxed_mut, drop_array_mut};
+use super::super::util::{drop_boxed_mut, drop_array_mut};
 
 #[repr(C)]
 pub struct image_u8_t {
@@ -27,7 +27,7 @@ impl From<ImageBuffer<Luma<u8>>> for image_u8_t {
         let height = value.height() as i32;
         let stride = value.stride() as i32;
         
-        let (buf, len, cap) = value.buf.into_vec().into_raw_parts();
+        let (buf, len, cap) = value.data.into_vec().into_raw_parts();
         assert_eq!(len, cap, "Vector not compact");
 
         Self {
@@ -43,7 +43,7 @@ impl image_u8_t {
     pub(super) fn pretend_ref<'a>(&'a self) -> FakeImageGuard<'a> {
         let mut pretend = ManuallyDrop::new(ImageY8::zeroed(self.width as usize, self.height as usize));
         let buf_ptr = unsafe { slice::from_raw_parts_mut(self.buf, pretend.len()) };
-        pretend.buf = unsafe { Box::from_raw(buf_ptr as *mut _) };
+        pretend.data = unsafe { Box::from_raw(buf_ptr as *mut _) };
         FakeImageGuard {
             raw: self,
             pretend,
@@ -58,7 +58,7 @@ pub(super) struct FakeImageGuard<'a> {
 
 impl<'a> Drop for FakeImageGuard<'a> {
     fn drop(&mut self) {
-        let pb = std::mem::take(&mut self.pretend.buf);
+        let pb = std::mem::take(&mut self.pretend.data);
         let pretend_ptr = pb.as_ptr();
 
         assert_eq!(pretend_ptr, self.raw.buf);
@@ -81,7 +81,7 @@ pub unsafe extern "C" fn image_u8_create(width: c_uint, height: c_uint) -> *mut 
     let height = height as usize;
     let img = ImageY8::zeroed(width, height);
     
-    Box::into_raw(box image_u8_t::from(img))
+    Box::into_raw(Box::new(image_u8_t::from(img)))
 }
 
 #[no_mangle]

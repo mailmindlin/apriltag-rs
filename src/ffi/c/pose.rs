@@ -1,6 +1,21 @@
+use std::{alloc::AllocError, fmt::Debug};
+
 use crate::pose::{self, ApriltagDetectionInfo, ApriltagPose};
 
-use super::{matd_t, apriltag_detection_t, FFIConvertError};
+use super::{matd_ptr, apriltag_detection_t, FFIConvertError};
+
+unsafe fn try_write<T, V: TryInto<T>>(ptr: *mut T, v: V) where <V as TryInto<T>>::Error: Debug {
+    if let Some(dst) = ptr.as_mut() {
+        match v.try_into() {
+            Ok(v) => {
+                *dst = v;
+            },
+            Err(e) => {
+                eprintln!("{e:?}");
+            }
+        }
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn estimate_pose_for_tag_homography(info: *const apriltag_detection_info_t, pose: *mut apriltag_pose_t) {
@@ -8,9 +23,7 @@ pub unsafe extern "C" fn estimate_pose_for_tag_homography(info: *const apriltag_
 
     let res = pose::estimate_pose_for_tag_homography(&info);
 
-    if let Some(pose) = pose.as_mut() {
-        *pose = res.into();
-    }
+    try_write(pose, res);
 }
 
 #[no_mangle]
@@ -29,16 +42,12 @@ pub unsafe extern "C" fn estimate_tag_pose_orthogonal_iteration(
     if let Some(err1) = err1.as_mut() {
         *err1 = result.solution1.1;
     }
-    if let Some(pose1) = pose1.as_mut() {
-        *pose1 = result.solution1.0.into();
-    }
+    try_write(pose1, result.solution1.0);
     if let Some((pose2_src, err2_src)) = result.solution2 {
         if let Some(err2_dst) = err2.as_mut() {
             *err2_dst = err2_src;
         }
-        if let Some(pose2_dst) = pose2.as_mut() {
-            *pose2_dst = pose2_src.into();
-        }
+        try_write(pose2, pose2_src);
     } else {
         if let Some(err2_dst) = err2.as_mut() {
             *err2_dst = f64::INFINITY;
@@ -48,16 +57,16 @@ pub unsafe extern "C" fn estimate_tag_pose_orthogonal_iteration(
 
 #[repr(C)]
 pub struct apriltag_pose_t {
-    R: *mut matd_t,
-    t: *mut matd_t,
+    R: matd_ptr,
+    t: matd_ptr,
 }
 
-impl From<ApriltagPose> for apriltag_pose_t {
-    fn from(value: ApriltagPose) -> Self {
-        Self {
-            R: matd_t::convert(&value.R),
-            t: matd_t::convert(&value.t),
-        }
+impl TryFrom<ApriltagPose> for apriltag_pose_t {
+    type Error = AllocError;
+    fn try_from(value: ApriltagPose) -> Result<Self, Self::Error> {
+        let R = matd_ptr::new(3, 3, value.R.data())?;
+        let t = matd_ptr::new(1, 3, &[value.t.0, value.t.1, value.t.2])?;
+        Ok(Self { R, t })
     }
 }
 
@@ -75,8 +84,9 @@ impl TryFrom<*const apriltag_detection_info_t> for ApriltagDetectionInfo {
     type Error = FFIConvertError;
     fn try_from(value: *const apriltag_detection_info_t) -> Result<Self, Self::Error> {
         let value = unsafe { value.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
+        let detection = unsafe { value.det.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
         Ok(Self {
-            detection: value.det.try_into()?,
+            detection: detection.try_into()?,
             tagsize: value.tagsize,
             fx: value.fx,
             fy: value.fy,
@@ -90,8 +100,6 @@ impl TryFrom<*const apriltag_detection_info_t> for ApriltagDetectionInfo {
 pub unsafe extern "C" fn estimate_tag_pose(info: *const apriltag_detection_info_t, pose: *mut apriltag_pose_t) -> f64 {
     let info = ApriltagDetectionInfo::try_from(info).unwrap();
     let (sol_pose, err) = pose::estimate_tag_pose(&info);
-    if let Some(pose_out) = pose.as_mut() {
-        *pose_out = sol_pose.into();
-    }
+    try_write(pose, sol_pose);
     err
 }
