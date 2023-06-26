@@ -1,44 +1,82 @@
 package com.mindlin.apriltagrs;
-import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import com.mindlin.apriltagrs.AprilTagLibrary.NativeObject;
+import com.mindlin.apriltagrs.AprilTagLibrary.NativeObjectReleasedException;
+import com.mindlin.apriltagrs.util.Image2D;
 
+/**
+ * A detector for AprilTags
+ */
 public final class AprilTagDetector extends NativeObject {
     /**
      * Create new detector object
      * 
      * @return Handle to detector
      */
-    private static native long create();
-    private static native void setParams(long ptr, int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, float decodeSharpening, boolean debug);
-    private static native void addFamily(long ptr, long familyPtr, short maxHamming);
-    private static native void removeFamily(long ptr, String familyName);
-    private static native long clearFamilies(long ptr);
-    private static native AprilTagDetections detect(long ptr, ByteBuffer buf, int width, int height, int stride);
+    private static native long nativeCreate(int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, double decodeSharpening, String debugPath, long[] familyPtrs, int[] familyHammings);
+    private static native void nativeDestroy(long ptr);
+    private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride);
 
     public static class Builder {
         private final Config config;
-        private final List<AprilTagFamily> families;
+        private final Map<AprilTagFamily, Integer> families;
 
         public Builder() {
-            this(new Config(), Collections.emptyList());
+            this.config = new Config();
+            this.families = Collections.emptyMap();
         }
 
-        private Builder(Builder src) {
-            Objects.requireNonNull(src);
-            this.config = new Config(src.config);
-            this.families = new ArrayList<>(src.families);
+        /**
+         * Copy constructor
+         */
+        public Builder(Builder src) {
+            this(Objects.requireNonNull(src).config, src.families);
+        }
+
+        private Builder(Config config, Map<AprilTagFamily, Integer> families) {
+            Objects.requireNonNull(config, "config");
+            Objects.requireNonNull(families, "families");
+
+            for (var entry : families.entrySet()) {
+                var family = entry.getKey();
+                Objects.requireNonNull(family, "family");
+                var bitsCorrected = entry.getValue();
+                // Null value == default
+                if (bitsCorrected == null)
+                    continue;
+                
+                family.validateBitsCorrected(bitsCorrected.intValue());
+            }
+            this.config = new Config(config);
+            this.families = new LinkedHashMap<>(families);
+        }
+
+        // Non-validating constructor
+        private Builder(Config config, Map<AprilTagFamily, Integer> families, boolean marker) {
+            Objects.requireNonNull(config, "Null config");
+            Objects.requireNonNull(families, "Null AprilTag families");
+            this.config = config;
+            this.families = families;
         }
 
         public Config getConfig() {
             return this.config;
+        }
+
+        private Builder mapConfig(Consumer<Config> update) {
+            var config = new Config(this.config);
+            update.accept(config);
+            return new Builder(config, this.families, true);
         }
 
         /**
@@ -46,46 +84,123 @@ public final class AprilTagDetector extends NativeObject {
          * @param nthreads Number of threads. 0 means 
          * @return modified builder
          */
-        public Builder threads(int nthreads) {
-            var res = new Builder(this);
-            res.config.nthreads = nthreads;
-            return res;
+        public Builder numThreads(int nthreads) {
+            return this.mapConfig(config -> config.setNumThreads(nthreads));
         }
 
-        public Builder addFamily(String familyName) throws IllegalArgumentException {
-            return this.addFamily(familyName, 2);
+        /**
+         * Adds an AprilTag family to detect, with a default hamming distance of 2.
+         * @param familyName Name of AprilTag family
+         * @return Augmented builder
+         * @throws NullPointerException If family name is null
+         * @throws IllegalArgumentException If family name is invalid
+         */
+        public Builder addFamily(String familyName) throws NullPointerException, IllegalArgumentException {
+            return this.addFamily(familyName, AprilTagFamily.DEFAULT_HAMMING);
         }
 
-        public Builder addFamily(String familyName, int maxHamming) throws IllegalArgumentException {
+        /**
+         * Adds an AprilTag family to detect.
+         * @param familyName Name of AprilTag family
+         * @param bitsCorrected Maxumum number of bits to correct when detecting this family of AprilTags
+         * @return
+         * @throws NullPointerException If family name is null
+         * @throws IllegalArgumentException If family name is invalid, or maxHamming is out of the range [0..3].
+         */
+        public Builder addFamily(String familyName, int bitsCorrected) throws NullPointerException, IllegalArgumentException {
+            Objects.requireNonNull(familyName, "familyName");
             var family = AprilTagFamily.forName(familyName);
-            return this.addFamily(family, maxHamming);
+            return this.addFamily(family, bitsCorrected);
         }
 
-        public Builder addFamily(AprilTagFamily family) {
-            return this.addFamily(family, 2);
+        public Builder addFamily(AprilTagFamily family) throws IllegalArgumentException {
+            return this.addFamily(family, AprilTagFamily.DEFAULT_HAMMING);
         }
 
-        public Builder addFamily(AprilTagFamily family, int maxHamming) {
-
+        public Builder addFamily(AprilTagFamily family, int bitsCorrected) throws NullPointerException, IllegalArgumentException {
+            Objects.requireNonNull(family, "family");
+            family.validateBitsCorrected(bitsCorrected);
+            var families = new LinkedHashMap<>(this.families);
+            families.put(family, bitsCorrected);
+            return new Builder(this.config, this.families, true);
         }
 
         public AprilTagDetector build() {
+            // We clone these values here
+            var config = this.config.unmodifiable();
+            var families = new LinkedHashMap<>(this.families);
+            var familyPointerLookup = new HashMap<Long, AprilTagFamily>(this.families.size());
 
+            List<ReentrantReadWriteLock.ReadLock> familyLocks = new ArrayList<>(this.families.size());
+            try {
+                // Reformat 
+                int i = 0;
+                long[] familyPtrs = new long[this.families.size()];
+                int[] bitsCorrecteds = new int[this.families.size()];
+                for (var entry : this.families.entrySet()) {
+                    var family = Objects.requireNonNull(entry.getKey());
+                    var bitsCorrected = Objects.requireNonNull(entry.getValue()).intValue();
+                    family.validateBitsCorrected(bitsCorrected);
+                    var lock = family.ptrLock.readLock();
+                    lock.lock();
+                    try {
+                        familyPtrs[i] = family.ptr;
+                        bitsCorrecteds[i] = bitsCorrected;
+                        familyPointerLookup.put(family.ptr, family);
+                        i++;
+                        familyLocks.add(lock);
+                    } catch (Throwable t) {
+                        // Unlock pointer if we won't do this in the finally clause later
+                        if (familyLocks.size() == 0 || familyLocks.get(familyLocks.size() - 1) != lock) {
+                            lock.unlock();
+                        }
+                        throw t;
+                    }
+                }
+                assert i == familyPtrs.length;
+
+                long ptr = AprilTagDetector.nativeCreate(
+                    config.nthreads,
+                    config.quadDecimate,
+                    config.quadSigma,
+                    config.refineEdges,
+                    config.decodeSharpening,
+                    config.debug.toAbsolutePath().toString(),
+                    familyPtrs,
+                    bitsCorrecteds
+                );
+
+                return new AprilTagDetector(ptr, config, families, familyPointerLookup);
+            } finally {
+                // Unlock the pointers for all the AprilTag families
+                for (var lock : familyLocks) {
+                    lock.unlock();
+                }
+            }
         }
     }
 
+    /**
+     * Configuration for AprilTagDetector
+     */
     public static final class Config {
-        int nthreads = 1;
-        float quadDecimate = 2.0f;
-        float quadSigma = 0.0f;
-        boolean refineEdges = true;
-        float decodeSharpening = 0.25f;
-        Path debug = null;
+        private boolean mutable = true;
+        private int nthreads = 1;
+        private float quadDecimate = 2.0f;
+        private float quadSigma = 0.0f;
+        private boolean refineEdges = true;
+        private float decodeSharpening = 0.25f;
+        private Path debug = null;
 
         public Config() {
         }
 
+        /**
+         * Copy constructor
+         */
         public Config(Config config) {
+            Objects.requireNonNull(config, "config");
+            this.mutable = true;
             this.nthreads = config.nthreads;
             this.quadDecimate = config.quadDecimate;
             this.quadSigma = config.quadSigma;
@@ -94,28 +209,117 @@ public final class AprilTagDetector extends NativeObject {
             this.debug = config.debug;
         }
 
+        public Config unmodifiable() {
+            if (!this.isMutable())
+                return this;
+            var result = new Config(this);
+            result.mutable = false;
+            return result;
+        }
+
+        public boolean isMutable() {
+            return mutable;
+        }
+
+        private void assertMutable() throws UnsupportedOperationException {
+            if (!this.mutable)
+                throw new UnsupportedOperationException("Config is not mutable");
+        }
+
         public int getNumThreads() {
             return this.nthreads;
+        }
+
+        public void setNumThreads(int nthreads) throws UnsupportedOperationException {
+            this.assertMutable();
+            if (nthreads < 0)
+                throw new IllegalArgumentException("nthreads must be non-negative");
+            this.nthreads = nthreads;
         }
 
         public float getQuadDecimate() {
             return this.quadDecimate;
         }
 
+        public void setQuadDecimate(float quadDecimate) throws UnsupportedOperationException {
+            this.assertMutable();
+            this.quadDecimate = quadDecimate;
+        }
+
         public float getQuadSigma() {
             return this.quadSigma;
+        }
+
+        public void setQuadSigma(float quadSigma) throws UnsupportedOperationException {
+            this.assertMutable();
+            this.quadSigma = quadSigma;
         }
 
         public boolean getRefineEdges() {
             return this.refineEdges;
         }
 
+        public void setRefineEdges(boolean refineEdges) throws UnsupportedOperationException {
+            this.assertMutable();
+            this.refineEdges = refineEdges;
+        }
+
         public float getDecodeSharpening() {
             return this.decodeSharpening;
         }
 
+        public void setDecodeSharpening(float decodeSharpening) throws UnsupportedOperationException {
+            this.assertMutable();
+            this.decodeSharpening = decodeSharpening;
+        }
+
         public Path getDebug() {
             return this.debug;
+        }
+
+        public void setDebug(Path debug) throws UnsupportedOperationException {
+            this.assertMutable();
+            this.debug = debug;
+        }
+
+        @Override
+        public String toString() {
+            return "Config [nthreads=" + nthreads + ", quadDecimate=" + quadDecimate + ", quadSigma=" + quadSigma
+                    + ", refineEdges=" + refineEdges + ", decodeSharpening=" + decodeSharpening + ", debug=" + debug
+                    + "]";
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            //TODO: ignore mutable?
+            result = prime * result + (mutable ? 1231 : 1237);
+            result = prime * result + nthreads;
+            result = prime * result + Float.floatToIntBits(quadDecimate);
+            result = prime * result + Float.floatToIntBits(quadSigma);
+            result = prime * result + (refineEdges ? 1231 : 1237);
+            result = prime * result + Float.floatToIntBits(decodeSharpening);
+            result = prime * result + Objects.hashCode(debug);
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null || !(obj instanceof Config))
+                return false;
+            Config other = (Config) obj;
+            return (
+                (this.mutable == other.mutable)
+                && (this.nthreads == other.nthreads)
+                && (Float.floatToIntBits(quadDecimate) == Float.floatToIntBits(other.quadDecimate))
+                && (Float.floatToIntBits(quadSigma) == Float.floatToIntBits(other.quadSigma))
+                && (refineEdges == other.refineEdges)
+                && (Float.floatToIntBits(decodeSharpening) == Float.floatToIntBits(other.decodeSharpening))
+                && Objects.equals(this.debug, other.debug)
+            );
         }
     }
 
@@ -150,62 +354,23 @@ public final class AprilTagDetector extends NativeObject {
         public boolean deglitch = false;
     }
 
-    private Config params;
-    private List<AprilTagFamily> families;
+    private final Config config;
+    private final Map<AprilTagFamily, Integer> families;
+    private final Map<Long, AprilTagFamily> ptrLookup;
 
-    public AprilTagDetector() {
-        this(Collections.emptyList(), new Config());
-    }
-
-    public AprilTagDetector(List<AprilTagFamily> families, Config config) {
-        super(AprilTagDetector.create());
-        this.params = new Config(config);
-        this.families = new ArrayList<>(families);
-        this.families.sort(Comparator.comparingLong(family -> family.ptr));
-    }
-
-    private AprilTagDetector(long ptr) {
+    private AprilTagDetector(long ptr, Config config, Map<AprilTagFamily, Integer> families, Map<Long, AprilTagFamily> ptrLookup) {
         super(ptr);
+        this.config = config;
+        this.families = families;
+        this.ptrLookup = ptrLookup;
     }
 
-    // private void updateParams() {
-    //     AprilTagDetector.setParams(
-    //         this.ptr,
-    //         this.params.nthreads,
-    //         this.params.quadDecimate,
-    //         this.params.quadSigma,
-    //         this.params.refineEdges,
-    //         this.params.decodeSharpening,
-    //         this.params.debug);
-    // }
+    public AprilTagDetections detect(byte[][] image) throws IllegalArgumentException, NullPointerException, NativeObjectReleasedException {
+        var img = Image2D.from(image);
+        return this.detect(img);
+    }
 
-    // public void setThreads(int nthreads) {
-    //     this.params.nthreads = nthreads;
-    //     this.updateParams();
-    // }
-
-    // public int getThreads() {
-    //     return this.params.nthreads;
-    // }
-
-    // public void setQuadDecimate(float quadDecimate) {
-    //     this.params.quadDecimate = quadDecimate;
-    //     this.updateParams();
-    // }
-
-    // public void addFamily(String familyName) {
-        
-    // }
-
-    // public void addFamily(String familyName, int maxHamming) {
-
-    // }
-
-    // public void clearFamilies() {
-    //     AprilTagDetector.clearFamilies(this.ptr);
-    // }
-
-    public AprilTagDetections detect(ByteBuffer buf, int width, int height) throws IllegalArgumentException {
+    public AprilTagDetections detect(ByteBuffer buf, int width, int height) throws IllegalArgumentException, NullPointerException, NativeObjectReleasedException {
         return this.detect(buf, width, height, width);
     }
 
@@ -217,34 +382,27 @@ public final class AprilTagDetector extends NativeObject {
      * @param stride Image stride (bytes). Must be >= width.
      * @return Detections
      * @throws IllegalArgumentException If the image dimensions are invalid
-     * @throws IllegalStateException If this method is called after the detector is closed
+     * @throws NativeObjectReleasedException If this method is called after the detector is closed
      * @throws NullPointerException If the buffer is null
      */
-    public AprilTagDetections detect(ByteBuffer buf, int width, int height, int stride) throws IllegalArgumentException, IllegalStateException, NullPointerException {
-        Objects.requireNonNull(buf);
-        if (width <= 0 || height <= 0)
-            throw new IllegalArgumentException("Non-positive dimensions");
-        if (stride < width)
-            throw new IllegalArgumentException("Stride is smaller than width");
-
-        int expectedCapacity;
-        try {
-            expectedCapacity = Math.multiplyExact(height, stride);
-        } catch (ArithmeticException e) {
-            throw new IllegalArgumentException("Capacity too large", e);
-        }
-
-        if (buf.remaining() != expectedCapacity)
-            throw new IllegalArgumentException("Buffer size is smaller than capacity");
+    public AprilTagDetections detect(ByteBuffer buf, int width, int height, int stride) throws IllegalArgumentException, NativeObjectReleasedException, NullPointerException {
+        var image = Image2D.from(buf, width, height, stride);
         
-        return this.nativeRead(ptr -> AprilTagDetector.detect(ptr, buf, width, height, stride));
+        return this.detect(image);
     }
 
-    public AprilTegDetections detect(org.opencv.core.Mat img) {
-        Objects.requireNonNull(img);
+    public AprilTagDetections detect(Image2D image) {
+        Image2D.validate(image);
+        var width = image.getWidth();
+        var height = image.getHeight();
+        var stride = image.getStride();
+        var buffer = image.buffer();
 
+        return this.nativeRead(ptr -> AprilTagDetector.nativeDetect(ptr, buffer, width, height, stride));
     }
 
     @Override
-    protected native void destroy(long ptr);
+    protected void destroy(long ptr) {
+        AprilTagDetector.nativeDestroy(ptr);
+    }
 }
