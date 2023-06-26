@@ -2,9 +2,9 @@ mod edges;
 mod greymodel;
 mod sharpening;
 
-use std::{f64::consts::FRAC_PI_2, sync::Mutex};
+use std::sync::{Mutex, Arc};
 
-use crate::{detector::AprilTagParams, util::{geom::Point2D, Image, math::{mat::Mat, Vec2}, homography::homography_project, image::{Luma, ImageBuffer}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, ApriltagDetection};
+use crate::{detector::DetectorConfig, util::{geom::Point2D, math::{mat::Mat33, Vec2, Vec2Builder}, homography::homography_project, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
 
 use greymodel::Graymodel;
 
@@ -14,13 +14,13 @@ use self::greymodel::SolvedGraymodel;
 pub(crate) struct Quad {
     pub(crate) corners: [Point2D; 4],
     /// Tag coordinates ([-1,1] at the black corners) to pixels
-    pub(crate) H: Option<Mat>,
+    pub(crate) H: Option<Mat33>,
     /// Pixels to tag
-    pub(crate) Hinv: Option<Mat>,
+    // pub(crate) Hinv: Option<Mat>,
     pub(crate) reversed_border: bool,
 }
 
-fn value_for_pixel(im: &impl Image<Luma<u8>>, p: Point2D) -> Option<f64> {
+fn value_for_pixel(im: &ImageY8, p: Point2D) -> Option<f64> {
     let x1 = f64::floor(p.x() - 0.5) as isize;
     if x1 < 0 {
         return None;
@@ -52,12 +52,13 @@ fn value_for_pixel(im: &impl Image<Luma<u8>>, p: Point2D) -> Option<f64> {
 
 pub(crate) struct QuadDecodeInfo<'a> {
     /// Reference to detector parameters
-    pub(crate) det_params: &'a AprilTagParams,
+    pub(crate) det_params: &'a DetectorConfig,
     /// Tag families to look for
-    pub(crate) tag_families: &'a Vec<QuickDecode>,
-    pub(crate) im: &'a ImageBuffer<Luma<u8>>,
+    pub(crate) tag_families: &'a [Arc<QuickDecode>],
+    pub(crate) im_orig: &'a ImageY8,
     /// Samples image (debug only)
-    pub(crate) im_samples: Option<&'a Mutex<ImageBuffer<Luma<u8>>>>,
+    #[cfg(feature="debug")]
+    pub(crate) im_samples: Option<&'a Mutex<ImageY8>>,
 }
 
 enum HomographySolveError {
@@ -65,7 +66,7 @@ enum HomographySolveError {
     InverseH,
 }
 
-fn homography_compute2(c: [[f64; 4]; 4]) -> Result<Mat, HomographySolveError> {
+fn homography_compute2(c: [[f64; 4]; 4]) -> Result<Mat33, HomographySolveError> {
     let mut A = [
             [c[0][0], c[0][1], 1.,      0.,      0., 0., -c[0][0]*c[0][2], -c[0][1]*c[0][2], c[0][2]],
             [     0.,      0., 0., c[0][0], c[0][1], 1., -c[0][0]*c[0][3], -c[0][1]*c[0][3], c[0][3]],
@@ -129,7 +130,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Result<Mat, HomographySolveError> {
         A[col][8] = (A[col][8] - sum)/A[col][col];
     }
 
-    Ok(Mat::create(3, 3, &[
+    Ok(Mat33::of([
         A[0][8], A[1][8], A[2][8],
         A[3][8], A[4][8], A[5][8],
         A[6][8], A[7][8], 1.
@@ -143,7 +144,7 @@ impl Quad {
     /// coordinates are given in bit coordinates. ([0, fam.d]).
     ///
     /// { initial x, initial y, delta x, delta y, WHITE=1 }
-    fn sample_threshold(&self, family: &AprilTagFamily, im: &impl Image<Luma<u8>>, im_samples: Option<&Mutex<ImageBuffer<Luma<u8>>>>) -> (SolvedGraymodel, SolvedGraymodel) {
+    fn sample_threshold(&self, family: &AprilTagFamily, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
         struct Pattern {
             initial: Vec2,
             delta: Vec2,
@@ -159,7 +160,7 @@ impl Quad {
             },
             // left black column
             Pattern {
-                initial: Vec2::of(0.5, 0.5),
+                initial: Vec2::dup(0.5),
                 delta: Vec2::of(0., 1.),
                 is_white: false,
             },
@@ -183,7 +184,7 @@ impl Quad {
             },
             // top black row
             Pattern {
-                initial: Vec2::of(0.5, 0.5),
+                initial: Vec2::dup(0.5),
                 delta: Vec2::of(1., 0.),
                 is_white: false,
             },
@@ -209,7 +210,7 @@ impl Quad {
 
         for pattern in patterns {
             for i in 0..family.width_at_border {
-                let tag01 = (&pattern.initial + &(pattern.delta * (i as f64))) / (family.width_at_border as f64);
+                let tag01 = (pattern.initial + (pattern.delta * (i as f64))) / (family.width_at_border as f64);
 
                 let tag = (tag01 - 0.5) * 2.;
 
@@ -230,6 +231,7 @@ impl Quad {
 
                 let v = im[(ix, iy)];
 
+                #[cfg(feature="debug")]
                 if let Some(mut im_samples) = im_samples.and_then(|im_samples| im_samples.lock().ok()) {
                     im_samples[(ix, iy)] = if pattern.is_white { 0 } else { 255 };
                 }
@@ -244,8 +246,11 @@ impl Quad {
         }
 
         let whitemodel = whitemodel.solve();
-        let blackmodel = blackmodel.solve();
-
+        let blackmodel = if family.width_at_border > 1 {
+            blackmodel.solve()
+        } else {
+            SolvedGraymodel::new([0., 0., blackmodel.B[2] / 4.])
+        };
         (whitemodel, blackmodel)
     }
 
@@ -255,31 +260,37 @@ impl Quad {
     /// we score this separately for white and black pixels and return
     /// the minimum average threshold for black/white pixels. This is
     /// to penalize thresholds that are too close to an extreme.
-    fn decision_margin(&self, family: &AprilTagFamily, decode_sharpening: f64, im: &impl Image<Luma<u8>>, im_samples: Option<&Mutex<ImageBuffer<Luma<u8>>>>, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel) -> (u64, f32) {
+    fn decision_margin(&self, family: &AprilTagFamily, decode_sharpening: f64, im: &ImageY8, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel, im_samples: Option<&Mutex<ImageY8>>) -> (u64, f32) {
         let mut black_score = 0f32;
         let mut white_score = 0f32;
         let mut black_score_count = 1usize;
         let mut white_score_count = 1usize;
 
-        let mut values = vec![0f64; (family.total_width*family.total_width) as usize];
+        let mut values = ImageBuffer::<[f64; 1]>::zeroed_packed(family.total_width as usize, family.total_width as usize);
 
-        let min_coord_neg = (family.total_width - family.width_at_border)/2;
-        const HALF: Vec2 = Vec2::of(0.5, 0.5);
+        let min_coord = (family.width_at_border as i32 - family.total_width as i32)/2;
+        let half = Vec2::dup(0.5);
         let H = self.H.as_ref().unwrap();
 
+        let combined_model = whitemodel + blackmodel;
+
         for &(bitx, bity) in family.bits.iter() {
-            let tag01 = (Vec2::of(bitx as f64, bity as f64) + &HALF) / (family.width_at_border as f64);
+            let tag = (Vec2::of(bitx as _, bity as _) + half) / (family.width_at_border as f64);
+            // let tag01x = (bitx as f64 + 0.5) / (family.width_at_border as f64);
+            // let tag01y = (bity as f64 + 0.5) / (family.width_at_border as f64);
 
             // scale to [-1, 1]
-            let tag = (tag01 - &HALF) * 2.;
+            let tag = (tag - &half) * 2.;
+            // let tagx = (tag01x - 0.5) * 2.;
+            // let tagy = (tag01y - 0.5) * 2.;
             let p = homography_project(H, tag.x(), tag.y());
             let v = match value_for_pixel(im, p) {
                 Some(v) => v,
                 None => continue,
             };
 
-            let thresh = (blackmodel.interpolate(tag.x(), tag.y()) + whitemodel.interpolate(tag.x(), tag.y())) / 2.0;
-            values[(family.total_width*(bity + min_coord_neg) + bitx + min_coord_neg) as usize] = v - thresh;
+            let thresh = combined_model.interpolate(tag) / 2.0;
+            values[((bitx as i32 - min_coord) as usize, (bity as i32 - min_coord) as usize)] = [v - thresh];
 
             if let Some(im_samples_lock) = im_samples {
                 let ix = p.x() as usize;
@@ -289,12 +300,12 @@ impl Quad {
             }
         }
 
-        sharpening::sharpen(&mut values, decode_sharpening, family.total_width as usize);
+        sharpening::sharpen(&mut values, decode_sharpening);
 
         let mut rcode = 0u64;
         for (bitx, bity) in family.bits.iter() {
             rcode <<= 1;
-            let v = values[((bity - min_coord_neg)*family.total_width + bitx - min_coord_neg) as usize];
+            let v = values[((*bitx as i32 - min_coord) as usize, (*bity as i32 - min_coord) as usize)][0];
 
             if v > 0. {
                 white_score += v as f32;
@@ -312,47 +323,47 @@ impl Quad {
     }
 
     /// returns the decision margin. Return `None` if the detection should be rejected.
-    pub fn decode(&self, det_params: &AprilTagParams, qd: &QuickDecode, im: &impl Image<Luma<u8>>, im_samples: Option<&Mutex<ImageBuffer<Luma<u8>>>>) -> Option<(f32, QuickDecodeResult)> {
+    fn decode(&self, det_params: &DetectorConfig, qd: &QuickDecode, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> Option<(f32, QuickDecodeResult)> {
         // decode the tag binary contents by sampling the pixel
         // closest to the center of each bit cell.
         let (whitemodel, blackmodel) = self.sample_threshold(&qd.family, im, im_samples);
 
         // XXX Tunable
-        if whitemodel.interpolate(0., 0.) - blackmodel.interpolate(0., 0.) < 0. {
+        if (whitemodel.interpolate(Vec2::zero()) - blackmodel.interpolate(Vec2::zero()) < 0.) != qd.family.reversed_border {
             return None;
         }
 
-        let family = &qd.family;
-
-        let (rcode, score) = self.decision_margin(&qd.family, det_params.decode_sharpening, im, im_samples, whitemodel, blackmodel);
-
-        println!("Quick decode {}", rcode);
+        let (rcode, score) = self.decision_margin(&qd.family, det_params.decode_sharpening, im, whitemodel, blackmodel, im_samples);
 
         let entry = qd.decode_codeword(rcode)?;
 
         Some((score, entry))
     }
 
-    fn decode_family(&mut self, info: &QuadDecodeInfo, qd: &QuickDecode) -> Option<ApriltagDetection> {
-        let (decision_margin, entry) = self.decode(&info.det_params, qd, info.im, info.im_samples)?;
+    fn decode_family(&self, info: &QuadDecodeInfo, qd: &QuickDecode) -> Option<AprilTagDetection> {
+        #[cfg(feature="debug")]
+        let im_samples = info.im_samples;
+        #[cfg(not(feature="debug"))]
+        let im_samples = None;
+        let (decision_margin, entry) = self.decode(&info.det_params, qd, info.im_orig, im_samples)?;
 
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
         }
 
-        let theta = -(entry.rotation as f64) * FRAC_PI_2;
+        let theta = -entry.rotation.theta();
         let (s, c) = theta.sin_cos();
 
         // Fix the rotation of our homography to properly orient the tag
         let H = {
-            let mut R = Mat::zeroes(3, 3);
-            R[(0, 0)] = c;
-            R[(0, 1)] = -s;
-            R[(1, 0)] = s;
-            R[(1, 1)] = c;
-            R[(2, 2)] = 1.;
+            let R = Mat33::of([
+                c, -s,  0.,
+                s,  c,  0.,
+                0., 0., 1.,
+            ]);
 
-            Mat::op("M*M", &[self.H.as_ref().unwrap(), &R]).unwrap()
+            let H = self.H.as_ref().unwrap();
+            H.matmul(&R)
         };
 
         let center = homography_project(&H, 0., 0.);
@@ -369,7 +380,7 @@ impl Quad {
             corners[i] = homography_project(&H, tcx, tcy);
         }
 
-        let det = ApriltagDetection {
+        Some(AprilTagDetection {
             family: qd.family.clone(),
             id: entry.id.into(),
             hamming: entry.hamming.into(),
@@ -377,16 +388,15 @@ impl Quad {
             H,
             center,
             corners,
-        };
-        Some(det)
+        })
     }
 
-    pub fn decode_task(&mut self, info: QuadDecodeInfo) -> Vec<ApriltagDetection> {
+    pub fn decode_task(&mut self, info: QuadDecodeInfo) -> Vec<AprilTagDetection> {
         // refine edges is not dependent upon the tag family, thus
         // apply this optimization BEFORE the other work.
         //if (td->quad_decimate > 1 && td->refine_edges) {
         if info.det_params.refine_edges {
-            self.refine_edges(&info.det_params, info.im);
+            self.refine_edges(&info.det_params, info.im_orig);
         }
 
         // make sure the homographies are computed...
@@ -401,13 +411,11 @@ impl Quad {
             .filter_map(|qd| {
                 // since the geometry of tag families can vary, start any
                 // optimization process over with the original quad.
-                let mut quad = self.clone();
-                quad.decode_family(&info, qd)
+                self.decode_family(&info, qd)
             })
             .collect()
     }
 
-    /// returns non-zero if an error occurs (i.e., H has no inverse)
     fn update_homographies(&mut self) -> Result<(), HomographySolveError> {
         let mut corr_arr = [[0f64; 4]; 4];
         for i in 0..4 {
@@ -421,10 +429,10 @@ impl Quad {
 
         // XXX Tunable
         let H = homography_compute2(corr_arr)?;
-        let Hinv = H.inv()
+        let _Hinv = H.inv()
             .ok_or(HomographySolveError::InverseH)?;
         self.H = Some(H);
-        self.Hinv = Some(Hinv);
+        // self.Hinv = Some(Hinv);
 
         Ok(())
     }
@@ -433,7 +441,7 @@ impl Quad {
 /*// returns score of best quad
 fn optimize_quad_generic(family: &AprilTagFamily, im: &Image, quad0: Quad, stepsizes: &[f32], score: impl Fn(&AprilTagFamily, &Image, &Quad) -> f64) -> f64 {
     let best_quad = quad0.clone();
-    let best_score = score(family, im, best_quad, user);
+    let best_score = score(family, im, best_quad);
 
     for stepsize_idx in 0..stepsizes.len() {
         // when we make progress with a particular step size, how many
