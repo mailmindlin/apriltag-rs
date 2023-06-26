@@ -1,7 +1,8 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use apriltag_rs::util::ImageY8;
-use apriltag_rs::{ApriltagDetector, AprilTagFamily};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -42,11 +43,10 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
-    input_files: Vec<PathBuf>,
 }
 
-fn build_detector(args: &Args) -> ApriltagDetector {
-    let mut detector = ApriltagDetector::default();
+fn build_detector(args: &Args) -> AprilTagDetector {
+    let mut detector = AprilTagDetector::default();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
@@ -90,6 +90,8 @@ fn main() {
         panic!("Couldn't open video capture device");
     }
 
+    cap.set(VideoCaptureProperties::CAP_PROP_FPS as i32, 60.).unwrap();
+
     // Initialize tag detector with options
     let detector = build_detector(&args);
 
@@ -103,20 +105,30 @@ fn main() {
     meter.reset().unwrap();
 
     loop {
+        let mut tp = TimeProfile::default();
         let mut frame = Mat::default();
         cap.read(&mut frame).unwrap();
+        tp.stamp("imread");
 
         let mut gray = Mat::default();
         cvt_color(&mut frame, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0).unwrap();
         // Make an image_u8_t header for the Mat data
         let mut im = ImageY8::zeroed(gray.cols() as usize, gray.rows() as usize);
-        for ((x, y), dst) in im.enumerate_pixels_mut() {
-            let v = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
-
-            *dst = v.into();
+        for (y, mut dst) in im.rows_mut() {
+            let src = gray.at_row::<u8>(y as i32).unwrap();
+            dst.as_slice_mut().copy_from_slice(src);
         }
+        // for ((x, y), dst) in im.enumerate_pixels_mut() {
+        //     let v = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
+
+        //     *dst = v.into();
+        // }
+
+        tp.stamp("cvconvert");
 
         let detections = detector.detect(&im);
+
+        tp.stamp("detect");
 
         // Draw detection outlines
         for det in detections.detections {
@@ -167,9 +179,15 @@ fn main() {
             ).unwrap();
         }
 
+        tp.stamp("draw");
+
         imshow(&"Tag Detections", &frame).unwrap();
-        if wait_key(30).unwrap() >= 0 {
+        tp.stamp("imshow");
+        if wait_key(1).unwrap() >= 0 {
             break;
         }
+        println!("{tp}");
+
+        println!("{}", detections.tp);
     }
 }
