@@ -1,10 +1,12 @@
 mod vec2;
+mod vec3;
+pub(crate) use vec2::{Vec2, Vec2Builder, FMA};
+pub(crate) use vec3::Vec3;
+
 pub mod mat;
 pub(crate) mod poly;
 
 use std::f64::consts::{TAU, PI};
-
-pub(crate) use vec2::Vec2;
 
 
 /// Map `v` to `[0, τ]`
