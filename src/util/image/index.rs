@@ -1,8 +1,8 @@
-use std::ops::{Range, RangeBounds};
+use std::ops::{Range, RangeBounds, Index, Deref, DerefMut, IndexMut};
 
 use crate::util::dims::{Dimensions2D, Index2D};
 
-use super::Pixel;
+use super::{Pixel, ImageBuffer};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ImageDimensions {
@@ -87,29 +87,29 @@ pub(super) const fn row_idxs_checked<P: Pixel>(dims: &ImageDimensions, y: usize)
     }
 }
 
+fn resolve_range(range: impl RangeBounds<usize>, length: usize) -> Range<usize> {
+    let start = match range.start_bound() {
+        std::ops::Bound::Included(v) => *v,
+        std::ops::Bound::Excluded(v) => v + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+
+    let end = match range.end_bound() {
+        std::ops::Bound::Included(v) => *v + 1,
+        std::ops::Bound::Excluded(v) => *v,
+        std::ops::Bound::Unbounded => length,
+    };
+
+    Range { start, end }
+}
+
 pub(super) fn slice_idxs<P: Pixel>(dims: &ImageDimensions, x: impl RangeBounds<usize>, y: impl RangeBounds<usize>) -> (ImageDimensions, Range<usize>) {
-    fn resolve(range: impl RangeBounds<usize>, length: usize) -> Range<usize> {
-        let start = match range.start_bound() {
-            std::ops::Bound::Included(v) => *v,
-            std::ops::Bound::Excluded(v) => v + 1,
-            std::ops::Bound::Unbounded => 0,
-        };
-
-        let end = match range.end_bound() {
-            std::ops::Bound::Included(v) => *v,
-            std::ops::Bound::Excluded(v) => v - 1,
-            std::ops::Bound::Unbounded => length - 1,
-        };
-
-        Range { start, end }
-    }
-
-    let x = resolve(x, dims.width);
+    let x = resolve_range(x, dims.width);
     assert!(x.start <= x.end);
-    assert!(x.end < dims.width);
-    let y = resolve(y, dims.height);
+    assert!(x.end <= dims.width);
+    let y = resolve_range(y, dims.height);
     assert!(y.start <= y.end);
-    assert!(y.end < dims.height);
+    assert!(y.end <= dims.height);
 
     if x.start == 0 && x.end == dims.width - 1 {
         if y.start == 0 && y.end == dims.height - 1 {
@@ -118,10 +118,11 @@ pub(super) fn slice_idxs<P: Pixel>(dims: &ImageDimensions, x: impl RangeBounds<u
     }
 
     let start_idx = dims.offset_unchecked(&Index2D { x: x.start, y: y.start });
-    let end_idx = dims.offset_unchecked(&Index2D { x: x.end, y: y.end });
+    let end_idx = dims.offset_unchecked(&Index2D { x: x.end - 1, y: y.end - 1 }) + 1;
     let width = x.end - x.start;
     let height = y.end - y.start;
-    let stride = dims.offset_unchecked(&Index2D { x: x.start, y: y.start + 1 });
+    // let stride = dims.offset_unchecked(&Index2D { x: x.start, y: y.start + 1 }) - start_idx;
+    let stride = dims.stride;
 
     (
         ImageDimensions {
@@ -131,4 +132,38 @@ pub(super) fn slice_idxs<P: Pixel>(dims: &ImageDimensions, x: impl RangeBounds<u
         },
         (start_idx * P::CHANNEL_COUNT..end_idx * P::CHANNEL_COUNT),
     )
+}
+
+impl<P: Pixel, Container: Deref<Target = [<P as Pixel>::Subpixel]>> Index<(usize, usize)> for ImageBuffer<P, Container> {
+	type Output = P::Value;
+
+	fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+		let slice = &self.data[self.pixel_idxs(x, y)];
+		<P as Pixel>::slice_to_value(slice)
+	}
+}
+
+/// Get a pixel
+impl<P: Pixel, Container: DerefMut<Target = [<P as Pixel>::Subpixel]>> IndexMut<(usize, usize)> for ImageBuffer<P, Container> {
+	fn index_mut(&mut self, (x,y): (usize, usize)) -> &mut Self::Output {
+		let idxs = self.pixel_idxs(x, y);
+		let slice = &mut self.data[idxs];
+		<P as Pixel>::slice_to_value_mut(slice)
+	}
+}
+
+#[cfg(test)]
+mod test {
+    use std::ops::Range;
+
+    use super::resolve_range;
+
+    #[test]
+    fn resolve_ranges() {
+        assert_eq!(resolve_range(0..1, 10), Range { start: 0, end: 1 });
+        assert_eq!(resolve_range(0..=1, 10), Range { start: 0, end: 2 });
+        assert_eq!(resolve_range(0.., 10), Range { start: 0, end: 10 });
+        assert_eq!(resolve_range(..1, 10), Range { start: 0, end: 1 });
+        assert_eq!(resolve_range(.., 10), Range { start: 0, end: 10 });
+    }
 }
