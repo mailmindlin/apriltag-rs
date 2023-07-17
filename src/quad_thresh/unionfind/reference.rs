@@ -1,5 +1,7 @@
 use std::sync::atomic::AtomicU32;
 
+use raw_parts::RawParts;
+
 use super::{UnionFind, UnionFindId, atomic::UnionFindConcurrent, UnionFindStatic};
 
 pub(super) struct UnionFindReference {
@@ -106,7 +108,7 @@ impl UnionFindReference {
 			assert_eq!(ptrdif(&E_A, &E_A.size), ptrdif(&E_S, &E_S.size));
 		}
 
-		let (ptr, length, capacity) = src.data.into_raw_parts();
+		let RawParts { ptr, length, capacity } = RawParts::from_vec(src.data);
 		let ptr: *mut Entry = unsafe { std::mem::transmute(ptr) };
 		Self {
 			data: unsafe { Vec::from_raw_parts(ptr, length, capacity) }.into_boxed_slice()
