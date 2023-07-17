@@ -163,6 +163,7 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im
 
     #[cfg(feature="extra_debug")]
     {
+        use crate::util::image::ImageWritePNM;
         im_minmax
             .map(|v| Luma([v[0]]))
             .save_to_pnm("debug_threshim_min.pnm")

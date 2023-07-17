@@ -156,7 +156,8 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
             let line01 = fit_line(lfps, i0, i1);
 
             if line01.mse > qtp.max_line_fit_mse as f64 {
-                // println!("\tBad mse01 {} {}", m0, m1);
+                #[cfg(feature="extra_debug")]
+                println!("\t\tBad mse01 {} {}", m0, m1);
                 continue;
             }
 
@@ -165,7 +166,8 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                 let line12 = fit_line(lfps, i1, i2);
                 if line12.mse > qtp.max_line_fit_mse as f64 {
-                    // println!("\tBad mse12 {} {}", m1, m2);
+                    #[cfg(feature="extra_debug")]
+                    println!("\t\tBad mse12 {} {}", m1, m2);
                     continue;
                 }
 
@@ -179,13 +181,15 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                     let line23 = fit_line_error(lfps, i2, i3);
                     if line23.mse > qtp.max_line_fit_mse as f64 {
-                        // println!("\tBad mse23 {} {}", m2, m3);
+                        #[cfg(feature="extra_debug")]
+                        println!("\t\tBad mse23 {} {}", m2, m3);
                         continue;
                     }
 
                     let line30 = fit_line_error(lfps, i3, i0);
                     if line30.mse > qtp.max_line_fit_mse as f64 {
-                        // println!("\tBad mse30 {} {}", m3, m0);
+                        #[cfg(feature="extra_debug")]
+                        println!("\t\tBad mse30 {} {}", m3, m0);
                         continue;
                     }
 
@@ -213,6 +217,8 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
         println!("\tIgnored (failed max_line_fit_mse)");
         return None;
     }
+    #[cfg(feature="extra_debug")]
+    println!("\tGood maxima");
     Some(best_indices)
 }
 
