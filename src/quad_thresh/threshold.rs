@@ -116,6 +116,9 @@ fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>,
 
     threshim
 }
+/// XXX Tunable. Generally, small tile sizee -- so long as they're
+/// large enough to span a single tag edge -- seem to be a winner.
+pub(crate) const TILESZ: usize = 4;
 
 /// The idea is to find the maximum and minimum values in a
 /// window around each pixel. If it's a contrast-free region
@@ -137,17 +140,13 @@ fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>,
 /// The important thing is that the windows be large enough to
 /// capture edge transitions; the tag does not need to fit into
 /// a tile.
-pub(super) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im: &ImageY8) -> ImageBuffer<Luma<u8>> {
+pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im: &ImageY8) -> ImageBuffer<Luma<u8>> {
     let w = im.width();
     let h = im.height();
     assert!(w < 32768);
     assert!(h < 32768);
 
     // first, collect min/max statistics for each tile
-
-    /// XXX Tunable. Generally, small tile sizee -- so long as they're
-    /// large enough to span a single tag edge -- seem to be a winner.
-    const TILESZ: usize = 4;
 
     let im_minmax = tile_minmax::<TILESZ>(im);
     tp.stamp("tile_minmax");
