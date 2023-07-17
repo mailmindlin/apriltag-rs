@@ -179,10 +179,10 @@ impl Mat33 {
             // int ihalf = *(int *)&x - 0x00800000; // Alternative to next line,
             // float xhalf = *(float *)&ihalf;      // for sufficiently large nos.
             let xhalf = 0.5 * x;
-            let i: i32 = unsafe { transmute(x) };    // View x as an int.
-            // i = 0x5f3759df - (i >> 1);                 // Initial guess (traditional).
-            let i = 0x5f375a82 - (i >> 1);           // Initial guess (slightly better).
-            let x: f32 = unsafe { transmute(i) };    // View i as float.
+            let i = f32::to_bits(x);     // View x as an int.
+            // i = 0x5f3759df - (i >> 1);          // Initial guess (traditional).
+            let i = 0x5f375a82 - (i >> 1);    // Initial guess (slightly better).
+            let x = f32::from_bits(i);        // View i as float.
             x*(1.5 - xhalf*x*x)    // Newton step.
             // x = x*(1.5008908 - xhalf*x*x);  // Newton step for a balanced error.
         }
