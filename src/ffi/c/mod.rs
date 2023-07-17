@@ -62,5 +62,6 @@ fn drop_str(ptr: &mut *const c_char) {
         return;
     }
     let ptr = std::mem::replace(ptr, std::ptr::null()) as *mut _;
-    unsafe { CString::from_raw(ptr) };
+    let str = unsafe { CString::from_raw(ptr) };
+    drop(str);
 }
