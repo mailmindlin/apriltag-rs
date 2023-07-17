@@ -144,7 +144,8 @@ pub(super) fn drop_boxed_mut<T>(ptr: &mut *mut T) {
         return;
     }
     let ptr = std::mem::replace(ptr, std::ptr::null_mut()) as *mut T;
-    unsafe { Box::from_raw(ptr) };
+    let boxed = unsafe { Box::from_raw(ptr) };
+    drop(boxed);
 }
 
 pub(super) fn drop_array<T>(ptr: &mut *const T, len: usize) {
