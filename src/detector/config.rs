@@ -1,6 +1,6 @@
 use crate::AprilTagQuadThreshParams;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DetectorConfig {
 	/// How many threads should be used?
 	pub nthreads: usize,
@@ -39,6 +39,8 @@ pub struct DetectorConfig {
 	pub debug: bool,
 
 	pub qtp: AprilTagQuadThreshParams,
+
+	pub debug_path: Option<String>,
 }
 
 
@@ -52,11 +54,30 @@ impl Default for DetectorConfig {
 			decode_sharpening: 0.25,
 			debug: false,
 			qtp: AprilTagQuadThreshParams::default(),
+			debug_path: None,
 		}
     }
 }
 
 impl DetectorConfig {
+	#[cfg(feature="debug")]
+	pub(crate) const fn debug(&self) -> bool {
+		self.debug
+	}
+
+	pub(crate) fn do_quad_decimate(&self) -> bool {
+		self.quad_decimate > 1.
+	}
+
+	pub(crate) fn do_quad_sigma(&self) -> bool {
+		self.quad_sigma != 1.
+	}
+
+	#[cfg(not(feature="debug"))]
+	pub(crate) const fn debug(&self) -> bool {
+		false
+	}
+
 	#[cfg(feature="debug")]
 	pub(crate) const fn generate_debug_image(&self) -> bool {
 		self.debug
@@ -71,8 +92,17 @@ impl DetectorConfig {
 	#[cfg(feature="debug")]
 	#[inline]
 	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(std::fs::File) -> std::io::Result<()>) {
+    use std::path::PathBuf;
+
 		if self.debug {
-			let f = std::fs::File::create(name)
+			let path = if let Some(pfx) = &self.debug_path {
+				let mut path = PathBuf::from(pfx);
+				path.push(name);
+				path
+			} else {
+				PathBuf::from(name)
+			};
+			let f = std::fs::File::create(path)
 				.expect("Unable to create debug file");
 			callback(f)
 				.expect(&format!("Error writing {name}"));
