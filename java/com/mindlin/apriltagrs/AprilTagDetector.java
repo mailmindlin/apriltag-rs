@@ -209,6 +209,9 @@ public final class AprilTagDetector extends NativeObject {
             this.debug = config.debug;
         }
 
+        /**
+         * @return An umodifiable copy
+         */
         public Config unmodifiable() {
             if (!this.isMutable())
                 return this;
@@ -327,20 +330,25 @@ public final class AprilTagDetector extends NativeObject {
         /** Reject quads containing too few pixels */
         public int minClusterPixels = 5;
 
-        /// How many corner candidates to consider when segmenting a group
-        /// of pixels into a quad.
+        /**
+         * How many corner candidates to consider when segmenting a group
+         * of pixels into a quad.
+         */
         public int maxNumMaxima = 10;
 
-        /// Reject quads where pairs of edges have angles that are close to
-        /// straight or close to 180 degrees. Zero means that no quads are
-        /// rejected. (In radians).
+        /**
+         * Reject quads where pairs of edges have angles that are close to
+         * straight or close to 180 degrees. Zero means that no quads are
+         * rejected. (In radians).
+         */
         public double criticalAngle = 10 * Math.PI / 180.0;
-
-        /// When fitting lines to the contours, what is the maximum mean
-        /// squared error allowed?
-        /// This is useful in rejecting contours that are far from being
-        /// quad shaped; rejecting these quads "early" saves expensive
-        /// decoding processing.
+        /**
+         * When fitting lines to the contours, what is the maximum mean
+         * squared error allowed?
+         * This is useful in rejecting contours that are far from being
+         * quad shaped; rejecting these quads "early" saves expensive
+         * decoding processing.
+         */
         public float maxLineFitMSE = 10.0f;
 
         /// When we build our model of black & white pixels, we add an
@@ -354,8 +362,11 @@ public final class AprilTagDetector extends NativeObject {
         public boolean deglitch = false;
     }
 
+    /** Configuration */
     private final Config config;
+    /** Map of family => hamming distance */
     private final Map<AprilTagFamily, Integer> families;
+    /** Map of pointer => family */
     private final Map<Long, AprilTagFamily> ptrLookup;
 
     private AprilTagDetector(long ptr, Config config, Map<AprilTagFamily, Integer> families, Map<Long, AprilTagFamily> ptrLookup) {
