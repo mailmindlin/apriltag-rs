@@ -20,3 +20,5 @@ Cargo.lock
 /*.egg-info
 *.pnm
 *.ps
+java/.idea
+java/*.iml
