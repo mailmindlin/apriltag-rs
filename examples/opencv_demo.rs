@@ -43,13 +43,21 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+    #[arg(long, default_value_t=false)]
+    opencl: bool,
 }
 
-fn build_detector(args: &Args) -> AprilTagDetector {
-    let mut detector = AprilTagDetector::default();
+fn build_detector(args: &Args, dbp: &str) -> AprilTagDetector {
+    let mut detector = AprilTagDetector::builder();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
+    if args.opencl {
+        detector.use_opencl(OpenClMode::Required);
+    } else {
+        detector.use_opencl(OpenClMode::Disabled);
+    }
+
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
             family
@@ -66,18 +74,21 @@ fn build_detector(args: &Args) -> AprilTagDetector {
         detector.add_family_bits(family, args.hamming).unwrap();
     }
 
-    detector.params.quad_decimate = args.decimate;
-    detector.params.quad_sigma = args.blur;
-    detector.params.nthreads = args.threads;
-    detector.params.debug = args.debug;
-    detector.params.refine_edges = args.refine_edges;
+    detector.config.quad_decimate = args.decimate;
+    detector.config.quad_sigma = args.blur;
+    detector.config.nthreads = args.threads;
+    detector.config.debug = args.debug;
+    detector.config.refine_edges = args.refine_edges;
+    detector.config.debug_path = Some(format!("./debug/{dbp}"));
 
     detector
+        .build()
+        .expect("Error building AprilTagDetector")
 }
 
 fn main() {
     println!("Parsing args");
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     println!("Enabling video capture");
 
@@ -126,8 +137,13 @@ fn main() {
 
         tp.stamp("cvconvert");
 
-        let detections = detector.detect(&im);
-
+        let detections = match detector.detect(&im) {
+            Ok(dets) => dets,
+            Err(e) => {
+                eprintln!("Error detecting AprilTags: {e:?}");
+                continue;
+            }
+        };
         tp.stamp("detect");
 
         // Draw detection outlines
