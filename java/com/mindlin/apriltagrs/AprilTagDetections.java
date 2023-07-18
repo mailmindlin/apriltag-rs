@@ -1,8 +1,10 @@
 package com.mindlin.apriltagrs;
 
 import java.util.AbstractList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.RandomAccess;
 import com.mindlin.apriltagrs.debug.TimeProfile;
@@ -11,6 +13,12 @@ public final class AprilTagDetections extends AbstractList<AprilTagDetection> im
     private int numQuads;
     private TimeProfile tp;
     private List<AprilTagDetection> detections;
+
+    private AprilTagDetections(int numQuads, TimeProfile tp, AprilTagDetection[] detections) {
+        this.numQuads = numQuads;
+        this.tp = tp;
+        this.detections = Arrays.asList(Objects.requireNonNull(detections));
+    }
 
     public int getNumQuads() {
         return this.numQuads;
