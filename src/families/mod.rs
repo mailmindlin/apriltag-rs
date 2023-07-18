@@ -7,7 +7,6 @@ mod tag16h5;
 mod tag25h9;
 mod tag36h10;
 mod tag36h11;
-pub mod generator;
 mod util;
 pub use util::{rotate90, rotations};
 
