@@ -99,8 +99,16 @@ impl AddAssign<Vec2> for Vec2 {
 impl Add<&Vec2> for Vec2 {
     type Output = Vec2;
 
-    fn add(mut self, rhs: &Vec2) -> Self::Output {
+    fn add(self, rhs: &Vec2) -> Self::Output {
         Self(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl Add<&Vec2> for &Vec2 {
+    type Output = Vec2;
+
+    fn add(self, rhs: &Vec2) -> Self::Output {
+        Vec2(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
