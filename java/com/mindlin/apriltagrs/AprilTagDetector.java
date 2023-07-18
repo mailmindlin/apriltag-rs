@@ -24,7 +24,6 @@ public final class AprilTagDetector extends NativeObject {
      * @return Handle to detector
      */
     private static native long nativeCreate(int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, double decodeSharpening, String debugPath, long[] familyPtrs, int[] familyHammings);
-    private static native void nativeDestroy(long ptr);
     private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride);
 
     public static class Builder {
@@ -413,7 +412,5 @@ public final class AprilTagDetector extends NativeObject {
     }
 
     @Override
-    protected void destroy(long ptr) {
-        AprilTagDetector.nativeDestroy(ptr);
-    }
+    protected native void destroy(long ptr);
 }
