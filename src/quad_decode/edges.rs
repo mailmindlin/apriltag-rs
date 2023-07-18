@@ -1,11 +1,12 @@
 use arrayvec::ArrayVec;
 
-use crate::{detector::AprilTagParams, util::{math::Vec2, geom::Point2D, image::ImageY8}};
+use std::ops::Add;
+use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder}, geom::Point2D, image::ImageY8}};
 
 use super::Quad;
 
 impl Quad {
-    pub(super) fn refine_edges(&mut self, det_params: &AprilTagParams, im_orig: &ImageY8) {
+    pub(super) fn refine_edges(&mut self, det_params: &DetectorConfig, im_orig: &ImageY8) {
         let lines = {
             let mut lines = ArrayVec::<(Vec2, Vec2), 4>::new(); // for each line, [E,n]
 
