@@ -3,7 +3,7 @@ mod config;
 mod debug;
 
 pub use config::DetectorConfig;
-pub use builder::{DetectorBuilder, DetectorBuildError};
+pub use builder::{DetectorBuilder, DetectorBuildError, OpenClMode};
 
 use std::sync::{Mutex, Arc};
 
