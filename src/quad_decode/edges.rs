@@ -1,6 +1,5 @@
 use arrayvec::ArrayVec;
 
-use std::ops::Add;
 use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder}, geom::Point2D, image::ImageY8}};
 
 use super::Quad;
