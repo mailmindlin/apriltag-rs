@@ -84,11 +84,20 @@ impl Default for TimeProfile {
 }
 
 #[derive(Clone)]
-struct TimeProfileEntry {
+pub struct TimeProfileEntry {
     /// Entry name
     name: String,
     /// Entry timestamp
     timestamp: Instant,
+}
+
+impl TimeProfileEntry {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn timestamp(&self) -> &Instant {
+        &self.timestamp
+    }
 }
 
 impl TimeProfile {
@@ -119,6 +128,10 @@ impl TimeProfile {
         let last = stamps.last().unwrap();
 
         last.timestamp - first.timestamp
+    }
+
+    pub fn entries(&self) -> &[TimeProfileEntry] {
+        &self.stamps
     }
 }
 
