@@ -1,11 +1,11 @@
-use std::{ops::{Index, IndexMut, MulAssign, AddAssign, Sub, Add, Mul}, mem::{transmute, swap}};
+use std::{ops::{Index, IndexMut, MulAssign, AddAssign, Sub, Add, Mul}, mem::swap};
 
 use crate::util::math::Vec3;
 
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
-pub struct Mat33([f64; 9]);
+pub struct Mat33(pub [f64; 9]);
 
 pub(crate) struct Mat33SVD {
     pub U: Mat33,
