@@ -1,6 +1,6 @@
 use std::{ops::Deref, slice, mem::transmute};
 
-use jni::{JNIEnv, objects::{JByteBuffer, JClass, JObject, JByteArray, AutoElements}, sys::{jbyte, jint, jvalue}, signature::{ReturnType, Primitive}, descriptors::Desc, errors::Error as JNIError};
+use jni::{JNIEnv, objects::{JByteBuffer, JClass, JByteArray, AutoElements}, sys::{jbyte, jint, jvalue}, signature::{ReturnType, Primitive}, errors::Error as JNIError};
 
 use super::JavaError;
 
@@ -57,19 +57,18 @@ fn check_buffer_range(position: jint, limit: jint) -> Result<(usize, usize), Jav
 	Ok((position as _, limit as _))
 }
 
-fn get_buffer_range<'a>(env: &mut JNIEnv<'a>, class: impl Desc<'a, JClass>, buf: JByteBuffer<'a>) -> Result<(usize, usize), JavaError> {
-	let class = Desc::<JClass>::lookup(class, env)?;
+fn get_buffer_range<'a>(env: &mut JNIEnv<'a>, class: &JClass<'a>, buf: &JByteBuffer<'a>) -> Result<(usize, usize), JavaError> {
 	let position = unsafe { env.call_method_unchecked(buf, (class, "position", "()I"), ReturnType::Primitive(Primitive::Int), &[]) }?.i().unwrap();
 	let limit    = unsafe { env.call_method_unchecked(buf, (class, "limit", "()I"), ReturnType::Primitive(Primitive::Int), &[]) }?.i().unwrap();
 
 	check_buffer_range(position, limit)
 }
 
-fn get_buffer_direct<'a>(env: &JNIEnv<'a>, buf: JByteBuffer<'a>) -> Result<Option<&'a [u8]>, JavaError> {
+fn get_buffer_direct<'a>(env: &JNIEnv<'a>, buf: &JByteBuffer<'a>) -> Result<Option<&'a [u8]>, JavaError> {
 	match env.get_direct_buffer_address(&buf) {
 		Ok(ptr) => {
 			// Is direct, so we can just get it
-			let cap = env.get_direct_buffer_capacity(&buf)?;
+			let cap = env.get_direct_buffer_capacity(buf)?;
 			let slice = unsafe { slice::from_raw_parts(ptr, cap) };
 			Ok(Some(slice))
 		},
@@ -113,7 +112,7 @@ pub(in super::super) fn get_array_elements<'a>(env: &JNIEnv<'a>, array: &'a JByt
 	}
 }
 
-pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: JByteBuffer<'a>) -> Result<BufferView<'a>, JavaError> {
+pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: &JByteBuffer<'a>) -> Result<BufferView<'a>, JavaError> {
 	// Get class once
 	let bb_class = env.auto_local(env.get_object_class(buf)?);
 	if let Some(direct) = get_buffer_direct(env, buf)? {
@@ -128,7 +127,7 @@ pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: JByteBuffer<'a
 		if array_offset < 0 {
 			return Err(JavaError::IllegalStateException("Negative array offset".into()));
 		}
-		let array = env.auto_local(unsafe {env.call_method_unchecked(buf, (&bb_class, "array", "()[B"), ReturnType::Array, &[]) }?.l().unwrap());
+		let array = unsafe { env.call_method_unchecked(buf, (&bb_class, "array", "()[B"), ReturnType::Array, &[]) }?.l().unwrap();
 		
 		let (position, limit) = get_buffer_range(env, &bb_class, buf)?;
 
@@ -136,20 +135,17 @@ pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: JByteBuffer<'a
 	}
 
 	// Use bulk get()
-	let remaining = unsafe {env.call_method_unchecked(buf, (&bb_class, "remaining", "()I"), ReturnType::Primitive(Primitive::Int), &[]) }?.i().unwrap();
+	let remaining = unsafe { env.call_method_unchecked(buf, (&bb_class, "remaining", "()I"), ReturnType::Primitive(Primitive::Int), &[]) }?.i().unwrap();
 	if remaining < 0 {
 		return Err(JavaError::IllegalArgumentException("Buffer negative remaining".into()));
 	}
 
-	let arr = {
-		let inner = env.new_byte_array(remaining)?;
-		env.auto_local(inner)
-	};
+	let arr = env.new_byte_array(remaining)?;
 	{
-		let x = jvalue { l: arr.as_obj().into_raw() };
-		let res = unsafe {  env.call_method_unchecked(buf, (&bb_class, "get", "([B)Ljava/nio/ByteBuffer;"), ReturnType::Object, &[x]) }?.l()?;
+		let x = jvalue { l: arr.as_raw() };
+		let res = unsafe { env.call_method_unchecked(buf, (&bb_class, "get", "([B)Ljava/nio/ByteBuffer;"), ReturnType::Object, &[x]) }?.l()?;
 		env.delete_local_ref(res)?;
 	}
 	// env.get_byte_array_elements(arr, jni::objects::ReleaseMode::NoCopyBack)?
-	get_array_elements(env, arr.as_obj(), 0, remaining as _, true)
+	get_array_elements(env, &arr, 0, remaining as _, true)
 }
