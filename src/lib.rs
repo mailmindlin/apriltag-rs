@@ -14,7 +14,7 @@ mod detection;
 pub use util::Image;
 pub use quickdecode::AddFamilyError;
 pub use families::AprilTagFamily;
-pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig};
+pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig, OpenClMode};
 pub use detection::{AprilTagDetection, Detections};
 pub use quad_thresh::AprilTagQuadThreshParams;
 pub use dbg::{TimeProfile, TimeProfileStatistics};
