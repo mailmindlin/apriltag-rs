@@ -1,6 +1,6 @@
 use std::{alloc::AllocError, fmt::Debug};
 
-use crate::pose::{self, ApriltagDetectionInfo, ApriltagPose};
+use crate::pose::{self, AprilTagDetectionInfo, AprilTagPose, PoseParams};
 
 use super::{matd_ptr, apriltag_detection_t, FFIConvertError};
 
@@ -19,7 +19,7 @@ unsafe fn try_write<T, V: TryInto<T>>(ptr: *mut T, v: V) where <V as TryInto<T>>
 
 #[no_mangle]
 pub unsafe extern "C" fn estimate_pose_for_tag_homography(info: *const apriltag_detection_info_t, pose: *mut apriltag_pose_t) {
-    let info = ApriltagDetectionInfo::try_from(info).unwrap();
+    let info = AprilTagDetectionInfo::try_from(info).unwrap();
 
     let res = pose::estimate_pose_for_tag_homography(&info);
 
@@ -35,8 +35,8 @@ pub unsafe extern "C" fn estimate_tag_pose_orthogonal_iteration(
     pose2: *mut apriltag_pose_t,
     nIters: libc::c_int,
 ) {
-    let info = ApriltagDetectionInfo::try_from(info).unwrap();
     let result = pose::estimate_tag_pose_orthogonal_iteration(&info, nIters as usize);
+    let info = AprilTagDetectionInfo::try_from(info).unwrap();
 
     // Write back to out-params
     if let Some(err1) = err1.as_mut() {
@@ -61,9 +61,9 @@ pub struct apriltag_pose_t {
     t: matd_ptr,
 }
 
-impl TryFrom<ApriltagPose> for apriltag_pose_t {
+impl TryFrom<AprilTagPose> for apriltag_pose_t {
     type Error = AllocError;
-    fn try_from(value: ApriltagPose) -> Result<Self, Self::Error> {
+    fn try_from(value: AprilTagPose) -> Result<Self, Self::Error> {
         let R = matd_ptr::new(3, 3, value.R.data())?;
         let t = matd_ptr::new(1, 3, &[value.t.0, value.t.1, value.t.2])?;
         Ok(Self { R, t })
@@ -80,7 +80,7 @@ pub struct apriltag_detection_info_t {
     cy: libc::c_double, // In pixels.
 }
 
-impl TryFrom<*const apriltag_detection_info_t> for ApriltagDetectionInfo {
+impl TryFrom<*const apriltag_detection_info_t> for AprilTagDetectionInfo {
     type Error = FFIConvertError;
     fn try_from(value: *const apriltag_detection_info_t) -> Result<Self, Self::Error> {
         let value = unsafe { value.as_ref() }.ok_or(FFIConvertError::NullPointer)?;
@@ -98,8 +98,15 @@ impl TryFrom<*const apriltag_detection_info_t> for ApriltagDetectionInfo {
 
 #[no_mangle]
 pub unsafe extern "C" fn estimate_tag_pose(info: *const apriltag_detection_info_t, pose: *mut apriltag_pose_t) -> f64 {
-    let info = ApriltagDetectionInfo::try_from(info).unwrap();
-    let (sol_pose, err) = pose::estimate_tag_pose(&info);
-    try_write(pose, sol_pose);
-    err
+    let info = match AprilTagDetectionInfo::try_from(info) {
+        Ok(info) => info,
+        Err(e) => {
+            #[cfg(debug_assertions)]
+            eprintln!("Error: called estimate_tag_pose with null info: {e:?}");
+            return f64::NAN;
+        }
+    };
+    let solution = pose::estimate_tag_pose(&info.detection, &info.extrinsics);
+    try_write(pose, solution.pose);
+    solution.error
 }
