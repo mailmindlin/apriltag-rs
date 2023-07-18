@@ -9,7 +9,7 @@ edition = "2021"
 [features]
 cpython = ["dep:cpython"]
 jni = ["dep:jni"]
-cffi = ["dep:libc", "dep:nix"]
+cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
 extra_debug = ["debug"]
 
@@ -28,7 +28,6 @@ rand = "0.8.5"
 rayon = "1.6.1"
 datasize = "0.2.14"
 clap = { version = "4.2.1", features=["derive"] }
-errno = "0.3.1"
 parking_lot = "0.12.1"
 raw-parts = "2.0.0"
 
@@ -48,6 +47,9 @@ version = "0.2.139"
 optional = true
 [dependencies.nix]
 version = "0.26.2"
+optional = true
+[dependencies.errno]
+version = "0.3.1"
 optional = true
 
 
