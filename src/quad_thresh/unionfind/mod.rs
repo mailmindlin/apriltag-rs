@@ -1,4 +1,4 @@
-use crate::{util::ImageY8, AprilTagDetector, detector::DetectorConfig};
+use crate::{util::ImageY8, detector::DetectorConfig};
 use rayon::prelude::*;
 
 use self::uf2d::UnionFind2D;
