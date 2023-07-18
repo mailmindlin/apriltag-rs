@@ -52,7 +52,7 @@ impl<C: Container, F> ManagedPtr<C, F> where <C as Deref>::Target: Sized {
             Some(unsafe { C::from_raw(ptr as *const <C as Deref>::Target) })
         }
     }
-    pub(super) fn get(&self) -> Option<C> where C: Clone {
+    pub(super) fn borrow(&self) -> Option<C> where C: Clone {
         let ptr = mem::replace(unsafe { self.ptr.get().as_mut().unwrap() }, ptr::null_mut());
         let value = Self::unwrap_ptr(ptr)?;
         let res = value.clone();

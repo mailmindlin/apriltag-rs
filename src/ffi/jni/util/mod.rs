@@ -181,7 +181,6 @@ pub(super) fn jni_wrap_simple<'a, R: Default>(env: &mut JNIEnv<'a>, inner: impl 
 pub(super) fn jni_wrap<'a, T: Deref, R: Default>(env: &mut JNIEnv<'a>, ptr: JPtr<'a, T>, inner: impl FnOnce(&mut JNIEnv<'a>, &mut T::Target) -> JavaResult<R>) -> R where T::Target: Sized, T: RawPtr<T::Target> {
     jni_wrap_simple(env, |env| {
         let value = ptr.as_mut()?;
-        // let mut detector = data.detector.write()?;
         inner(env, value)
     })
 }
