@@ -193,4 +193,24 @@ fn main() {
     if args.iters > 1 {
         acc.display();
     }
+
+    if args.debug {
+        let path = args.debug_path.unwrap_or(PathBuf::from("."));
+        for path in std::fs::read_dir(path).unwrap() {
+            let path = path.unwrap();
+            if !path.file_type().unwrap().is_file() {
+                continue;
+            }
+            if !path.file_name().to_str().unwrap().ends_with(".pnm") {
+                continue;
+            }
+            let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
+            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
+            for ((x, y), value) in img.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
+            }
+            buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
+                .unwrap();
+        }
+    }
 }
