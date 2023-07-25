@@ -1,6 +1,7 @@
 use std::{path::{PathBuf, Path}, time::Duration, io};
 
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::ImageY8, TimeProfileStatistics};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics};
+use image::{io::Reader as ImageReader, ImageBuffer as IImageBuffer, Rgb};
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -35,12 +36,16 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+    #[arg(long)]
+    debug_path: Option<PathBuf>,
     input_files: Vec<PathBuf>,
 }
 
 fn build_detector(args: &Args) -> AprilTagDetector {
-    println!("refine_edges: {}", args.refine_edges);
-    let mut detector = AprilTagDetector::default();
+    let mut builder = AprilTagDetector::builder();
+    if args.family.len() == 0 {
+        panic!("No AprilTag families to detect");
+    }
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
             family
@@ -54,16 +59,20 @@ fn build_detector(args: &Args) -> AprilTagDetector {
             panic!();
         };
 
-        detector.add_family_bits(family, args.hamming).unwrap();
+        builder.add_family_bits(family, args.hamming).unwrap();
     }
 
-    detector.params.quad_decimate = args.decimate;
-    detector.params.quad_sigma = args.blur;
-    detector.params.nthreads = args.threads;
-    detector.params.debug = args.debug;
-    detector.params.refine_edges = args.refine_edges;
+    builder.config.quad_decimate = args.decimate;
+    builder.config.quad_sigma = args.blur;
+    builder.config.nthreads = args.threads;
+    builder.config.debug = args.debug;
+    builder.config.refine_edges = args.refine_edges;
+    if let Some(path) = &args.debug_path {
+        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+    }
 
-    detector
+    builder.build()
+        .unwrap()
 }
 
 fn load_image(path: &Path) -> io::Result<ImageY8> {
@@ -125,7 +134,8 @@ fn main() {
 
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
-            let detections = detector.detect(&im);
+            let detections = detector.detect(&im)
+                .expect("Detection error");
 
             println!("Found {} tags", detections.detections.len());
 
