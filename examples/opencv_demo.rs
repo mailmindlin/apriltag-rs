@@ -43,10 +43,12 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+    #[arg(long)]
+    debug_path: Option<PathBuf>,
 }
 
 fn build_detector(args: &Args) -> AprilTagDetector {
-    let mut detector = AprilTagDetector::default();
+    let mut builder = AprilTagDetector::builder();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
@@ -63,16 +65,20 @@ fn build_detector(args: &Args) -> AprilTagDetector {
             panic!();
         };
 
-        detector.add_family_bits(family, args.hamming).unwrap();
+        builder.add_family_bits(family, args.hamming).unwrap();
     }
 
-    detector.params.quad_decimate = args.decimate;
-    detector.params.quad_sigma = args.blur;
-    detector.params.nthreads = args.threads;
-    detector.params.debug = args.debug;
-    detector.params.refine_edges = args.refine_edges;
+    builder.config.quad_decimate = args.decimate;
+    builder.config.quad_sigma = args.blur;
+    builder.config.nthreads = args.threads;
+    builder.config.debug = args.debug;
+    builder.config.refine_edges = args.refine_edges;
+    if let Some(path) = &args.debug_path {
+        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+    }
 
-    detector
+    builder.build()
+        .unwrap()
 }
 
 fn main() {
@@ -126,7 +132,13 @@ fn main() {
 
         tp.stamp("cvconvert");
 
-        let detections = detector.detect(&im);
+        let detections = match detector.detect(&im) {
+            Ok(dets) => dets,
+            Err(e) => {
+                eprintln!("Detection error: {e:?}");
+                continue;
+            }
+        };
 
         tp.stamp("detect");
 
