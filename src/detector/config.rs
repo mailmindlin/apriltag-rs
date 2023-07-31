@@ -59,14 +59,28 @@ impl Default for DetectorConfig {
     }
 }
 
+pub(super) enum QuadDecimateMode {
+	None,
+	ThreeHalves,
+	Scaled(f32),
+}
+
 impl DetectorConfig {
 	#[cfg(feature="debug")]
 	pub(crate) const fn debug(&self) -> bool {
 		self.debug
 	}
 
-	pub(crate) fn do_quad_decimate(&self) -> bool {
-		self.quad_decimate > 1.
+	pub(super) fn quad_decimate_mode(&self) -> QuadDecimateMode {
+		if self.quad_decimate > 1. {
+			if self.quad_decimate == 1.5 {
+				QuadDecimateMode::ThreeHalves
+			} else {
+				QuadDecimateMode::Scaled(self.quad_decimate)
+			}
+		} else {
+			QuadDecimateMode::None
+		}
 	}
 
 	pub(crate) fn do_quad_sigma(&self) -> bool {
