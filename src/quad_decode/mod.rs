@@ -19,6 +19,15 @@ pub(crate) struct Quad {
     // pub(crate) Hinv: Option<Mat>,
     pub(crate) reversed_border: bool,
 }
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Quad {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        let margin: Self::Margin = margin.into();
+        self.corners.approx_eq(other.corners, margin) && self.reversed_border == other.reversed_border
+    }
+}
 
 fn value_for_pixel(im: &ImageY8, p: Point2D) -> Option<f64> {
     let x1 = f64::floor(p.x() - 0.5) as isize;

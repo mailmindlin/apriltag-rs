@@ -21,6 +21,32 @@ impl Pt {
     }
 }
 
+#[cfg(feature="compare_reference")]
+impl From<Pt> for apriltag_sys::pt {
+    fn from(pt: Pt) -> Self {
+        Self {
+            x: pt.x,
+            y: pt.y,
+            gx: pt.gx,
+            gy: pt.gy,
+            slope: pt.slope,
+        }
+    }
+}
+
+#[cfg(feature="compare_reference")]
+impl From<apriltag_sys::pt> for Pt {
+    fn from(pt: apriltag_sys::pt) -> Self {
+        Self {
+            x: pt.x,
+            y: pt.y,
+            gx: pt.gx,
+            gy: pt.gy,
+            slope: pt.slope,
+        }
+    }
+}
+
 #[inline]
 pub(super) fn ptsort(pts: &mut [Pt]) {
     //TODO: speed test
