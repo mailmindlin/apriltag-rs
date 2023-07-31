@@ -9,13 +9,17 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::apriltag_quad_thresh, dbg::TimeProfile, Detections, detection::reconcile_detections, detector::config::QuadDecimateMode};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::apriltag_quad_thresh, dbg::TimeProfile, Detections, detection::reconcile_detections, ocl::OpenCLDetector};
+
+use self::config::QuadDecimateMode;
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum DetectError {
 	ImageTooSmall,
+	ImageTooBig,
 	AllocError,
+	OpenCLError,
 }
 
 pub struct AprilTagDetector {
@@ -31,8 +35,59 @@ pub struct AprilTagDetector {
 
 	// Used to manage multi-threading.
 	pub(crate) wp: ThreadPool,
+	#[cfg(feature="opencl")]
+	ocl: Option<Box<OpenCLDetector>>,
 }
 
+pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
+	if quad_sigma == 0. {
+		return None;
+	}
+	// compute a reasonable kernel width by figuring that the
+	// kernel should go out 2 std devs.
+	//
+	// max sigma          ksz
+	// 0.499              1  (disabled)
+	// 0.999              3
+	// 1.499              5
+	// 1.999              7
+
+	let sigma = f32::abs(quad_sigma);
+
+	let kernel_size = (4. * sigma) as usize; // 2 std devs in each direction
+	let kernel_size = if (kernel_size & 1) == 0 {
+		kernel_size + 1
+	} else {
+		kernel_size
+	};
+
+	assert_eq!(kernel_size % 1, 1, "kernel_size must be odd");
+
+	// build the kernel.
+	let mut dk = vec![0f64; kernel_size];
+
+	// for kernel of length 5:
+	// dk[0] = f(-2), dk[1] = f(-1), dk[2] = f(0), dk[3] = f(1), dk[4] = f(2)
+	for i in 0..kernel_size {
+		let x = i as isize - (kernel_size as isize / 2);
+		let x_sig = x as f64 / sigma as f64;
+		let v = f64::exp(-0.5*(x_sig * x_sig));
+		dk[i] = v;
+	}
+
+	// normalize
+	let acc = dk.iter().sum::<f64>();
+
+	let kernel = dk.iter()
+		.map(|x| {
+			let x_norm = x / acc;
+			(x_norm * 255.) as u8 //TODO: round?
+		})
+		.collect::<Vec<_>>();
+	Some(kernel)
+}
+
+/// Apply blur/sharp filter
 fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 	if quad_sigma == 0. {
 		return;
@@ -84,32 +139,65 @@ impl AprilTagDetector {
 		DetectorBuilder::default()
 	}
 
-	fn new(params: DetectorConfig, tag_families: Vec<Arc<QuickDecode>>) -> Result<AprilTagDetector, DetectorBuildError> {
-		let tpb = ThreadPoolBuilder::new()
-			.num_threads(params.nthreads);
+	pub fn opencl_mode(&self) -> OpenClMode {
+		match &self.ocl {
+			None => OpenClMode::Disabled,
+			Some(ocl) => ocl.mode,
+		}
+	}
 
-		let wp = match tpb.build() {
-			Ok(wp) => wp,
-			Err(e) => return Err(DetectorBuildError::Threadpool(e)),
+	fn new(params: DetectorConfig, tag_families: Vec<Arc<QuickDecode>>, ocl: OpenClMode) -> Result<AprilTagDetector, DetectorBuildError> {
+		let wp = {
+			let tpb = ThreadPoolBuilder::new()
+				.num_threads(params.nthreads);
+
+			match tpb.build() {
+				Ok(wp) => wp,
+				Err(e) => return Err(DetectorBuildError::Threadpool(e)),
+			}
+		};
+
+		let ocl = if OpenClMode::Disabled != ocl {
+			match OpenCLDetector::new(&params, ocl) {
+				Ok(ocl) => Some(Box::new(ocl)),
+				Err(DetectorBuildError::OpenCLNotAvailable) if !ocl.is_required() => None,
+				Err(DetectorBuildError::OpenCLError(e)) if !ocl.is_required() => {
+					#[cfg(feature="debug")]
+					eprintln!("Unable to configure OpenCL: {e:?}");
+					None
+				},
+				Err(e) => return Err(e),
+			}
+		} else {
+			None
 		};
 		
 		Ok(Self {
 			params,
 			tag_families,
 			wp,
+			#[cfg(feature="opencl")]
+			ocl,
 		})
 	}
 
-	pub fn detect(&self, im_orig: &ImageY8) -> Result<Detections, DetectError> {
-		if self.tag_families.len() == 0 {
-			println!("AprilTag: No tag families enabled.");
-			return Ok(Detections::default());
+	fn preprocess_image(&self, tp: &mut TimeProfile, im_orig: &ImageY8) -> Result<(ImageY8, ImageY8), DetectError> {
+		#[cfg(feature="opencl")]
+		if let Some(ocl) = &self.ocl {
+			match ocl.preprocess(&self.params, tp, im_orig) {
+				Ok(res) => {
+					return Ok(res);
+				},
+				Err(e) => {
+					if ocl.mode.is_required() {
+						return Err(e);
+					} else {
+						// Swallow
+						eprintln!("OpenCL error: {e:?}");
+					}
+				}
+			}
 		}
-
-		// Statistics relating to last processed frame
-		let mut tp = TimeProfile::default();
-
-		tp.stamp("init");
 
 		///////////////////////////////////////////////////////////
 		// Step 1. Detect quads according to requested image decimation
@@ -138,8 +226,44 @@ impl AprilTagDetector {
 		#[cfg(feature="debug")]
 		self.params.debug_image("debug_preprocess.pnm", |mut f| quad_im.write_pnm(&mut f));
 
-		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
-		drop(quad_im);
+		////////////////////////////////////////////////////////
+		// step 1. threshold the image, creating the edge image.
+		let threshim = super::quad_thresh::threshold::threshold(&self.params.qtp, tp, &quad_im);
+
+		#[cfg(feature="debug")]
+        self.params.debug_image("debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
+
+		Ok((quad_im, threshim))
+	}
+
+	/// Detect AprilTags
+	/// 
+	/// ## Steps:
+	/// ### 1. Decimate
+	/// Downsample image, as per `quad_decimate`
+	/// 
+	/// ### 2. Blur / Sharpen
+	/// Blur or sharpen image, as per `quad_sigma`
+	/// 
+	/// ### 3. Threshold
+	/// 
+	pub fn detect(&self, im_orig: &ImageY8) -> Result<Detections, DetectError> {
+		if self.tag_families.len() == 0 {
+			println!("AprilTag: No tag families enabled.");
+			return Ok(Detections::default());
+		}
+
+		// Statistics relating to last processed frame
+		let mut tp = TimeProfile::default();
+		tp.stamp("init");
+
+		let mut quads = {
+			let (quad_im, threshim) = self.preprocess_image(&mut tp, im_orig)?;
+
+			apriltag_quad_thresh(self, &mut tp, &quad_im, threshim)
+		};
+
+		println!("quads, {quads:?}");
 
 		#[cfg(feature="extra_debug")]
 		println!("Found {} quads", quads.len());
@@ -215,8 +339,10 @@ impl AprilTagDetector {
 
 			#[cfg(feature="debug")]
 			if let Some(im_samples) = im_samples {
-				let im_samples = im_samples.into_inner().unwrap();
-				self.params.debug_image("debug_samples.pnm", |mut f| im_samples.write_pnm(&mut f));
+				self.params.debug_image("debug_samples.pnm", |mut f| {
+					let im_samples = im_samples.into_inner().unwrap();
+					im_samples.write_pnm(&mut f)
+				});
 			}
 			detections
 		} else {
@@ -229,7 +355,6 @@ impl AprilTagDetector {
 			self.params.debug_image("debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
 			drop(quads);
 		}
-
 		tp.stamp("decode+refinement");
 
 		let mut detections = reconcile_detections(detections);

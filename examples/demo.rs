@@ -36,13 +36,21 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+
     #[arg(long)]
     debug_path: Option<PathBuf>,
+    #[arg(long, default_value_t=false)]
+    opencl: bool,
     input_files: Vec<PathBuf>,
 }
-
-fn build_detector(args: &Args) -> AprilTagDetector {
+fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
+    if args.opencl {
+        builder.use_opencl(apriltag_rs::OpenClMode::Required)
+    } else {
+        builder.use_opencl(apriltag_rs::OpenClMode::Disabled)
+    }
+
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
@@ -66,12 +74,15 @@ fn build_detector(args: &Args) -> AprilTagDetector {
     builder.config.nthreads = args.threads;
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
-    if let Some(path) = &args.debug_path {
+    if let Some(dbp) = dbp {
+        builder.config.debug_path = Some(format!("./debug/{dbp}"));
+    } else if let Some(path) = &args.debug_path {
         builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
     }
+    
 
     builder.build()
-        .unwrap()
+        .expect("Error building detector")
 }
 
 fn load_image(path: &Path) -> io::Result<ImageY8> {
@@ -94,12 +105,14 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
 }
 
 fn main() {
-    let args = Args::parse();
+    let mut args = Args::parse();
     if args.debug {
         println!("Arguments:");
         println!(" - threads: {}", args.threads);
     }
-    let detector = build_detector(&args);
+    let detector = build_detector(&args, Some("cpu"));
+    args.opencl = true;
+    let detector_gpu = build_detector(&args, Some("gpu"));
 
     let quiet = args.quiet;
     let mut acc = TimeProfileStatistics::default();
@@ -134,7 +147,9 @@ fn main() {
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
             let detections = detector.detect(&im)
-                .expect("Detection error");
+                .expect("Error detecting AprilTags");
+            let detections_gpu = detector_gpu.detect(&im)
+                .expect("Error detecting AprilTags");
 
             println!("Found {} tags", detections.detections.len());
 

@@ -14,10 +14,8 @@ debug = []
 extra_debug = ["debug"]
 opencl = ["dep:ocl"]
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
-
-default = ["cpython", "jni", "debug", "cffi", "dep:opencv", "opencl"]
-# default = ["debug"]
-# default = ["debug", "compare_reference", "extra_debug"]
+# default = ["cpython", "jni", "debug", "cffi", "dep:opencv", "opencl"]
+default = [ "cffi", "opencl", "debug"]
 
 [profile.dev]
 default = ["cpython", "jni", "cffi", "debug", "extra_debug"]
@@ -34,12 +32,15 @@ datasize = "0.2.14"
 clap = { version = "4.2.1", features=["derive"] }
 parking_lot = "0.12.1"
 raw-parts = "2.0.0"
+hashbrown = { version = "0.14.0", features = ["rayon"] }
+futures = "0.1.31"
 
 # Feature: Python FFI
 [dependencies.cpython]
 version = "0.7.1"
 optional = true
 features=["extension-module"]
+
 # Feature: Java FFI
 [dependencies.jni]
 version = "0.21.1"
@@ -68,7 +69,9 @@ optional = true
 [dependencies.ocl]
 version = "0.19.4"
 optional = true
-
+# [dependencies.opencl3]
+# version = "0.9.3"
+# optional = true
 
 [dev-dependencies]
 image = "0.24.6"

@@ -110,7 +110,10 @@ fn main() {
     cap.set(VideoCaptureProperties::CAP_PROP_FRAME_HEIGHT as i32, 10000.).unwrap();
 
     // Initialize tag detector with options
-    let detector = build_detector(&args, None);
+    let detector = build_detector(&args, Some("a"));
+
+    args.opencl ^= true;
+    let detector1 = build_detector(&args, Some("b"));
 
     meter.stop().unwrap();
     let m = String::from("multiple");
@@ -147,6 +150,16 @@ fn main() {
             }
         };
         tp.stamp("detect");
+
+        let detections2 = match detector1.detect(&im) {
+            Ok(dets) => dets,
+            Err(e) => {
+                eprintln!("Error detecting AprilTags: {e:?}");
+                continue;
+            }
+        };
+
+        tp.stamp("detect2");
 
         // Draw detection outlines
         for det in detections.detections {
@@ -211,5 +224,7 @@ fn main() {
         println!("{tp}");
 
         println!("{}", detections.tp);
+
+        println!("Ocl: {:?}/{}", detector1.opencl_mode(), detections2.tp);
     }
 }

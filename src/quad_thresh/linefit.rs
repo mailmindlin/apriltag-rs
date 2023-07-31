@@ -54,7 +54,7 @@ fn ptsort_inner(pts: &mut [Pt]) {
     return;
     #[inline(always)]
     fn MAYBE_SWAP(arr: &mut [Pt], apos: usize, bpos: usize) {
-        if Pt::compare_angle(&arr[apos], &arr[bpos]).is_gt() {
+        if Pt::compare_angle(&arr[apos], &arr[bpos]).is_le() {
             arr.swap(apos, bpos);
         }
     }
@@ -63,43 +63,42 @@ fn ptsort_inner(pts: &mut [Pt]) {
         0 | 1 => {
             // Already sorted
             return;
-        }
-        2 => {
-            MAYBE_SWAP(pts, 0, 1);
-            return;
-        }
-        // NB: Using less-branch-intensive sorting networks here on the
-        // hunch that it's better for performance.
-        3 => {
-            // 3 element bubble sort is optimal
-            MAYBE_SWAP(pts, 0, 1);
-            MAYBE_SWAP(pts, 1, 2);
-            MAYBE_SWAP(pts, 0, 1);
-            return;
-        }
-        4 => {
-            // 4 element optimal sorting network.
-            MAYBE_SWAP(pts, 0, 1); // sort each half, like a merge sort
-            MAYBE_SWAP(pts, 2, 3);
-            MAYBE_SWAP(pts, 0, 2); // minimum value is now at 0.
-            MAYBE_SWAP(pts, 1, 3); // maximum value is now at end.
-            MAYBE_SWAP(pts, 1, 2); // that only leaves the middle two.
-            return;
-        }
-        5 => {
-            // this 9-step swap is optimal for a sorting network, but two
-            // steps slower than a generic sort.
-            MAYBE_SWAP(pts, 0, 1); // sort each half (3+2), like a merge sort
-            MAYBE_SWAP(pts, 3, 4);
-            MAYBE_SWAP(pts, 1, 2);
-            MAYBE_SWAP(pts, 0, 1);
-            MAYBE_SWAP(pts, 0, 3); // minimum element now at 0
-            MAYBE_SWAP(pts, 2, 4); // maximum element now at end
-            MAYBE_SWAP(pts, 1, 2); // now resort the three elements 1-3.
-            MAYBE_SWAP(pts, 2, 3);
-            MAYBE_SWAP(pts, 1, 2);
-            return;
-        }
+        },
+        // 2 => {
+        //     MAYBE_SWAP(pts, 0, 1);
+        // },
+        // // NB: Using less-branch-intensive sorting networks here on the
+        // // hunch that it's better for performance.
+        // 3 => {
+        //     // 3 element bubble sort is optimal
+        //     MAYBE_SWAP(pts, 0, 1);
+        //     MAYBE_SWAP(pts, 1, 2);
+        //     MAYBE_SWAP(pts, 0, 1);
+        //     return;
+        // }
+        // 4 => {
+        //     // 4 element optimal sorting network.
+        //     MAYBE_SWAP(pts, 0, 1); // sort each half, like a merge sort
+        //     MAYBE_SWAP(pts, 2, 3);
+        //     MAYBE_SWAP(pts, 0, 2); // minimum value is now at 0.
+        //     MAYBE_SWAP(pts, 1, 3); // maximum value is now at end.
+        //     MAYBE_SWAP(pts, 1, 2); // that only leaves the middle two.
+        //     return;
+        // }
+        // 5 => {
+        //     // this 9-step swap is optimal for a sorting network, but two
+        //     // steps slower than a generic sort.
+        //     MAYBE_SWAP(pts, 0, 1); // sort each half (3+2), like a merge sort
+        //     MAYBE_SWAP(pts, 3, 4);
+        //     MAYBE_SWAP(pts, 1, 2);
+        //     MAYBE_SWAP(pts, 0, 1);
+        //     MAYBE_SWAP(pts, 0, 3); // minimum element now at 0
+        //     MAYBE_SWAP(pts, 2, 4); // maximum element now at end
+        //     MAYBE_SWAP(pts, 1, 2); // now resort the three elements 1-3.
+        //     MAYBE_SWAP(pts, 2, 3);
+        //     MAYBE_SWAP(pts, 1, 2);
+        //     return;
+        // },
         _ => {
             // Fall back to merge sort
             // pts.sort_unstable_by(Pt::compare_angle);

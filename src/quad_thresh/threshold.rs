@@ -181,11 +181,12 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im
     // this is a dilate/erode deglitching scheme that does not improve
     // anything as far as I can tell.
     if qtp.deglitch {
+        tp.stamp("build_threshim");
         let mut tmp = ImageY8::zeroed_packed(w, h);
 
         for y in 1..(h - 1) {
             for x in 1..(w - 1) {
-                let mut max = 0;
+                let mut max = u8::MIN;
                 let slice = threshim.window(x, y, 1, 1);
                 for v in slice.pixels() {
                     let v = v.to_value();
@@ -197,18 +198,18 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im
             }
         }
 
-        for y in 1..(h - 1) {
-            for x in 1..(w - 1) {
-                let mut min = 255;
-                for dy in (-1isize)..=(1isize) {
-                    for dx in (-1isize)..=(1isize) {
-                        let v = tmp[((x as isize + dx) as usize, (y as isize + dy) as usize)];
+        for y in 0..(h - 2) {
+            for x in 0..(w - 2) {
+                let mut min = u8::MAX;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let v = tmp[(x + dx - 1, y + dy - 1)];
                         if v < min {
                             min = v;
                         }
                     }
                 }
-                threshim[(x, y)] = min;
+                threshim[(x + 1, y + 1)] = min;
             }
         }
     }

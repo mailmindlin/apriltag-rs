@@ -1,15 +1,15 @@
 #![feature(
     int_roundings,
     new_uninit,
-    unwrap_infallible,
-    vec_into_raw_parts,
+    // unwrap_infallible,
+    // vec_into_raw_parts,
     const_trait_impl,
-    slice_flatten,
-    box_into_inner,
+    // slice_flatten,
+    // box_into_inner,
     allocator_api,
     maybe_uninit_slice,
-    anonymous_lifetime_in_impl_trait,
-    array_chunks,
+    // anonymous_lifetime_in_impl_trait,
+    // array_chunks,
     pointer_byte_offsets,
 )]
 #![allow(non_snake_case)]
@@ -25,6 +25,7 @@ mod pose;
 mod dbg;
 mod detection;
 mod sys;
+mod ocl;
 
 pub use util::Image;
 pub use quickdecode::AddFamilyError;

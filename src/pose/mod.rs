@@ -42,14 +42,15 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
         let mut F = Vec::with_capacity(n_points);
         let mut avg_F = Mat33::zeroes();
         // let mut avg_F = Mat::zeroes(3, 3);
-        for i in 0..n_points {
-            let F_i = calculate_F(&v[i]);
+        for v_i in v.iter() {
+            let F_i = calculate_F(v_i);
             avg_F += &F_i;
             F.push(F_i);
         }
         avg_F *= 1. / (n_points as f64);
         let M1 = Mat33::identity() - &avg_F;
-        let M1_inv = M1.inv().unwrap();
+        let M1_inv = M1.inv()
+            .expect("M1 inverse");
         (F, M1_inv)
     };
 
@@ -58,7 +59,7 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
     for _ in 0..n_steps {
         // Calculate translation.
         *t = {
-            let I3 = Mat33::identity();
+            const I3: Mat33 = Mat33::identity();
             let mut M2 = Vec3::zero();
             for j in 0..n_points {
                 let M2_update = F[j].sub(&I3).matmul(R).mul(&p[j]);
@@ -74,9 +75,10 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
             let mut q = Vec::with_capacity(n_points);
             let mut q_mean = Vec3::zero();
             for j in 0..n_points {
-                q[j] = F[j].mul(&R.mul(&p[j]).add(&*t));
+                let q_j = F[j].mul(&R.mul(&p[j]).add(&*t));
                 // q[j] = Mat::op("M*(M*M+M)", &[&F[j], R, &p[j], &t]).unwrap();
-                q_mean += &q[j];
+                q_mean += &q_j;
+                q.push(q_j);
             }
             q_mean *= 1./(n_points as f64);
             
@@ -89,7 +91,7 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
             
             let M3_svd = M3.svd();
             // Mat::op("M*M'", &[&M3_svd.U, &M3_svd.V]).unwrap()
-            M3_svd.U.matmul(&M3_svd.V.transposed())
+            M3_svd.U.matmul_transposed(&M3_svd.V)
         };
 
         let mut error = 0.;
@@ -113,9 +115,7 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
 }
 
 /// Given a local minima of the pose error tries to find the other minima.
-fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Option<Mat33> {
-    let I3 = Mat33::identity();
-
+fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &Vec3, R: &Mat33) -> Option<Mat33> {
     // 1. Find R_t
     let R_t = {
         let R_t_3 = t.normalized();
@@ -261,19 +261,21 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
 
     // 4. Solve for minima of Eos.
     let minima = {
-        let p0 = a1;
-        let p1 = 2.*a2 - 4.*a0;
-        let p2 = 3.*a3 - 3.*a1;
-        let p3 = 4.*a4 - 2.*a2;
-        let p4 = -a3;
-
-
-        let poly = Poly::new(&[p0, p1, p2, p3, p4]);
-        let roots = poly.solve_approx();
+        let roots = {
+            let p0 = a1;
+            let p1 = 2.*a2 - 4.*a0;
+            let p2 = 3.*a3 - 3.*a1;
+            let p3 = 4.*a4 - 2.*a2;
+            let p4 = -a3;
+    
+    
+            let poly = Poly::new(&[p0, p1, p2, p3, p4]);
+            poly.solve_approx()
+        };
 
         let mut minima = Vec::with_capacity(4);
-        for i in 0..roots.len() {
-            let t1 = roots[i];
+        for root in roots.into_iter() {
+            let t1 = root;
             let t2 = t1*t1;
             let t3 = t1*t2;
             let t4 = t1*t3;
@@ -281,11 +283,11 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
             // Check extrema is a minima.
             if a2 - 2.*a0 + (3.*a3 - 6.*a1)*t1 + (6.*a4 - 8.*a2 + 10.*a0)*t2 + (-8.*a3 + 6.*a1)*t3 + (-6.*a4 + 3.*a2)*t4 + a3*t5 >= 0. {
                 // And that it corresponds to an angle different than the known minimum.
-                let t = 2.*f64::atan(roots[i]);
+                let t = 2.*f64::atan(root);
                 // We only care about finding a second local minima which is qualitatively
                 // different than the first.
                 if (t - t_initial).abs() > 0.1 {
-                    minima.push(roots[i]);
+                    minima.push(root);
                 }
             }
         }
@@ -294,17 +296,21 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
 
     // 5. Get poses for minima.
     if minima.len() == 1 {
-        let t = minima[0];
-        let mut R_beta = M2.clone();
-        R_beta *= t;
-        R_beta += &M1;
-        R_beta *= t;
-        R_beta += &I3;
-        R_beta *= 1./(1. + t*t);
+        let R_beta = {
+            let t_cur = minima[0];
+            let mut R_beta = M2.clone();
+            R_beta.scale_inplace(t_cur);
+            R_beta += &M1;
+            R_beta.scale_inplace(t_cur);
+            R_beta += &Mat33::identity();
+            R_beta *= (1. + t_cur*t_cur).recip();
+            R_beta
+        };
+
         let res = R_t
             .transpose_matmul(&R_gamma)
             .matmul(&R_beta)
-            .matmul(&R_z.transposed());
+            .matmul_transposed(&R_z);
         // let res = Mat::op("M'MMM'", &[&R_t, &R_gamma, &R_beta, &R_z]).unwrap();
         Some(res)
     } else if minima.len() > 1  {
@@ -317,26 +323,39 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
     }
 }
 
-pub struct AprilTagDetectionInfo {
-    pub detection: AprilTagDetection,
-    pub tagsize: f64, // In meters.
+pub struct PoseParams {
+    /// Tag size (meters?)
+    pub tagsize: f64,
     pub fx: f64, // In pixels.
     pub fy: f64, // In pixels.
     pub cx: f64, // In pixels.
     pub cy: f64, // In pixels.
 }
 
+pub struct AprilTagDetectionInfo {
+    /// Previous detection
+    pub detection: AprilTagDetection,
+    pub extrinsics: PoseParams,
+}
+
 pub struct AprilTagPose {
+    /// Rotation matrix
     pub R: Mat33,
+    /// Translation vector
     pub t: Vec3,
 }
 
+pub struct AprilTagPoseWithError {
+    pub pose: AprilTagPose,
+    pub error: f64,
+}
+
 /// Estimate pose of the tag using the homography method.
-pub fn estimate_pose_for_tag_homography(info: &AprilTagDetectionInfo) -> AprilTagPose {
-    let scale = info.tagsize/2.0;
+pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &PoseParams) -> AprilTagPose {
+    let scale = params.tagsize/2.0;
 
     let initial_pose = {
-        let mut M_H = homography_to_pose(&info.detection.H, -info.fx, info.fy, info.cx, info.cy);
+        let mut M_H = homography_to_pose(&detection.H, -params.fx, params.fy, params.cx, params.cy);
         M_H[(0, 3)] *= scale;
         M_H[(1, 3)] *= scale;
         M_H[(2, 3)] *= scale;
@@ -362,51 +381,51 @@ pub fn estimate_pose_for_tag_homography(info: &AprilTagDetectionInfo) -> AprilTa
     AprilTagPose { R, t }
 }
 
-pub struct PoseWithError {
-    pub pose: AprilTagPose,
-    pub error: f64,
-}
-
 pub struct OrthogonalIterationResult {
     /// Best pose solution
-    pub solution1: PoseWithError,
+    pub solution1: AprilTagPoseWithError,
     /// Second-best pose solution
-    pub solution2: Option<PoseWithError>,
+    pub solution2: Option<AprilTagPoseWithError>,
 }
 
 /// Estimate tag pose using orthogonal iteration.
-pub fn estimate_tag_pose_orthogonal_iteration(info: &AprilTagDetectionInfo, n_iters: usize) -> OrthogonalIterationResult {
-    let scale = info.tagsize/2.0;
-    let p = [
-        Vec3::of(-scale,  scale, 0.),
-        Vec3::of( scale,  scale, 0.),
-        Vec3::of( scale, -scale, 0.),
-        Vec3::of(-scale, -scale, 0.),
-    ];
+pub fn estimate_tag_pose_orthogonal_iteration(detection: &AprilTagDetection, params: &PoseParams, n_iters: usize) -> OrthogonalIterationResult {
+    let p = {
+        let scale = params.tagsize/2.0;
+        [
+            Vec3::of(-scale,  scale, 0.),
+            Vec3::of( scale,  scale, 0.),
+            Vec3::of( scale, -scale, 0.),
+            Vec3::of(-scale, -scale, 0.),
+        ]
+    };
     let v = {
         let mut v = ArrayVec::<Vec3, 4>::new();
         for i in 0..4 {
-            v.push(Vec3::of((info.detection.corners[i].x() - info.cx)/info.fx, (info.detection.corners[i].y() - info.cy)/info.fy, 1.));
+            v.push(Vec3::of((detection.corners[i].x() - params.cx)/params.fx, (detection.corners[i].y() - params.cy)/params.fy, 1.));
         }
         v.into_inner().unwrap()
     };
 
-    let mut pose1 = estimate_pose_for_tag_homography(info);
-    let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, n_iters);
-    let mut solution1 = PoseWithError {
-        pose: pose1,
-        error: err1,
-    };
+    let solution1 = {
+        let mut pose1 = estimate_pose_for_tag_homography(detection, params);
+        let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, n_iters);
     
-    let solution2 = if let Some(mut R) = fix_pose_ambiguities(&v, &p, &mut solution1.pose.t, &solution1.pose.R) {
-        let mut t = Vec3::zero();
-        let err2 = orthogonal_iteration(&v, &p, &mut t, &mut R, n_iters);
-        Some(PoseWithError {
-            pose: AprilTagPose { R, t },
-            error: err2,
-        })
-    } else {
-        None
+        AprilTagPoseWithError {
+            pose: pose1,
+            error: err1,
+        }
+    };
+    let solution2 = match fix_pose_ambiguities(&v, &p, &solution1.pose.t, &solution1.pose.R) {
+        Some(mut R) => {
+            let mut t = Vec3::zero();
+            let err2 = orthogonal_iteration(&v, &p, &mut t, &mut R, n_iters);
+            Some(AprilTagPoseWithError {
+                pose: AprilTagPose { R, t },
+                error: err2,
+            })
+        },
+        None => None,
     };
 
     OrthogonalIterationResult {
@@ -416,11 +435,11 @@ pub fn estimate_tag_pose_orthogonal_iteration(info: &AprilTagDetectionInfo, n_it
 }
 
 /// Estimate tag pose.
-pub fn estimate_tag_pose(info: &AprilTagDetectionInfo) -> PoseWithError {
+pub fn estimate_tag_pose(detection: &AprilTagDetection, params: &PoseParams) -> AprilTagPoseWithError {
     let OrthogonalIterationResult {
         solution1,
         solution2
-    } = estimate_tag_pose_orthogonal_iteration(info,50);
+    } = estimate_tag_pose_orthogonal_iteration(detection, params, 50);
 
     if let Some(solution2) = solution2 {
         if solution2.error < solution1.error {

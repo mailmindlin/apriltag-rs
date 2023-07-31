@@ -1,14 +1,16 @@
 mod edges;
 mod greymodel;
 mod sharpening;
+mod homography;
 
 use std::sync::{Mutex, Arc};
 
-use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, homography::homography_project, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
+use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
 
 use greymodel::Graymodel;
 
 use self::greymodel::SolvedGraymodel;
+use homography::homography_project;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Quad {

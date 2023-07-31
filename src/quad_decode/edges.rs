@@ -1,6 +1,9 @@
+use std::cmp::max;
+
 use arrayvec::ArrayVec;
 
-use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::ImageY8}};
+
+use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageY8, ImageDimensions}}};
 
 use super::Quad;
 
@@ -8,6 +11,16 @@ struct FRange {
     current: f64,
     step: f64,
     stop: f64,
+}
+
+impl FRange {
+    const fn new(start: f64, stop: f64, step: f64) -> Self {
+        Self {
+            current: start,
+            stop,
+            step,
+        }
+    }
 }
 
 impl Iterator for FRange {
@@ -22,6 +35,26 @@ impl Iterator for FRange {
             None
         }
     }
+}
+
+#[inline]
+fn check_bounds(v: f64, max: usize) -> Option<usize> {
+    if v < 0. {
+        return None;
+    }
+    let v1 = v as usize;
+    if v1 >= max {
+        None
+    } else {
+        Some(v1)
+    }
+}
+
+#[inline]
+fn check_bounds2(v: Vec2, dims: &ImageDimensions) -> Option<(usize, usize)> {
+    let x = check_bounds(v.x(), dims.width)?;
+    let y = check_bounds(v.y(), dims.height)?;
+    Some((x, y))
 }
 
 impl Quad {
@@ -46,24 +79,25 @@ impl Quad {
 
             for edge in 0..4 {
                 // indices of the end points.
-                let a = edge;
-                let b = (edge + 1) % 4;
-                // println!(" R refine_edges: Edge {edge} ({a}, {b})");
+                let a = &self.corners[edge].vec().squish32();
+                let b = &self.corners[(edge + 1) % 4].vec().squish32();
 
                 // compute the normal to the current line estimate
-                let mut pn = (&self.corners[b] - &self.corners[a]).rev_negx();
+                let mut pn = Vec2::of((b.y() as f32 - a.y() as f32) as f64, (a.x() as f32 - b.x() as f32) as f64);
                 let mag = pn.mag();
-                pn = pn / mag;
+                pn /= mag;
 
-                if self.reversed_border {
-                    pn = -pn;
-                }
+                let pn = if self.reversed_border {
+                    -pn
+                } else {
+                    pn
+                };
                 // println!(" R refine_edges: \tn={pn:.15?}");
 
                 // we will now fit a NEW line by sampling points near
                 // our original line that have large gradients. On really big tags,
                 // we're willing to sample more to get an even better estimate.
-                let nsamples = i32::max(16, mag as i32 / 8); // XXX tunable
+                let nsamples = max(16, (mag / 8.) as u32); // XXX tunable
 
                 // stats for fitting a line...
                 let mut M = Vec2::zero();
@@ -76,8 +110,8 @@ impl Quad {
                     // compute a point along the line... Note, we're avoiding
                     // sampling *right* at the corners, since those points are
                     // the least reliable.
-                    let alpha = (1.0 + s as f64) / (nsamples as f64 + 1.);
-                    let p0 = (self.corners[a].vec() * alpha) + &(self.corners[b].vec() * (1. - alpha));
+                    let alpha = (1.0 + s as f64) / ((nsamples + 1) as f64);
+                    let p0 = (a * alpha) + (b * (1. - alpha));
                     // println!(" R refine_edges: \tp0={p0:.15?}");
 
                     // search along the normal to this line, looking at the
@@ -97,37 +131,35 @@ impl Quad {
                     let range = det_params.quad_decimate as f64 + 1.;
 
                     // XXX tunable step size.
-                    let step_size = 0.25;
-                    for n in (FRange { current: -range, stop: range, step: step_size}) {
-                    // for ni in 0.. ((range * 2.) / step_size).floor() as usize {
-                        // From -range to +range
-                        // let n = (ni as f64 * step_size) - range;
-
+                    for n in FRange::new(-range, range, 0.25) {
                         // Because of the guaranteed winding order of the
                         // points in the quad, we will start inside the white
                         // portion of the quad and work our way outward.
-                        //
+
                         // sample to points (x1,y1) and (x2,y2) XXX tunable:
                         // how far +/- to look? Small values compute the
                         // gradient more precisely, but are more sensitive to
                         // noise.
-                        let grange = 1.;
-                        let p1 = p0.fma(pn, Vec2::dup(n + grange));
-                        let x1 = p1.x() as isize;
-                        let y1 = p1.y() as isize;
-                        if x1 < 0 || x1 as usize >= im_orig.width() || y1 < 0 || y1 as usize >= im_orig.height() {
-                            continue;
-                        }
+                        const G_RANGE: f64 = 1.;
+                        let p1 = p0.fma(pn, Vec2::dup(n + G_RANGE));
 
-                        let p2 = p0.fma(pn, Vec2::dup(n - grange));
-                        let x2 = p2.x() as isize;
-                        let y2 = p2.y() as isize;
-                        if x2 < 0 || x2 as usize >= im_orig.width() || y2 < 0 || y2 as usize >= im_orig.height() {
-                            continue;
-                        }
+                        let (x1, y1) = match check_bounds2(p1, im_orig.dimensions()) {
+                            Some(p) => p,
+                            None => {
+                                continue
+                            }
+                        };
 
-                        let g1 = im_orig[(x1 as usize, y1 as usize)] as i32;
-                        let g2 = im_orig[(x2 as usize, y2 as usize)] as i32;
+                        let p2 = p0 + (pn * (n - G_RANGE));
+                        let (x2, y2) = match check_bounds2(p2, im_orig.dimensions()) {
+                            Some(p) => p,
+                            None => {
+                                continue
+                            }
+                        };
+
+                        let g1 = im_orig[(x1, y1)] as i32;
+                        let g2 = im_orig[(x2, y2)] as i32;
 
                         if g1 < g2 {// reject points whose gradient is "backwards". They can only hurt us.
                             continue;
@@ -153,7 +185,6 @@ impl Quad {
 
                     // update our line fit statistics
                     M += best;
-                    // Mgrad += best.gradient();
                     Mxx += best.x()*best.x();
                     Mxy += best.x()*best.y();
                     Myy += best.y()*best.y();

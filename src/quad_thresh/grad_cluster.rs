@@ -1,4 +1,5 @@
-use std::{collections::{HashMap, hash_map::{Entry, RandomState}}, hash::{Hash, BuildHasher, Hasher}};
+use std::{hash::Hash, collections::hash_map::RandomState};
+use hashbrown::{HashMap, hash_map::Entry};
 
 use rayon::prelude::*;
 
@@ -7,10 +8,9 @@ use crate::{util::image::ImageY8, detector::DetectorConfig};
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
-struct ClusterId {
+pub(super) struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
-    // value: u64,
 }
 
 // impl Hash for ClusterId {
@@ -63,7 +63,7 @@ impl ClusterId {
 // }
 type ClusterHasher = RandomState;
 
-fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Cluster, uf: &impl UnionFindStatic<(u32, u32)>) {
+fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32)>) {
     let width = threshim.width();
     for y in y0..y1 {
         for x in 1..(width-1) {
@@ -156,28 +156,41 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
     }
 }
 
-type Cluster = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
+pub(super) type Clusters = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
 
-fn merge_clusters(mut c1: Cluster, c2: Cluster) -> Cluster {
-    for (k, v) in c2 {
+fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
+    // Ensure c1 > c2 (fewer operations in next loop)
+    let (mut c1, c2) = if c2.len() > c1.len() {
+        (c2, c1)
+    } else {
+        (c1, c2)
+    };
+
+    for (k, v2) in c2.into_iter() {
         match c1.entry(k) {
             Entry::Occupied(mut e) => {
-                e.get_mut().extend(v);
+                let v1 = e.get_mut();
+                // Pick the larger vector to keep
+                let mut v2 = if v1.len() < v2.len() {
+                    std::mem::replace(v1, v2)
+                } else { v2 };
+                
+                v1.append(&mut v2);
             },
             Entry::Vacant(e) => {
-                e.insert(v);
+                e.insert(v2);
             },
         }
     }
     c1
 }
 
-pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Vec<Vec<Pt>> {
+pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Clusters {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height() - 1;
     let cluster_entries = if config.single_thread() && false {
-        let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
+        let mut clustermap = Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
         do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
         clustermap
     } else {
@@ -187,22 +200,16 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
         (0..sz)
             .into_par_iter()
             .step_by(chunksize)
-            .fold(|| Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default()), |mut clustermap, i| {
-            // .map(|i| {
+            .fold(|| Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default()), |mut clustermap, i| {
                 let y0 = i;
                 let y1 = std::cmp::min(sz, i + chunksize);
-                // let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0));
                 do_gradient_clusters(threshim, y0, y1, &mut clustermap, &uf);
                 clustermap
             })
             //TODO: it might be more efficient to reduce adjacent clusters
-            .reduce(|| Cluster::with_hasher(ClusterHasher::default()), merge_clusters)
+            .reduce(|| Clusters::with_hasher(ClusterHasher::default()), merge_clusters)
     };
-
-    // Convert from ClusterEntry -> Vec<Pt>
     cluster_entries
-        .into_values()
-        .collect()
 }
 
 #[cfg(all(test, feature="foo"))]
