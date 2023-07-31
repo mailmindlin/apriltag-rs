@@ -58,10 +58,9 @@ fn build_detector(args: &Args) -> AprilTagDetector {
         } else {
             println!("Error: Unknown family name: {}", family_name);
             println!("Valid family names:");
-            println!(" - tag16h5");
-            println!(" - tag25h9");
-            println!(" - tag36h10");
-            println!(" - tag36h11");
+            for name in AprilTagFamily::names() {
+                println!(" - {name}");
+            }
             panic!();
         };
 

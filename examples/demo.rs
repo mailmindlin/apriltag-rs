@@ -1,7 +1,7 @@
 use std::{path::{PathBuf, Path}, time::Duration, io};
 
 use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics};
-use image::{io::Reader as ImageReader, ImageBuffer as IImageBuffer, Rgb};
+use image::{ImageBuffer as IImageBuffer, Rgb};
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -52,10 +52,9 @@ fn build_detector(args: &Args) -> AprilTagDetector {
         } else {
             println!("Error: Unknown family name: {}", family_name);
             println!("Valid family names:");
-            println!(" - tag16h5");
-            println!(" - tag25h9");
-            println!(" - tag36h10");
-            println!(" - tag36h11");
+            for name in AprilTagFamily::names() {
+                println!(" - {name}");
+            }
             panic!();
         };
 
