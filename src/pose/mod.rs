@@ -317,7 +317,7 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
     }
 }
 
-pub struct ApriltagDetectionInfo {
+pub struct AprilTagDetectionInfo {
     pub detection: AprilTagDetection,
     pub tagsize: f64, // In meters.
     pub fx: f64, // In pixels.
@@ -326,13 +326,13 @@ pub struct ApriltagDetectionInfo {
     pub cy: f64, // In pixels.
 }
 
-pub struct ApriltagPose {
+pub struct AprilTagPose {
     pub R: Mat33,
     pub t: Vec3,
 }
 
 /// Estimate pose of the tag using the homography method.
-pub fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPose {
+pub fn estimate_pose_for_tag_homography(info: &AprilTagDetectionInfo) -> AprilTagPose {
     let scale = info.tagsize/2.0;
 
     let initial_pose = {
@@ -359,18 +359,23 @@ pub fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> Aprilta
 
     let t = Vec3::of(initial_pose[(0, 3)], initial_pose[(1, 3)], initial_pose[(2, 3)]);
     
-    ApriltagPose { R, t }
+    AprilTagPose { R, t }
+}
+
+pub struct PoseWithError {
+    pub pose: AprilTagPose,
+    pub error: f64,
 }
 
 pub struct OrthogonalIterationResult {
     /// Best pose solution
-    pub solution1: (ApriltagPose, f64),
+    pub solution1: PoseWithError,
     /// Second-best pose solution
-    pub solution2: Option<(ApriltagPose, f64)>,
+    pub solution2: Option<PoseWithError>,
 }
 
 /// Estimate tag pose using orthogonal iteration.
-pub fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_iters: usize) -> OrthogonalIterationResult {
+pub fn estimate_tag_pose_orthogonal_iteration(info: &AprilTagDetectionInfo, n_iters: usize) -> OrthogonalIterationResult {
     let scale = info.tagsize/2.0;
     let p = [
         Vec3::of(-scale,  scale, 0.),
@@ -388,35 +393,38 @@ pub fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_it
 
     let mut pose1 = estimate_pose_for_tag_homography(info);
     let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, n_iters);
+    let mut solution1 = PoseWithError {
+        pose: pose1,
+        error: err1,
+    };
     
-    let solution2 = if let Some(mut R) = fix_pose_ambiguities(&v, &p, &mut pose1.t, &pose1.R) {
+    let solution2 = if let Some(mut R) = fix_pose_ambiguities(&v, &p, &mut solution1.pose.t, &solution1.pose.R) {
         let mut t = Vec3::zero();
         let err2 = orthogonal_iteration(&v, &p, &mut t, &mut R, n_iters);
-        let solution2 = ApriltagPose {
-            R,
-            t,
-        };
-        Some((solution2, err2))
+        Some(PoseWithError {
+            pose: AprilTagPose { R, t },
+            error: err2,
+        })
     } else {
         None
     };
 
     OrthogonalIterationResult {
-        solution1: (pose1, err1),
+        solution1,
         solution2,
     }
 }
 
 /// Estimate tag pose.
-pub fn estimate_tag_pose(info: &ApriltagDetectionInfo) -> (ApriltagPose, f64) {
+pub fn estimate_tag_pose(info: &AprilTagDetectionInfo) -> PoseWithError {
     let OrthogonalIterationResult {
         solution1,
         solution2
     } = estimate_tag_pose_orthogonal_iteration(info,50);
 
-    if let Some((pose2, err2)) = solution2 {
-        if err2 < solution1.1 {
-            return (pose2, err2)
+    if let Some(solution2) = solution2 {
+        if solution2.error < solution1.error {
+            return solution2;
         }
     }
     solution1

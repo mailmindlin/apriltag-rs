@@ -1,8 +1,6 @@
-use std::io::Write;
-
 use arrayvec::ArrayVec;
 
-use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, Vec3, FMA}, geom::{Point2D, quad::Quadrilateral}, image::ImageY8}};
+use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::ImageY8}};
 
 use super::Quad;
 
@@ -40,7 +38,7 @@ impl Quad {
         {
             println!("\n=== Start refine_edges ===");
             // Fix divergence that arises from libapriltag storing corners as f32's
-            self.corners = Quadrilateral::from_array(&quad_sys.p);
+            self.corners = crate::geom::Quadrilateral::from_array(&quad_sys.p);
         }
 
         let lines = {
@@ -69,7 +67,6 @@ impl Quad {
 
                 // stats for fitting a line...
                 let mut M = Vec2::zero();
-                // let mut Mgrad = Vec3::zero();
                 let mut Mxx = 0.;
                 let mut Mxy = 0.;
                 let mut Myy = 0.;
@@ -166,7 +163,6 @@ impl Quad {
                 // fit a line
                 // let N = N as f64;
                 let E = M / N;
-                // let Cgrad = (Mgrad / N) - E.gradient();
                 let Cxx = (Mxx / N) - E.x()*E.x();
                 let Cxy = (Mxy / N) - E.x()*E.y();
                 let Cyy = (Myy / N) - E.y()*E.y();

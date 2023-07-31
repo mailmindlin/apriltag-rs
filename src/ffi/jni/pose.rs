@@ -1,6 +1,6 @@
 use jni::{sys::{jdouble, jvalue}, JNIEnv, objects::{JClass, JValue, JObject, JIntArray, JMethodID, JObjectArray}, descriptors::Desc};
 
-use crate::{ApriltagDetectionInfo, ffi::jni::util::jni_wrap, estimate_tag_pose, util::{math::mat::Mat33, mem::calloc}, Detections};
+use crate::{AprilTagDetectionInfo, ffi::jni::util::jni_wrap, estimate_tag_pose, util::{math::mat::Mat33, mem::calloc}, Detections, pose::PoseWithError};
 
 use super::{util::{JavaError, JPtr}, CLASS_POSE};
 
@@ -40,7 +40,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagPoseEstimator_nativeEs
 
         let mut estimate_pose = |index, dst_idx| -> Result<_, JavaError> {
             let detection: &crate::AprilTagDetection = &dets.detections[index];
-            let info = ApriltagDetectionInfo {
+            let info = AprilTagDetectionInfo {
                 //TODO: avoid copying?
                 detection: detection.clone(),
                 tagsize,
@@ -49,7 +49,10 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagPoseEstimator_nativeEs
                 cx,
                 cy,
             };
-            let (pose, error) = estimate_tag_pose(&info);
+            let PoseWithError {
+                pose,
+                error,
+            } = estimate_tag_pose(&info);
             let element = unsafe { env.new_object_unchecked(&pose_class, pose_ctor, &[
                 jvalue { d: pose.R.0[0] },
                 jvalue { d: pose.R.0[1] },

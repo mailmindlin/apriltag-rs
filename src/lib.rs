@@ -38,7 +38,7 @@ pub use pose::{
     estimate_tag_pose,
     estimate_pose_for_tag_homography,
     estimate_tag_pose_orthogonal_iteration,
-    ApriltagDetectionInfo,
-    ApriltagPose,
+    AprilTagDetectionInfo,
+    AprilTagPose,
     OrthogonalIterationResult
 };
