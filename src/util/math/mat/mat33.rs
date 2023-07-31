@@ -456,19 +456,19 @@ impl Mat33 {
 impl Index<(usize, usize)> for Mat33 {
     type Output = f64;
 
-    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
-        debug_assert!(x < 3);
-        debug_assert!(y < 3);
-        let idx = x + 3 * y;
+    fn index(&self, (row, col): (usize, usize)) -> &Self::Output {
+        debug_assert!(row < 3);
+        debug_assert!(col < 3);
+        let idx = row * 3 + col;
         &self.0[idx]
     }
 }
 
 impl IndexMut<(usize, usize)> for Mat33 {
-    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
-        debug_assert!(x < 3);
-        debug_assert!(y < 3);
-        let idx = x + 3 * y;
+    fn index_mut(&mut self, (row, col): (usize, usize)) -> &mut Self::Output {
+        debug_assert!(row < 3);
+        debug_assert!(col < 3);
+        let idx = row * 3 + col;
         &mut self.0[idx]
     }
 }
