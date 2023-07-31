@@ -100,8 +100,6 @@ impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
                     max_x = std::cmp::max(max_x, x);
                     max_y = std::cmp::max(max_y, y);
                 }
-                dbg!(max_x);
-                dbg!(max_y);
                 Ok(im)
             },
             PNMFormat::RGB => {
