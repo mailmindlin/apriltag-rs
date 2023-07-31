@@ -83,7 +83,7 @@ py_class!(pub(super) class Detection |py| {
 
     @property def corners(&self) -> PyResult<Vec<(f64, f64)>> {
         let det = self.detection(py);
-        let res = det.corners.map(|p| (p.x(), p.y()));
+        let res = det.corners.as_array().map(|p| (p[0], p[1]));
         Ok(res.to_vec())
     }
 });
