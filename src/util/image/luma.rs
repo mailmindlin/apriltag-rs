@@ -178,65 +178,69 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
         Ok(im)
     }
 
+    pub fn decimate_three_halves(&self) -> Self {
+        let swidth = self.width() / 3 * 2;
+        let sheight = self.height() / 3 * 2;
+
+        let mut dst = Self::zeroed(swidth, sheight);
+
+        let mut y = 0;
+        for sy in (0..sheight).step_by(2) {
+            let mut x = 0;
+            for sx in (0..swidth).step_by(2) {
+                // a b c
+                // d e f
+                // g h i
+                let a = self[(x+0, y+0)];
+                let b = self[(x+1, y+0)];
+                let c = self[(x+2, y+0)];
+
+                let d = self[(x+0, y+1)];
+                let e = self[(x+1, y+1)];
+                let f = self[(x+2, y+1)];
+
+                let g = self[(x+0, y+2)];
+                let h = self[(x+1, y+2)];
+                let i = self[(x+2, y+2)];
+
+                dst[(sx+0, sy+0)] = (4*a+2*b+2*d+e)/9;
+                dst[(sx+1, sy+0)] = (4*c+2*b+2*f+e)/9;
+                dst[(sx+0, sy+1)] = (4*g+2*d+2*h+e)/9;
+                dst[(sx+1, sy+1)] = (4*i+2*f+2*h+e)/9;
+                    
+                x += 3;
+            }
+            y += 3;
+        }
+        dst
+    }
+
     pub fn decimate(&self, ffactor: f32) -> Self {
+        if ffactor == 1.5 {
+            return self.decimate_three_halves();
+        }
+
         let width = self.width();
         let height = self.height();
+        
+        let factor = ffactor.round() as usize;
 
-        if ffactor == 1.5 {
-            let swidth = width / 3 * 2;
-            let sheight = height / 3 * 2;
+        let swidth = 1 + (width - 1) / factor;
+        let sheight = 1 + (height - 1) / factor;
 
-            let mut dst = Self::zeroed(swidth, sheight);
-
-            let mut y = 0;
-            for sy in (0..sheight).step_by(2) {
-                let mut x = 0;
-                for sx in (0..swidth).step_by(2) {
-                    // a b c
-                    // d e f
-                    // g h i
-                    let a = self[(x+0, y+0)];
-                    let b = self[(x+1, y+0)];
-                    let c = self[(x+2, y+0)];
-
-                    let d = self[(x+0, y+1)];
-                    let e = self[(x+1, y+1)];
-                    let f = self[(x+2, y+1)];
-
-                    let g = self[(x+0, y+2)];
-                    let h = self[(x+1, y+2)];
-                    let i = self[(x+2, y+2)];
-
-                    dst[(sx+0, sy+0)] = (4*a+2*b+2*d+e)/9;
-                    dst[(sx+1, sy+0)] = (4*c+2*b+2*f+e)/9;
-                    dst[(sx+0, sy+1)] = (4*g+2*d+2*h+e)/9;
-                    dst[(sx+1, sy+1)] = (4*i+2*f+2*h+e)/9;
-                        
-                    x += 3;
-                }
-                y += 3;
+        let mut decim = Self::zeroed(swidth, sheight);
+        let mut dy = 0;
+        for y in (0..height).step_by(factor) {
+            let mut dr = decim.row_mut(dy);
+            let sr = self.row(y);
+            let mut dx = 0;
+            for x in (0..width).step_by(factor) {
+                dr[dx] = sr[x];
+                dx += 1;
             }
-            dst
-        } else {
-            let factor = ffactor.round() as usize;
-
-            let swidth = 1 + (width - 1) / factor;
-            let sheight = 1 + (height - 1) / factor;
-
-            let mut decim = Self::zeroed(swidth, sheight);
-            let mut dy = 0;
-            for y in (0..height).step_by(factor) {
-                let mut dr = decim.row_mut(dy);
-                let sr = self.row(y);
-                let mut dx = 0;
-                for x in (0..width).step_by(factor) {
-                    dr[dx] = sr[x];
-                    dx += 1;
-                }
-                dy += 1;
-            }
-            decim
+            dy += 1;
         }
+        decim
     }
 }
 
