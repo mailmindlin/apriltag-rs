@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 use core::slice;
 use std::{ffi::c_float, sync::Arc, ops::Deref, collections::HashMap};
-use crate::{AprilTagDetector, util::{image::ImageY8, geom::Point2D, math::mat::Mat33}, detector::{DetectorBuilder, DetectorBuildError}, AprilTagQuadThreshParams, AprilTagFamily, ffi::util::AtomicManagedPtr, AprilTagDetection};
+use crate::{AprilTagDetector, util::{image::ImageY8, geom::{Point2D, quad::Quadrilateral}, math::mat::Mat33}, detector::{DetectorBuilder, DetectorBuildError}, AprilTagQuadThreshParams, AprilTagFamily, ffi::util::AtomicManagedPtr, AprilTagDetection};
 use errno::{set_errno, Errno};
 use libc::{c_int, c_double, boolean_t as c_bool};
 
@@ -235,12 +235,7 @@ impl TryFrom<&apriltag_detection_t> for AprilTagDetection {
             decision_margin: value.decision_margin,
             H,
             center: Point2D::of(value.c[0], value.c[1]),
-            corners: [
-                Point2D::of(value.p[0][0], value.p[0][1]),
-                Point2D::of(value.p[1][0], value.p[1][1]),
-                Point2D::of(value.p[2][0], value.p[2][1]),
-                Point2D::of(value.p[3][0], value.p[3][1]),
-            ]
+            corners: Quadrilateral::from_array(&value.p),
         })
     }
 }
