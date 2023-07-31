@@ -1,12 +1,77 @@
-use std::{ops::Deref, slice, mem::transmute};
+use std::{ops::Deref, slice, mem::transmute, ptr::NonNull};
 
-use jni::{JNIEnv, objects::{JByteBuffer, JClass, JByteArray, AutoElements}, sys::{jbyte, jint, jvalue}, signature::{ReturnType, Primitive}, errors::Error as JNIError};
+use jni::{JNIEnv, objects::{JByteBuffer, JClass, JByteArray, JObject}, sys::{jint, jvalue, JNI_FALSE, JNI_ABORT}, signature::{ReturnType, Primitive}, errors::Error as JNIError};
 
 use super::JavaError;
 
+pub(in super::super) struct ArrayElements<'a> {
+	env: JNIEnv<'a>,
+	ptr: NonNull<u8>,
+	off: usize,
+	len: usize,
+	arr: JObject<'a>,
+	is_copy: bool,
+}
+
+impl<'a> ArrayElements<'a> {
+	fn new<'loc>(env: &mut JNIEnv<'a>, arr: impl AsRef<JObject<'loc>>, off: usize, len: usize) -> Result<Self, JavaError> {
+		let arr = env.auto_local(env.new_local_ref(arr)?);
+		let env = unsafe { env.unsafe_clone() };
+		let (ptr, is_copy) = unsafe {
+			let raw_env = env.get_native_interface();
+			let raw_ref = raw_env
+				.as_ref().ok_or_else(|| JNIError::NullPtr("Null env"))?
+				.as_ref().ok_or_else(|| JNIError::NullPtr("Null env"))?;
+			let GetByteArrayElements = raw_ref.GetByteArrayElements
+				.ok_or_else(|| JNIError::JNIEnvMethodNotFound("Missing GetByteArrayElements"))?;
+			let mut is_copy = JNI_FALSE;
+			let ptr = GetByteArrayElements(raw_env, arr.as_raw(), &mut is_copy);
+			let is_copy = is_copy != JNI_FALSE;
+			(ptr as *mut u8, is_copy)
+		};
+		let ptr = NonNull::new(ptr)
+			.ok_or_else(|| JNIError::NullPtr("Null array"))?;
+		Ok(Self {
+			env,
+			ptr,
+			off,
+			len,
+			arr: arr.forget(),
+			is_copy,
+		})
+	}
+}
+
+impl<'a> Deref for ArrayElements<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &'a Self::Target {
+        unsafe {
+			let base = self.ptr.as_ptr().add(self.off);
+			std::slice::from_raw_parts(base, self.len)
+		}
+    }
+}
+
+impl<'a> Drop for ArrayElements<'a> {
+    fn drop(&mut self) {
+        unsafe {
+			let raw_env = self.env.get_native_interface();
+			let raw_ref = raw_env
+				.as_ref().unwrap()
+				.as_ref().unwrap();
+			let ReleaseByteArrayElements = raw_ref.ReleaseByteArrayElements
+				.expect("Missing ReleaseByteArrayElements");
+			ReleaseByteArrayElements(raw_env, self.arr.as_raw(), self.ptr.as_ptr() as _, JNI_ABORT);
+		};
+		let arr = std::mem::take(&mut self.arr);
+		self.env.delete_local_ref(arr)
+			.unwrap();
+    }
+}
 pub(in super::super) enum BufferView<'a> {
 	Owned(Vec<u8>),
-	Array(AutoElements<'a, 'a, 'a, jbyte>, usize, usize),
+	Array(ArrayElements<'a>),
 	Direct(&'a [u8]),
 }
 
@@ -21,8 +86,12 @@ impl<'a> BufferView<'a> {
 			_ => self.deref().to_vec(),
 		}
 	}
-	pub(in super::super) fn into_boxed_slice(self) -> Box<[u8]> {
-		self.to_vec().into_boxed_slice()
+	const fn is_copy(&self) -> bool {
+		match self {
+			Self::Owned(..) => false,
+			Self::Array(arr) => arr.is_copy,
+			Self::Direct(..) => false,
+		}
 	}
 }
 
@@ -32,11 +101,7 @@ impl<'a> Deref for BufferView<'a> {
 	fn deref(&self) -> &Self::Target {
 		match self {
 			Self::Owned(vec) => &vec,
-			Self::Array(arr, off, len) => unsafe {
-				let ptr: *const u8 = transmute(arr.as_ptr());
-				let base = ptr.add(*off);
-				slice::from_raw_parts(base, *len)
-			},
+			Self::Array(arr) => &arr,
 			Self::Direct(s) => s,
 		}
 	}
@@ -79,13 +144,13 @@ fn get_buffer_direct<'a>(env: &JNIEnv<'a>, buf: &JByteBuffer<'a>) -> Result<Opti
 	}
 }
 
-pub(in super::super) fn get_array_elements<'a>(env: &JNIEnv<'a>, array: &'a JByteArray<'a>, offset: usize, length: usize, force_copy: bool) -> Result<BufferView<'a>, JavaError> {
+pub(in super::super) fn get_array_elements<'a, 'b>(env: &mut JNIEnv<'a>, array: impl AsRef<JByteArray<'a>>, offset: usize, length: usize, force_copy: bool) -> Result<BufferView<'a>, JavaError> {
 	if length == 0 {
 		return Ok(BufferView::Owned(vec![]));
 	}
 
 	let arr_cap = {
-		let arr_cap = env.get_array_length(array)?;
+		let arr_cap = env.get_array_length(array.as_ref())?;
 		assert!(arr_cap >= 0);
 		arr_cap as usize
 	};
@@ -96,15 +161,13 @@ pub(in super::super) fn get_array_elements<'a>(env: &JNIEnv<'a>, array: &'a JByt
 	if force_copy || 3 * length / 2 > arr_cap || length < 64 {
 		// Always get region if length << cap
 		let mut buf = vec![0u8; length];
-		env.get_byte_array_region(*array, offset.try_into().unwrap(), unsafe { transmute(buf.as_mut_slice()) })?;
+		env.get_byte_array_region(array, offset.try_into().unwrap(), unsafe { transmute(buf.as_mut_slice()) })?;
 		return Ok(BufferView::Owned(buf));
 	}
 
-	let elements = unsafe { env.get_array_elements(array, jni::objects::ReleaseMode::NoCopyBack)? };
-	let copied = elements.is_copy();
-	let res = BufferView::Array(elements, offset, length);
+	let res = BufferView::Array(ArrayElements::new(env, array.as_ref(), offset, length)?);
 
-	if copied && length / 2 > arr_cap {
+	if res.is_copy() && length / 2 > arr_cap {
 		// Copy to smaller buffer
 		Ok(res.to_owned())
 	} else {
@@ -112,7 +175,7 @@ pub(in super::super) fn get_array_elements<'a>(env: &JNIEnv<'a>, array: &'a JByt
 	}
 }
 
-pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: &JByteBuffer<'a>) -> Result<BufferView<'a>, JavaError> {
+pub(in super::super) fn get_buffer<'a, 'b>(env: &mut JNIEnv<'a>, buf: &'b JByteBuffer<'a>) -> Result<BufferView<'b>, JavaError> {
 	// Get class once
 	let bb_class = env.auto_local(env.get_object_class(buf)?);
 	if let Some(direct) = get_buffer_direct(env, buf)? {
@@ -127,11 +190,15 @@ pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: &JByteBuffer<'
 		if array_offset < 0 {
 			return Err(JavaError::IllegalStateException("Negative array offset".into()));
 		}
-		let array = unsafe { env.call_method_unchecked(buf, (&bb_class, "array", "()[B"), ReturnType::Array, &[]) }?.l().unwrap();
+		let array: JByteArray = unsafe { env.call_method_unchecked(buf, (&bb_class, "array", "()[B"), ReturnType::Array, &[]) }?
+			.l()
+			.unwrap()
+			.into();
+		let array = env.auto_local(array);
 		
 		let (position, limit) = get_buffer_range(env, &bb_class, buf)?;
 
-		return get_array_elements(env, (&array).into(), position + array_offset as usize, limit - position, false);
+		return get_array_elements(env, array, position + array_offset as usize, limit - position, false);
 	}
 
 	// Use bulk get()
@@ -140,12 +207,11 @@ pub(in super::super) fn get_buffer<'a>(env: &mut JNIEnv<'a>, buf: &JByteBuffer<'
 		return Err(JavaError::IllegalArgumentException("Buffer negative remaining".into()));
 	}
 
-	let arr = env.new_byte_array(remaining)?;
+	let arr = env.auto_local(env.new_byte_array(remaining)?);
 	{
 		let x = jvalue { l: arr.as_raw() };
 		let res = unsafe { env.call_method_unchecked(buf, (&bb_class, "get", "([B)Ljava/nio/ByteBuffer;"), ReturnType::Object, &[x]) }?.l()?;
 		env.delete_local_ref(res)?;
 	}
-	// env.get_byte_array_elements(arr, jni::objects::ReleaseMode::NoCopyBack)?
-	get_array_elements(env, &arr, 0, remaining as _, true)
+	get_array_elements(env, arr, 0, remaining as _, true)
 }

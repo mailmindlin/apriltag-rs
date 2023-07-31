@@ -4,21 +4,21 @@ use jni::{objects::{JString, JClass, JPrimitiveArray}, JNIEnv};
 
 use crate::AprilTagFamily;
 
-use super::util::{jni_wrap_simple, JavaError, JPtr, jni_wrap};
+use super::util::{jni_wrap_simple, JavaError, jni_wrap, JPtrManaged, JPtr};
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeForName<'a>(mut env: JNIEnv<'a>, _class: JClass<'a>, name: JString<'a>) -> JPtr<'static, Arc<AprilTagFamily>> {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeForName<'a>(env: JNIEnv<'a>, _class: JClass<'a>, name: JString<'a>) -> JPtrManaged<'static, Arc<AprilTagFamily>> {
     jni_wrap_simple(env, |env| {
         let name: String = env.get_string(&name)?.into();
         match AprilTagFamily::for_name(&name) {
-            Some(family) => Ok(JPtr::from(family)),
+            Some(family) => Ok(JPtrManaged::from(family)),
             None => Err(JavaError::IllegalArgumentException(format!("Unknown AprilTag family: {}", name))),
         }
     })
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeDestroy<'a>(mut env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeDestroy<'a>(env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtrManaged<'a, Arc<AprilTagFamily>>) {
     jni_wrap_simple(env, |_env| {
         let family = ptr.take()?;
         drop(family);
@@ -27,7 +27,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeDestroy<'
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetName<'a>(mut env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JString<'a> {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetName<'a>(env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JString<'a> {
     jni_wrap_simple(env, |env| {
         let family = ptr.as_ref()?;
         let str = env.new_string(family.name.clone())?;
@@ -36,8 +36,8 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetName<'
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetCodes<'a>(mut env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JPrimitiveArray<'a, i64> {
-    jni_wrap(env, ptr, |env, family: &mut AprilTagFamily| {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetCodes<'a>(env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JPrimitiveArray<'a, i64> {
+    jni_wrap(env, ptr, |env, family| {
         if family.codes.len() > i32::MAX as usize {
             return Err(JavaError::IllegalStateException("Too many codes".into()));
         }
@@ -55,7 +55,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetCodes<
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetBits<'a>(mut env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JPrimitiveArray<'a, i32> {
+pub extern "system" fn Java_com_mindlin_apriltags_AprilTagFamily_nativeGetBits<'a>(env: JNIEnv<'a>, _class: JClass<'a>, ptr: JPtr<'a, Arc<AprilTagFamily>>) -> JPrimitiveArray<'a, i32> {
     jni_wrap(env, ptr, |env, family| {
         let len = family.bits.len() * 2;
         if len > i32::MAX as usize {
