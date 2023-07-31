@@ -117,7 +117,7 @@ impl DetectorBuilder {
 	pub fn opencl_mode(&self) -> &OpenClMode {
 		#[cfg(feature="opencl")]
 		{
-			self.ocl = mode;
+			&self.ocl
 		}
 		#[cfg(not(feature="opencl"))]
 		&OpenClMode::Disabled
