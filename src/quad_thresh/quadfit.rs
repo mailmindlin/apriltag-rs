@@ -1,19 +1,10 @@
-use std::collections::BinaryHeap;
+use std::{collections::BinaryHeap, ops::Index};
 
-use rayon::prelude::*;
+use arrayvec::ArrayVec;
 
-use crate::{util::{mem::calloc, geom::Point2D, image::{ImageY8}}, AprilTagDetector, quad_decode::Quad, quad_thresh::linefit::fit_line_error};
+use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::linefit::fit_line_error};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams};
-
-struct Segment {
-    // always greater than zero, but right can be > size, which denotes
-    // a wrap around back to the beginning of the points. and left < right.
-    left: usize,
-    right: usize,
-
-    is_vertex: bool,
-}
 
 /// 1. Identify A) white points near a black point and B) black points near a white point.
 ///
@@ -47,7 +38,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
     // can't fit a quad if there are too few points.
     if ksz < 2 {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (too few points)");
+        println!(" R quad_segment_maxima: \tIgnored (too few points)");
         return None;
     }
 
@@ -57,9 +48,11 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
     for i in 0..sz {
         errs[i] = fit_line_error(lfps, (i + sz - ksz) % sz, (i + ksz) % sz).err;
     }
+    // println!("\tnerrs={}", errs.len());
+    // println!("\terr={errs:?}");
 
     // apply a low-pass filter to errs
-    if false {
+    if true {
         // how much filter to apply?
 
         // XXX Tunable
@@ -101,22 +94,32 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
         errs = y;
     }
 
-    let mut maxima = errs
-        .iter()
-        .copied()
-        .enumerate()
-        .filter(|(i, err)| {
-            let prev = errs[(i + sz - 1) % errs.len()];
-            let next = errs[(i + 1) % errs.len()];
-            *err > next && *err > prev
-        })
-        .collect::<Vec<_>>();
-    std::mem::drop(errs);
+    let mut maxima = Vec::new();
+    for (i, err) in errs.iter().copied().enumerate() {
+        let prev = errs[(i + errs.len() - 1) % errs.len()];
+        let next = errs[(i + 1) % errs.len()];
+        if err > prev && err > next {
+            maxima.push((i, err));
+        }
+    }
+    drop(errs);
+
+    // let mut maxima = errs
+    //     .iter()
+    //     .copied()
+    //     .enumerate()
+    //     .filter(|(i, err)| {
+    //         let prev = errs[(i + errs.len() - 1) % errs.len()];
+    //         let next = errs[(i + 1) % errs.len()];
+    //         *err > next && *err > prev
+    //     })
+    //     .collect::<Vec<_>>();
+    // std::mem::drop(errs);
 
     // if we didn't get at least 4 maxima, we can't fit a quad.
     if maxima.len() < 4 {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (need 4 maxima, had {})", maxima.len());
+        println!(" R quad_segment_maxima: \tIgnored (need 4 maxima, had {})", maxima.len());
         return None;
     }
 
@@ -145,7 +148,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
     let max_dot = qtp.cos_critical_rad; //25*M_PI/180);
 
     #[cfg(feature="extra_debug")]
-    println!("\t{} maxima", maxima.len());
+    println!(" R quad_segment_maxima: \t{} maxima", maxima.len());
 
     for m0 in 0..(maxima.len() - 3) {
         let (i0, _i0_err) = maxima[m0];
@@ -156,8 +159,8 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
             let line01 = fit_line(lfps, i0, i1);
 
             if line01.mse > qtp.max_line_fit_mse as f64 {
-                #[cfg(feature="extra_debug")]
-                println!("\t\tBad mse01 {} {}", m0, m1);
+                // #[cfg(feature="extra_debug")]
+                // println!("\t\tBad mse01 {} {}", m0, m1);
                 continue;
             }
 
@@ -166,8 +169,8 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                 let line12 = fit_line(lfps, i1, i2);
                 if line12.mse > qtp.max_line_fit_mse as f64 {
-                    #[cfg(feature="extra_debug")]
-                    println!("\t\tBad mse12 {} {}", m1, m2);
+                    // #[cfg(feature="extra_debug")]
+                    // println!("\t\tBad mse12 {} {}", m1, m2);
                     continue;
                 }
 
@@ -181,15 +184,15 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
                     let line23 = fit_line_error(lfps, i2, i3);
                     if line23.mse > qtp.max_line_fit_mse as f64 {
-                        #[cfg(feature="extra_debug")]
-                        println!("\t\tBad mse23 {} {}", m2, m3);
+                        // #[cfg(feature="extra_debug")]
+                        // println!("\t\tBad mse23 {} {}", m2, m3);
                         continue;
                     }
 
                     let line30 = fit_line_error(lfps, i3, i0);
                     if line30.mse > qtp.max_line_fit_mse as f64 {
-                        #[cfg(feature="extra_debug")]
-                        println!("\t\tBad mse30 {} {}", m3, m0);
+                        // #[cfg(feature="extra_debug")]
+                        // println!("\t\tBad mse30 {} {}", m3, m0);
                         continue;
                     }
 
@@ -208,52 +211,57 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster: &[Pt], lfps: &[L
 
     if best_error == f64::INFINITY {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (inf maxima error)");
+        println!(" R quad_segment_maxima: \tIgnored (inf maxima error)");
         return None;
     }
 
     if best_error / (sz as f64) >= qtp.max_line_fit_mse as f64 {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (failed max_line_fit_mse)");
+        println!(" R quad_segment_maxima: \tIgnored (failed max_line_fit_mse)");
         return None;
     }
     #[cfg(feature="extra_debug")]
-    println!("\tGood maxima");
+    println!(" R quad_segment_maxima: \tGood maxima");
     Some(best_indices)
-}
-
-struct RemoveVertex {
-    /// which vertex to remove?
-    i: usize,
-    /// left vertex
-    left: usize,
-    /// right vertex
-    right: usize,
-    err: f64,
-}
-
-// Implement ordering for MaxHeap
-impl PartialEq for RemoveVertex {
-    fn eq(&self, other: &Self) -> bool {
-        self.i == other.i && self.left == other.left && self.right == other.right && self.err == other.err
-    }
-}
-impl Eq for RemoveVertex {
-    fn assert_receiver_is_total_eq(&self) {}
-}
-impl PartialOrd for RemoveVertex {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
-    }
-}
-impl Ord for RemoveVertex {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        return f64::total_cmp(&self.err, &other.err).reverse()
-    }
 }
 
 /// returns false if the cluster looks bad.
 fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
+    struct Segment {
+        /// always greater than zero, but right can be > size, which denotes
+        /// a wrap around back to the beginning of the points. and left < right.
+        left: usize,
+        right: usize,
+    
+        is_vertex: bool,
+    }
+
+    #[derive(PartialEq)]
+    struct RemoveVertex {
+        /// which vertex to remove?
+        i: usize,
+        /// left vertex
+        left: usize,
+        /// right vertex
+        right: usize,
+        err: f64,
+    }
+
+    // Implement ordering for MaxHeap
+    impl Eq for RemoveVertex {
+        fn assert_receiver_is_total_eq(&self) {}
+    }
+    impl PartialOrd for RemoveVertex {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
+        }
+    }
+    impl Ord for RemoveVertex {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            return f64::total_cmp(&self.err, &other.err).reverse()
+        }
+    }
+
     let mut heap = BinaryHeap::<RemoveVertex>::new();
 
     // We will initially allocate sz rvs. We then have two types of
@@ -261,9 +269,6 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
     // allocations, and those that remove a vertex and allocate two
     // more children.  This will happen at most (sz-4) times.  Thus we
     // need: sz + 2*(sz-4) entries.
-
-    // let mut rvalloc_pos = 0;
-    // let rvalloc_size = 3*sz;
     let mut segs = Vec::<Segment>::new();
 
     // populate with initial entries
@@ -303,7 +308,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
         }
 
         // we now merge.
-        assert!(segs[rv.i].is_vertex);
+        debug_assert!(segs[rv.i].is_vertex);
 
         segs[rv.i].is_vertex = false;
         segs[rv.left].right = rv.right;
@@ -335,16 +340,18 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
         nvertices -= 1;
     }
 
-    let indices = segs
-        .into_iter()
-        .enumerate()
-        .filter(|(_idx, seg)| seg.is_vertex)
-        .map(|(idx, _seg)| idx)
-        .collect::<Vec<_>>();
+    let indices = {
+        let mut indices = ArrayVec::<usize, 4>::new();
+        for (idx, segment) in segs.into_iter().enumerate() {
+            if segment.is_vertex {
+                indices.try_push(idx)
+                    .expect("Too many indices");
+            }
+        }
+        indices.into_inner()
+            .expect("Not enough indices")
+    };
 
-    let indices = indices
-        .try_into()
-        .expect("Indices length mismatch");
     Some(indices)
 }
 
@@ -353,46 +360,104 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 fn compute_lfps(cluster: &[Pt], im: &ImageY8) -> Vec<LineFitPoint> {
     let mut lfps = Vec::with_capacity(cluster.len());
 
-    let default = LineFitPoint::default();
+    let mut prev = LineFitPoint::default();
+    // println!("Lfps:");
 
     for p in cluster.iter() {
-        let last = lfps.last().unwrap_or(&default);
-
         // we now undo our fixed-point arithmetic.
         let delta = 0.5; // adjust for pixel center bias
         let x = p.x as f64 * 0.5 + delta;
         let y = p.y as f64 * 0.5 + delta;
-        let ix = x as usize;
-        let iy = y as usize;
-        let mut W = 1.;
+        let ix = x as isize;
+        let iy = y as isize;
 
-        if ix > 0 && ix+1 < im.width() && iy > 0 && iy+1 < im.height() {
+        let W = if ix > 0 && (ix as usize)+1 < im.width() && iy > 0 && (iy as usize)+1 < im.height() {
+            let ix = ix as usize;
+            let iy = iy as usize;
             let grad_x = ((im[(ix + 1, iy)] as i32) - (im[(ix - 1, iy)] as i32)) as f64;
             let grad_y = ((im[(ix, iy + 1)] as i32) - (im[(ix, iy - 1)] as i32)) as f64;
 
             // XXX Tunable. How to shape the gradient magnitude?
-            W = (grad_x*grad_x + grad_y*grad_y).sqrt() + 1.;
-        }
+            (grad_x*grad_x + grad_y*grad_y).sqrt() + 1.
+        } else {
+            1.
+        };
 
         let fx = x;
         let fy = y;
-        lfps.push(LineFitPoint {
-            Mx:  last.Mx  + W * fx,
-            My:  last.My  + W * fy,
-            Mxx: last.Mxx + W * fx * fx,
-            Mxy: last.Mxy + W * fx * fy,
-            Myy: last.Myy + W * fy * fy,
-            W: last.W + W,
-        });
+        let curr = LineFitPoint {
+            Mx:  prev.Mx  + W * fx,
+            My:  prev.My  + W * fy,
+            Mxx: prev.Mxx + W * fx * fx,
+            Mxy: prev.Mxy + W * fx * fy,
+            Myy: prev.Myy + W * fy * fy,
+            W: prev.W + W,
+        };
+        lfps.push(curr);
+        prev = curr;
+
+        // println!("\t{} {curr:.1?}", lfps.len() - 1);
+    }
+
+    #[cfg(feature="compare_reference")]
+    {
+        use crate::sys::{ImageU8Sys, ZArraySys};
+        use float_cmp::assert_approx_eq;
+        struct CNativeMem<T>(*const T, usize);
+        impl<T> Index<usize> for CNativeMem<T> {
+            type Output = T;
+
+            fn index(&self, index: usize) -> &Self::Output {
+                assert!(index < self.1);
+                unsafe { self.0.add(index).as_ref() }.unwrap()
+            }
+        }
+        impl<T> Drop for CNativeMem<T> {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::free(self.0 as _);
+                }
+            }
+        }
+
+        let lfps_sys = {
+            let im_sys = ImageU8Sys::new(im).unwrap();
+            let mut cluster_sys = Vec::new();
+            for pt in cluster {
+                let pt = <apriltag_sys::pt as From<Pt>>::from(*pt);
+                cluster_sys.push(pt);
+            }
+            let sz = cluster_sys.len();
+            let cluster_sys = ZArraySys::new(cluster_sys).unwrap();
+            let lfps_sys: *const apriltag_sys::line_fit_pt = unsafe {
+                apriltag_sys::compute_lfps(
+                    sz as _,
+                    cluster_sys.as_ptr(),
+                    im_sys.as_ptr(),
+                )
+            };
+            CNativeMem(lfps_sys, sz)
+        };
+        const EPSILON: f64 = 1e-6;
+        for (i, l1) in lfps.iter().enumerate() {
+            // let l1 = lfps[i];
+            let l2 = lfps_sys[i];
+            assert_approx_eq!(f64, l1.Mx,  l2.Mx,  epsilon=EPSILON);
+            assert_approx_eq!(f64, l1.My,  l2.My,  epsilon=EPSILON);
+            assert_approx_eq!(f64, l1.Mxx, l2.Mxx, epsilon=EPSILON);
+            assert_approx_eq!(f64, l1.Mxy, l2.Mxy, epsilon=EPSILON);
+            assert_approx_eq!(f64, l1.Myy, l2.Myy, epsilon=EPSILON);
+            assert_approx_eq!(f64, l1.W,   l2.W,   epsilon=EPSILON);
+        }
     }
     lfps
 }
 
 /// Return the quad if it's ok
-fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, fqp: &FitQuadsParams) -> Option<Quad> {
+fn fit_quad_inner(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, fqp: &FitQuadsParams) -> Option<Quad> {
     if cluster.len() < 24 {// Synchronize with later check.
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (min size)");
+        println!(" R fit_quad: \tIgnored (size1)");
         return None;
     }
 
@@ -427,9 +492,11 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
 
         if ((xmax - xmin) as usize) * ((ymax - ymin) as usize) < tag_width {
             #[cfg(feature="extra_debug")]
-            println!("\tIgnored (min size)");
+            println!("\tIgnored (min size) size={} tag_width={tag_width}", ((xmax - xmin) as usize) * ((ymax - ymin) as usize));
             return None;
         }
+
+        // println!(" R fit_quad: xmax={xmax} xmin={xmin} ymax={ymax} ymin={ymin}");
 
         // add some noise to (cx,cy) so that pixels get a more diverse set
         // of theta estimates. This will help us remove more points.
@@ -440,6 +507,7 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
         let cy: f32 = (ymin + ymax) as f32 * 0.5 + -0.028581;
         (cx, cy)
     };
+    // println!(" R fit_quad: c=({cx:.6}, {cy:.6})");
 
     #[allow(non_upper_case_globals)]
     const quadrants: [[f32; 2]; 2] = [
@@ -452,42 +520,43 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
         let dx = p.x as f32 - cx;
         let dy = p.y as f32 - cy;
 
-        dot += dx*p.gx as f32 + dy*p.gy as f32;
+        dot += dx*(p.gx as f32) + dy*(p.gy as f32);
 
         let quadrant = quadrants[if dy > 0. { 1 } else { 0 }][if dx > 0. { 1 } else { 0 }];
 
-        let a = if (dy > 0.) ^ (dx > 0.) {
-            -dx / dy
+        // let a = if (dy > 0.) ^ (dx > 0.) {
+        //     -dx / dy
+        // } else {
+        //     dy / dx
+        // };
+
+        let (dx, dy) = if dy < 0. {
+            (-dx, -dy)
         } else {
-            dy / dx
+            (dx, dy)
         };
 
-        // let (dx, dy) = if dy < 0. {
-        //     (-dx, -dy)
-        // } else {
-        //     (dx, dy)
-        // };
-
-        // let (dx, dy) = if dx < 0. {
-        //     (dy, -dx)
-        // } else {
-        //     (dx, dy)
-        // };
-        // let a = dy/dx;
+        let (dx, dy) = if dx < 0. {
+            (dy, -dx)
+        } else {
+            (dx, dy)
+        };
+        let a = dy/dx;
 
         p.slope = quadrant + a;
     }
+    // println!(" R fit_quad: dot={dot:.6}");
 
     // Ensure that the black border is inside the white border.
     let q_reversed_border = dot < 0.;
     if !fqp.reversed_border && q_reversed_border {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (border)");
+        println!(" R fit_quad: \tIgnored (reversed_border)");
         return None;
     }
     if !fqp.normal_border && !q_reversed_border {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (border2)");
+        println!(" R fit_quad: \tIgnored (normal_border)");
         return None;
     }
 
@@ -498,33 +567,84 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
 
         // remove duplicate points. (A byproduct of our segmentation system.)
         if true {
-            cluster.dedup_by(|u, v| u.x == v.x && u.y == v.y);
+            // let old = cluster.clone();
+            let mut i = 0;
+            cluster.dedup_by(|u, v| {
+                i += 1;
+                if u.x == v.x && u.y == v.y {
+                    // println!("\t\tDrop {i} {:.3?}  {:.3?}", u, v);
+                    true
+                } else {
+                    // println!("\t\tKeep {i} {:.3?}  {:.3?}", u, v);
+                    false
+                }
+            });
+            
+            // let mut j = 0;
+            // for i in 0..old.len() {
+            //     if cluster[j] == old[i] {
+            //         j += 1;
+            //     } else {
+            //         println!("\t\tDrop {i} ({:?}) / ({:?})", cluster[j], old[i]);
+            //     }
+            // }
         }
     }
 
     if cluster.len() < 24 {
         #[cfg(feature="extra_debug")]
-        println!("\tIgnored (small2)");
+        println!(" R fit_quad: \tIgnored (small2)");
         return None;
     }
 
-    let lfps = compute_lfps(&mut cluster, im);
-	// println!("Lfps:");
-	// for pt in lfps.iter() {
-	// 	println!("\t{pt:?}");
-	// }
+    let lfps = compute_lfps(&cluster, im);
 
     let indices = if true {
-        match quad_segment_maxima(qtp, &mut cluster, &lfps) {
-            Some(idxs) => idxs,
-            None => {
-                #[cfg(feature="extra_debug")]
-                println!("\tIgnored (maxima)");
-                return None;
-            }
+        let qsm_res = quad_segment_maxima(qtp, &cluster, &lfps);
+        #[cfg(feature="compare_reference")]
+        {
+            use crate::sys::{AprilTagDetectorSys, ZArraySys};
+            let qsm_sys_res = {
+                let mut td_sys = AprilTagDetectorSys::new().unwrap();
+                
+                td_sys.as_mut().qtp.min_cluster_pixels = qtp.min_cluster_pixels as _;
+                td_sys.as_mut().qtp.max_nmaxima = qtp.max_nmaxima as _;
+                td_sys.as_mut().qtp.cos_critical_rad = qtp.cos_critical_rad as _;
+                td_sys.as_mut().qtp.max_line_fit_mse = qtp.max_line_fit_mse as _;
+                td_sys.as_mut().qtp.min_white_black_diff = qtp.min_white_black_diff as _;
+                td_sys.as_mut().qtp.deglitch = qtp.deglitch as _;
+
+                let mut lfps_sys = lfps.iter()
+                    .map(|lfp| (*lfp).into())
+                    .collect::<Vec<apriltag_sys::line_fit_pt>>();
+
+                let mut indices_sys = [0 as std::ffi::c_int; 4];
+
+                let cluster_sys = cluster.iter()
+                    .map(|pt| (*pt).into())
+                    .collect::<Vec<apriltag_sys::pt>>();
+                let cluster_sys = ZArraySys::new(cluster_sys).unwrap();
+
+                let err = unsafe {
+                    apriltag_sys::quad_segment_maxima(
+                        td_sys.as_ptr(),
+                        cluster_sys.as_ptr(),
+                        lfps_sys.as_mut_ptr(),
+                        indices_sys.as_mut_ptr(),
+                    )
+                };
+                if err == 0 {
+                    None
+                } else {
+                    Some(indices_sys.map(|v| v as usize))
+                }
+            };
+            println!(" R fit_quad: Compare idxs: {qsm_res:?} {qsm_sys_res:?}");
+            assert_eq!(qsm_res, qsm_sys_res);
         }
+        qsm_res?
     } else {
-        quad_segment_agg(&mut cluster, &lfps)?
+        quad_segment_agg(&cluster, &lfps)?
     };
 
 
@@ -532,13 +652,14 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
     for i in 0..4 {
         let i0 = indices[i];
         let i1 = indices[(i+1) % 4];
+        // println!(" R fit_quad: fit_line indices[{}]={}, indices[{}]={}", i, i0, (i+1)%4, i1);
 
         let line = fit_line(&lfps, i0, i1);
         lines[i] = line.lineparm;
 
-        if line.err > qtp.max_line_fit_mse as f64 {
+        if line.mse > qtp.max_line_fit_mse as f64 {
             #[cfg(feature="extra_debug")]
-            println!("\tIgnored (error)");
+            println!(" R fit_quad: \tIgnored (error {} > {})", line.mse, qtp.max_line_fit_mse as f64);
             return None;
         }
     }
@@ -572,7 +693,7 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
         let W01 = -A01 / det;
         if det.abs() < 0.001 {
             #[cfg(feature="extra_debug")]
-            println!("\tIgnored (corner)");
+            println!(" R fit_quad: \tIgnored (corner)");
             return None;
         }
 
@@ -595,7 +716,7 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
 			corners[i] = quad_corner(line1, line2)?;
 			// println!("\tLine1: {line1:?}\n\tLine2: {line2:?}\n\tCorner: {:?}", corners[i]);
 		}
-		corners
+		Quadrilateral::from_points(corners)
 	};
 
     // reject quads that are too small
@@ -605,21 +726,24 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
             let p = (len1 + len2 + len3) / 2.;
             (p * (p - len1) * (p - len2) * (p - len3)).sqrt()
         }
+        // println!(" R fit_quad: corners={corners:?}");
 
         // get area of triangle formed by points 0, 1, 2, 0
-        let len_01 = corners[0].distance_to(&corners[1]);
+        let len_01 = corners[1].distance_to(&corners[0]);
         let len_12 = corners[1].distance_to(&corners[2]);
         let len_20 = corners[2].distance_to(&corners[0]);
         let area = triangle_area(len_01, len_12, len_20);
+        // println!(" R fit_quad: len01={len_01} len12={len_12} len20={len_20}");
+        // println!(" R fit_quad: area1={area}");
 
         // get area of triangle formed by points 2, 3, 0, 2
         let len_23 = corners[2].distance_to(&corners[3]);
         let len_30 = corners[3].distance_to(&corners[0]);
         let area = area + triangle_area(len_23, len_30, len_20);
 
-        if area < (tag_width as f64)*(tag_width as f64) {
+        if area < 0.95 * (tag_width as f64)*(tag_width as f64) {
             #[cfg(feature="extra_debug")]
-            println!("\tIgnored (size3)");
+            println!(" R fit_quad: \tIgnored (size3) area={area} thresh={}", 0.95 * (tag_width as f64)*(tag_width as f64));
             return None;
         }
     }
@@ -637,18 +761,17 @@ fn fit_quad(qtp: &AprilTagQuadThreshParams, im: &ImageY8, mut cluster: Vec<Pt>, 
 
             if (cos_dtheta > qtp.cos_critical_rad as f64 || cos_dtheta < -qtp.cos_critical_rad as f64) || (d1.x() * d2.y() < d1.y() * d2.x()) {
                 #[cfg(feature="extra_debug")]
-                println!("\tIgnored (angle)");
+                println!(" R fit_quad: \tIgnored (angle)");
                 return None;
             }
         }
     }
 
     #[cfg(feature="extra_debug")]
-    println!("good");
+    println!(" R fit_quad: good");
     Some(Quad {
         reversed_border: q_reversed_border,
         corners,
-        H: None,
     })
 }
 /*
@@ -986,6 +1109,87 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut [pt], tag_width: us
 }
 */
 
+fn fit_quad(td: &AprilTagDetector, im: &ImageY8, cluster: Vec<Pt>, fqp: &FitQuadsParams) -> Option<Quad> {
+    // println!("\n=== Start fit_quad ===");
+    #[cfg(feature="compare_reference")]
+    let cluster_sys = {
+        use crate::sys::ZArraySys;
+        let c = cluster.iter()
+            .map(|pt| apriltag_sys::pt {
+                x: pt.x,
+                y: pt.y,
+                gx: pt.gx,
+                gy: pt.gy,
+                slope: pt.slope,
+            })
+            .collect();
+        ZArraySys::new(c).unwrap()
+    };
+
+    let result = fit_quad_inner(&td.params.qtp, im, cluster, fqp);
+
+    #[cfg(feature="compare_reference")]
+    {
+        use crate::sys::{AprilTagDetectorSys, ImageU8Sys};
+        use float_cmp::{assert_approx_eq, F64Margin, ApproxEq};
+        let result_sys = {
+            let td_sys = AprilTagDetectorSys::new_like(td).unwrap();
+            let im_sys = ImageU8Sys::new(im).unwrap();
+
+            let mut quad = apriltag_sys::quad {
+                p: Default::default(),
+                reversed_border: Default::default(),
+                H: std::ptr::null_mut(),
+                Hinv: std::ptr::null_mut(),
+            };
+
+            println!("Calling apriltag_sys::fit_quad");
+            // std::io::stdout().flush().unwrap();
+            let err_sys = unsafe { apriltag_sys::fit_quad(
+                td_sys.as_ptr(),
+                im_sys.as_ptr(),
+                cluster_sys.as_ptr(),
+                &mut quad,
+                fqp.min_tag_width.try_into().unwrap(),
+                fqp.normal_border,
+                fqp.reversed_border
+            ) };
+            drop(im_sys);
+            drop(td_sys);
+            drop(cluster_sys);
+            assert!(quad.H.is_null());
+            assert!(quad.Hinv.is_null());
+            if err_sys == 0 {
+                None
+            } else {
+                Some(Quad {
+                    corners: Quadrilateral::from_array(&quad.p),
+                    reversed_border: quad.reversed_border,
+                })
+            }
+        };
+
+        println!("R result: {result:?}");
+        println!("C result: {result_sys:?}");
+
+        assert_eq!(result.is_some(), result_sys.is_some(), "{result:?} == {result_sys:?}");
+        if let Some(result) = result {
+            const EPSILON: f64 = 0.01;
+            let result_sys = result_sys.unwrap();
+            if !result.approx_eq(result_sys, F64Margin::zero().epsilon(EPSILON)) {
+                for i in 0..4 {
+                    assert_approx_eq!(Point2D, result.corners[i], result_sys.corners[i], epsilon = EPSILON);
+                }
+                assert_approx_eq!(Quad, result, result_sys, epsilon = EPSILON);
+                assert_eq!(result.reversed_border, result_sys.reversed_border);
+            }
+        }
+    }
+    // println!("=== End fit_quad ===");
+    result
+}
+
+#[derive(Debug)]
 struct FitQuadsParams {
     normal_border: bool,
     reversed_border: bool,
@@ -1017,8 +1221,11 @@ impl FitQuadsParams {
 }
 
 
-pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Vec<Vec<Pt>>, im: &ImageY8) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Vec<Vec<Pt>>, im: &ImageY8) -> Vec<Quad> {
 	let fqp = FitQuadsParams::new(td);
+
+    #[cfg(feature="compare_reference")]
+    clusters.sort_by_key(|u| u.len());
 
     let min_cluster_pixels = td.params.qtp.min_cluster_pixels as usize;
     // a cluster should contain only boundary points around the
@@ -1028,11 +1235,59 @@ pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Vec<Vec<Pt>>, im: &Imag
     // times (because it has 3 neighbors). The maximum perimeter
     // is 2w+2h.
     let max_cluster_pixels = 3*(2*im.width()+2*im.height());
+    // println!("fqp: {fqp:?} cluster_pixels: {min_cluster_pixels}..{max_cluster_pixels}");
 
-    clusters
-        .into_par_iter()
+    #[cfg(feature="compare_reference")]
+    let clusters_sys = {
+        use crate::sys::ZArraySys;
+        let inner = clusters
+            .iter()
+            .map(|cluster| {
+                let cluster = cluster.iter()
+                    .map(|pt| apriltag_sys::pt {
+                        x: pt.x,
+                        y: pt.y,
+                        gx: pt.gx,
+                        gy: pt.gy,
+                        slope: pt.slope,
+                    })
+                    .collect::<Vec<_>>();
+                ZArraySys::new(cluster)
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap();
+        ZArraySys::new(inner).unwrap()
+    };
+
+    let result = clusters
+        .into_iter()
         .filter(|cluster|
             min_cluster_pixels <= cluster.len() && cluster.len() <= max_cluster_pixels)
-        .filter_map(|cluster| fit_quad(&td.params.qtp, im, cluster, &fqp))
-        .collect::<Vec<_>>()
+        .filter_map(|cluster| fit_quad(td, im, cluster, &fqp))
+        .collect::<Vec<_>>();
+
+    #[cfg(feature="compare_reference")]
+    {
+        println!("Cluster 0: {:?}", clusters_sys.as_slice()[0]);
+        use crate::sys::{AprilTagDetectorSys, ImageU8Sys, ZArraySys};
+        let (td_sys, fams_sys) = AprilTagDetectorSys::new_with_families(td).unwrap();
+        let im_sys = ImageU8Sys::new(im).unwrap();
+        
+        println!("Calling apriltag_sys::fit_quads({:p}, {}, {}, {:p}, {:p})", td_sys.as_ptr(), im.width() as std::ffi::c_int, im.height() as std::ffi::c_int, clusters_sys.as_ptr(), im_sys.as_ptr());
+        let result_sys = {
+            let ptr = unsafe { apriltag_sys::fit_quads(td_sys.as_ptr(), im.width() as _, im.height() as _, clusters_sys.as_ptr(), im_sys.as_ptr()) };
+            ZArraySys::<apriltag_sys::quad>::wrap(ptr).expect("Null ptr")
+        };
+
+        drop(td_sys);
+        drop(clusters_sys);
+        drop(im_sys);
+        drop(fams_sys);
+
+        assert_eq!(result.len(), result_sys.as_slice().len(), "{result:?} vs {result_sys:?}");
+        // let result_sys: Vec<_> = result_sys.try_into().unwrap();
+        // assert_eq!(result_sys, result);
+    }
+
+    result
 }
