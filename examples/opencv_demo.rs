@@ -1,8 +1,7 @@
 use std::path::PathBuf;
-use std::time::Instant;
 
 use apriltag_rs::util::ImageY8;
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, OpenClMode};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -55,9 +54,9 @@ fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
         panic!("No AprilTag families to detect");
     }
     if args.opencl {
-        detector.use_opencl(OpenClMode::Required);
+        builder.use_opencl(OpenClMode::Required);
     } else {
-        detector.use_opencl(OpenClMode::Disabled);
+        builder.use_opencl(OpenClMode::Disabled);
     }
 
     for family_name in args.family.iter() {
@@ -82,7 +81,7 @@ fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
     if let Some(path) = dbp {
-        detector.config.debug_path = Some(format!("./debug/{path}"));
+        builder.config.debug_path = Some(format!("./debug/{path}"));
     } else if let Some(path) = &args.debug_path {
         builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
     }
@@ -137,11 +136,6 @@ fn main() {
             let src = gray.at_row::<u8>(y as i32).unwrap();
             dst.as_slice_mut().copy_from_slice(src);
         }
-        // for ((x, y), dst) in im.enumerate_pixels_mut() {
-        //     let v = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
-
-        //     *dst = v.into();
-        // }
 
         tp.stamp("bufer_copy");
 
