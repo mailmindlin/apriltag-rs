@@ -1,6 +1,7 @@
 mod poly2d;
 mod point2d;
 mod line2d;
+pub mod quad;
 
 pub(crate) use poly2d::Poly2D;
 pub(crate) use point2d::Point2D;
