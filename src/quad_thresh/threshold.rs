@@ -175,7 +175,7 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im
     }
 
     let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp);
-    std::mem::drop(im_minmax);
+    drop(im_minmax);
     tp.stamp("build_threshim");
 
     // this is a dilate/erode deglitching scheme that does not improve

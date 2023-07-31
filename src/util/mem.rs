@@ -6,6 +6,7 @@ pub trait SafeZero {}
 impl SafeZero for u8 {}
 impl SafeZero for u32 {}
 impl SafeZero for i32 {}
+impl SafeZero for i64 {}
 impl SafeZero for f32 {}
 impl SafeZero for f64 {}
 impl SafeZero for usize {}
