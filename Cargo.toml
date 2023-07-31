@@ -12,9 +12,10 @@ jni = ["dep:jni"]
 cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
 extra_debug = ["debug"]
+opencl = ["dep:ocl"]
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 
-default = ["cpython", "jni", "debug", "cffi", "dep:opencv"]
+default = ["cpython", "jni", "debug", "cffi", "dep:opencv", "opencl"]
 # default = ["debug"]
 # default = ["debug", "compare_reference", "extra_debug"]
 
@@ -55,11 +56,17 @@ optional = true
 version = "0.3.1"
 optional = true
 
+# Feature: compare_reference
 [dependencies.apriltag-sys]
 path="../apriltag-rust-deep/apriltag-sys"
 optional = true
 [dependencies.float-cmp]
 version = "0.9.0"
+optional = true
+
+# Feature: OpenCL
+[dependencies.ocl]
+version = "0.19.4"
 optional = true
 
 
