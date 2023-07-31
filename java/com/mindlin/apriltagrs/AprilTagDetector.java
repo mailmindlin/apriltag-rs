@@ -10,8 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
-import com.mindlin.apriltagrs.AprilTagLibrary.NativeObject;
-import com.mindlin.apriltagrs.AprilTagLibrary.NativeObjectReleasedException;
+
 import com.mindlin.apriltagrs.util.Image2D;
 
 /**
@@ -23,59 +22,99 @@ public final class AprilTagDetector extends NativeObject {
      * 
      * @return Handle to detector
      */
-    private static native long nativeCreate(int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, double decodeSharpening, String debugPath, long[] familyPtrs, int[] familyHammings);
-    private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride);
+    private static native long nativeCreate(
+        // Config values
+        int nthreads, float quadDecimate, float quadSigma, boolean refineEdges, float decodeSharpening, String debugPath,
+        // QTP values
+        int minClusterPixels, int maxNumMaxima, float cosCriticalRad, float maxLineFitMSE, int minWhiteBlackDiff, boolean deglitch,
+        long[] familyPtrs, int[] familyHammings
+    );
+    private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride, Map<Long, AprilTagFamily> familyLookup);
 
-    public static class Builder {
-        private final Config config;
-        private final Map<AprilTagFamily, Integer> families;
+    public static class Builder implements Cloneable {
+        private Config config;
+        private QuadThresholdParameters qtp;
+        private Map<AprilTagFamily, Integer> families;
 
         public Builder() {
             this.config = new Config();
+            this.qtp = new QuadThresholdParameters();
             this.families = Collections.emptyMap();
+        }
+
+        public Builder(AprilTagDetector det) {
+            Objects.requireNonNull(det);
+            this.config = new Config(det.config);
+            this.qtp = new QuadThresholdParameters(det.qtp);
+            this.families = new LinkedHashMap<>(det.families);
         }
 
         /**
          * Copy constructor
          */
         public Builder(Builder src) {
-            this(Objects.requireNonNull(src).config, src.families);
+            this(Objects.requireNonNull(src).config, src.qtp, src.families, true);
         }
 
-        private Builder(Config config, Map<AprilTagFamily, Integer> families) {
+        private Builder(Config config, QuadThresholdParameters qtp, Map<AprilTagFamily, Integer> families, boolean clone) {
             Objects.requireNonNull(config, "config");
+            Objects.requireNonNull(qtp, "QuadThresholdParameters");
             Objects.requireNonNull(families, "families");
 
-            for (var entry : families.entrySet()) {
-                var family = entry.getKey();
-                Objects.requireNonNull(family, "family");
-                var bitsCorrected = entry.getValue();
-                // Null value == default
-                if (bitsCorrected == null)
-                    continue;
-                
-                family.validateBitsCorrected(bitsCorrected.intValue());
+            if (clone) {
+                // Validate and clone
+                for (var entry : families.entrySet()) {
+                    var family = entry.getKey();
+                    Objects.requireNonNull(family, "family");
+                    var bitsCorrected = entry.getValue();
+                    // Null value == default
+                    if (bitsCorrected == null)
+                        continue;
+                    
+                    family.validateBitsCorrected(bitsCorrected.intValue());
+                }
+                this.config = new Config(config);
+                this.qtp = new QuadThresholdParameters(qtp);
+                this.families = new LinkedHashMap<>(families);
+            } else {
+                this.config = config;
+                this.qtp = qtp;
+                this.families = families;
             }
-            this.config = new Config(config);
-            this.families = new LinkedHashMap<>(families);
-        }
-
-        // Non-validating constructor
-        private Builder(Config config, Map<AprilTagFamily, Integer> families, boolean marker) {
-            Objects.requireNonNull(config, "Null config");
-            Objects.requireNonNull(families, "Null AprilTag families");
-            this.config = config;
-            this.families = families;
         }
 
         public Config getConfig() {
             return this.config;
         }
 
+        public Builder setConfig(Config config) {
+            Objects.requireNonNull(config);
+            if (config != this.config)
+                this.config = new Config(config);
+            return this;
+        }
+
+        public QuadThresholdParameters getQuadThresholdParameters() {
+            return this.qtp;
+        }
+
+        public Builder setQuadThresholdParameters(QuadThresholdParameters qtp) {
+            Objects.requireNonNull(qtp);
+            if (qtp != this.qtp)
+                this.qtp = new QuadThresholdParameters(qtp);
+            return this;
+        }
+
+        @Override
+        public Builder clone() {
+            return new Builder(this.config, this.qtp, this.families, true);
+        }
+
         private Builder mapConfig(Consumer<Config> update) {
-            var config = new Config(this.config);
-            update.accept(config);
-            return new Builder(config, this.families, true);
+            // var config = new Config(this.config);
+            update.accept(this.config);
+            // return new Builder(config, this.qtp, this.families, true);
+            return this;
         }
 
         /**
@@ -119,17 +158,29 @@ public final class AprilTagDetector extends NativeObject {
         public Builder addFamily(AprilTagFamily family, int bitsCorrected) throws NullPointerException, IllegalArgumentException {
             Objects.requireNonNull(family, "family");
             family.validateBitsCorrected(bitsCorrected);
-            var families = new LinkedHashMap<>(this.families);
-            families.put(family, bitsCorrected);
-            return new Builder(this.config, this.families, true);
+            this.families.put(family, bitsCorrected);
+            return this;
+        }
+
+        public Builder removeFamily(AprilTagFamily family) {
+            Objects.requireNonNull(family, "family");
+            this.families.remove(family);
+            return this;
+        }
+
+        public Builder clearFamilies() {
+            this.families.clear();
+            return this;
         }
 
         public AprilTagDetector build() {
             // We clone these values here
             var config = this.config.unmodifiable();
+            var qtp = this.qtp.unmodifiable();
             var families = new LinkedHashMap<>(this.families);
             var familyPointerLookup = new HashMap<Long, AprilTagFamily>(this.families.size());
 
+            // Acquire read locks for all AprilTag families
             List<ReentrantReadWriteLock.ReadLock> familyLocks = new ArrayList<>(this.families.size());
             try {
                 // Reformat 
@@ -159,32 +210,68 @@ public final class AprilTagDetector extends NativeObject {
                 assert i == familyPtrs.length;
 
                 long ptr = AprilTagDetector.nativeCreate(
-                    config.nthreads,
+                    config.numThreads,
                     config.quadDecimate,
                     config.quadSigma,
                     config.refineEdges,
                     config.decodeSharpening,
                     config.debug.toAbsolutePath().toString(),
+                    qtp.minClusterPixels,
+                    qtp.maxNumMaxima,
+                    qtp.cosCriticalRad,
+                    qtp.maxLineFitMSE,
+                    qtp.minWhiteBlackDiff,
+                    qtp.deglitch,
                     familyPtrs,
                     bitsCorrecteds
                 );
 
-                return new AprilTagDetector(ptr, config, families, familyPointerLookup);
+                return new AprilTagDetector(ptr, config, qtp, families, familyPointerLookup);
             } finally {
                 // Unlock the pointers for all the AprilTag families
-                for (var lock : familyLocks) {
-                    lock.unlock();
+                List<RuntimeException> exc = new ArrayList<>();
+                try {
+                    for (var lock : familyLocks) {
+                        try {
+                            lock.unlock();
+                        } catch (RuntimeException e) {
+                            exc.add(e);
+                        }
+                    }
+                } finally {
+                    if (!exc.isEmpty()) {
+                        var last = exc.remove(exc.size() - 1);
+                        for (var e : exc)
+                            last.addSuppressed(e);
+                        throw last;
+                    }
                 }
             }
+        }
+    }
+
+    public static final class Accelerator {
+        public static List<Accelerator> available() {
+            throw new UnsupportedOperationException();
         }
     }
 
     /**
      * Configuration for AprilTagDetector
      */
-    public static final class Config {
-        private boolean mutable = true;
-        private int nthreads = 1;
+    public static final class Config implements Cloneable {
+        private final boolean mutable;
+        private static int validateNumThreads(int numThreads) {
+            if (numThreads < 0)
+                throw new IllegalArgumentException("numThreads must be non-negative");
+            return numThreads;
+        }
+        /**
+         * How many threads should be used for computation.
+         * 
+         * Set to zero for automatic parallelism
+         */
+        private int numThreads = 1;
         private float quadDecimate = 2.0f;
         private float quadSigma = 0.0f;
         private boolean refineEdges = true;
@@ -192,15 +279,33 @@ public final class AprilTagDetector extends NativeObject {
         private Path debug = null;
 
         public Config() {
+            this.mutable = true;
+        }
+
+        public Config(int numThreads, float quadDecimate, float quadSigma, boolean refineEdges, float decodeSharpening, boolean debug) {
+            this(numThreads, quadDecimate, quadSigma, refineEdges, decodeSharpening, debug ? Path.of(".") : null);
+        }
+
+        public Config(int numThreads, float quadDecimate, float quadSigma, boolean refineEdges, float decodeSharpening, Path debug) {
+            this.mutable = true;
+            this.numThreads = validateNumThreads(numThreads);
+            this.quadDecimate = quadDecimate;
+            this.quadSigma = quadSigma;
+            this.refineEdges = refineEdges;
+            this.decodeSharpening = decodeSharpening;
+            this.debug = debug;
+        }
+
+        public Config(Config config) {
+            this(Objects.requireNonNull(config, "config"), true);
         }
 
         /**
          * Copy constructor
          */
-        public Config(Config config) {
-            Objects.requireNonNull(config, "config");
-            this.mutable = true;
-            this.nthreads = config.nthreads;
+        private Config(Config config, boolean mutable) {
+            this.mutable = mutable;
+            this.numThreads = validateNumThreads(config.numThreads);
             this.quadDecimate = config.quadDecimate;
             this.quadSigma = config.quadSigma;
             this.refineEdges = config.refineEdges;
@@ -214,29 +319,31 @@ public final class AprilTagDetector extends NativeObject {
         public Config unmodifiable() {
             if (!this.isMutable())
                 return this;
-            var result = new Config(this);
-            result.mutable = false;
-            return result;
+            return new Config(this, false);
         }
 
+        /**
+         * @return Whether this object can be mutated in-place
+         */
         public boolean isMutable() {
             return mutable;
         }
 
+        /**
+         * Assert that this object is allowed to be mutated
+         */
         private void assertMutable() throws UnsupportedOperationException {
             if (!this.mutable)
                 throw new UnsupportedOperationException("Config is not mutable");
         }
 
         public int getNumThreads() {
-            return this.nthreads;
+            return this.numThreads;
         }
 
-        public void setNumThreads(int nthreads) throws UnsupportedOperationException {
+        public void setNumThreads(int numThreads) throws UnsupportedOperationException {
             this.assertMutable();
-            if (nthreads < 0)
-                throw new IllegalArgumentException("nthreads must be non-negative");
-            this.nthreads = nthreads;
+            this.numThreads = validateNumThreads(numThreads);
         }
 
         public float getQuadDecimate() {
@@ -248,6 +355,12 @@ public final class AprilTagDetector extends NativeObject {
             this.quadDecimate = quadDecimate;
         }
 
+        /**
+         * What Gaussian blur should be applied to the segmented image
+         * (used for quad detection?)  Parameter is the standard deviation
+         * in pixels.  Very noisy images benefit from non-zero values
+         * (e.g. 0.8).
+         */
         public float getQuadSigma() {
             return this.quadSigma;
         }
@@ -285,8 +398,13 @@ public final class AprilTagDetector extends NativeObject {
         }
 
         @Override
+        public Config clone() {
+            return new Config(this, this.mutable);
+        }
+
+        @Override
         public String toString() {
-            return "Config [nthreads=" + nthreads + ", quadDecimate=" + quadDecimate + ", quadSigma=" + quadSigma
+            return "Config [nthreads=" + numThreads + ", quadDecimate=" + quadDecimate + ", quadSigma=" + quadSigma
                     + ", refineEdges=" + refineEdges + ", decodeSharpening=" + decodeSharpening + ", debug=" + debug
                     + "]";
         }
@@ -297,7 +415,7 @@ public final class AprilTagDetector extends NativeObject {
             int result = 1;
             //TODO: ignore mutable?
             result = prime * result + (mutable ? 1231 : 1237);
-            result = prime * result + nthreads;
+            result = prime * result + numThreads;
             result = prime * result + Float.floatToIntBits(quadDecimate);
             result = prime * result + Float.floatToIntBits(quadSigma);
             result = prime * result + (refineEdges ? 1231 : 1237);
@@ -315,7 +433,7 @@ public final class AprilTagDetector extends NativeObject {
             Config other = (Config) obj;
             return (
                 (this.mutable == other.mutable)
-                && (this.nthreads == other.nthreads)
+                && (this.numThreads == other.numThreads)
                 && (Float.floatToIntBits(quadDecimate) == Float.floatToIntBits(other.quadDecimate))
                 && (Float.floatToIntBits(quadSigma) == Float.floatToIntBits(other.quadSigma))
                 && (refineEdges == other.refineEdges)
@@ -325,22 +443,28 @@ public final class AprilTagDetector extends NativeObject {
         }
     }
 
-    public static final class QuadThresholdParameters {
+    public static final class QuadThresholdParameters implements Cloneable {
+        private static int validateMinBlackWhiteDiff(int minWhiteBlackDiff) {
+            if (minWhiteBlackDiff < 0 || 255 < minWhiteBlackDiff)
+                throw new IllegalArgumentException("minWhiteBlackDiff must be in range 0..255");
+            return minWhiteBlackDiff;
+        }
+        private final boolean mutable;
         /** Reject quads containing too few pixels */
-        public int minClusterPixels = 5;
+        private int minClusterPixels = 5;
 
         /**
          * How many corner candidates to consider when segmenting a group
          * of pixels into a quad.
          */
-        public int maxNumMaxima = 10;
+        private int maxNumMaxima = 10;
 
         /**
          * Reject quads where pairs of edges have angles that are close to
          * straight or close to 180 degrees. Zero means that no quads are
          * rejected. (In radians).
          */
-        public double criticalAngle = 10 * Math.PI / 180.0;
+        private float cosCriticalRad = (float) Math.cos(10 * Math.PI / 180.0);
         /**
          * When fitting lines to the contours, what is the maximum mean
          * squared error allowed?
@@ -348,29 +472,172 @@ public final class AprilTagDetector extends NativeObject {
          * quad shaped; rejecting these quads "early" saves expensive
          * decoding processing.
          */
-        public float maxLineFitMSE = 10.0f;
+        private float maxLineFitMSE = 10.0f;
 
-        /// When we build our model of black & white pixels, we add an
-        /// extra check that the white model must be (overall) brighter
-        /// than the black model. 
-        /// How much brighter? (in pixel values, [0,255]).
-        public int minWhiteBlackDiff = 5;
+        /**
+         * When we build our model of black & white pixels, we add an
+         * extra check that the white model must be (overall) brighter
+         * than the black model. 
+         * How much brighter? (in pixel values, [0,255]).
+         */
+        private int minWhiteBlackDiff = 5;
 
-        /// Should the thresholded image be deglitched?
-        /// Only useful for very noisy images
-        public boolean deglitch = false;
+        /**
+         * Should the thresholded image be deglitched?
+         * Only useful for very noisy images
+         */
+        private boolean deglitch = false;
+
+        public QuadThresholdParameters() {
+            this.mutable = true;
+        }
+
+        public QuadThresholdParameters(int minClusterPixels, int maxNumMaxima, float cosCriticalRad, float maxLineFitMSE, int minWhiteBlackDiff, boolean deglitch) {
+            this.minClusterPixels = minClusterPixels;
+            this.maxNumMaxima = maxNumMaxima;
+            this.cosCriticalRad = cosCriticalRad;
+            this.maxLineFitMSE = maxLineFitMSE;
+            this.minWhiteBlackDiff = validateMinBlackWhiteDiff(minWhiteBlackDiff);
+            this.deglitch = deglitch;
+            this.mutable = true;
+        }
+
+        public QuadThresholdParameters(QuadThresholdParameters source) {
+            this(Objects.requireNonNull(source), true);
+        }
+
+        private QuadThresholdParameters(QuadThresholdParameters source, boolean mutable) {
+            this.mutable = mutable;
+            this.minClusterPixels = source.minClusterPixels;
+            this.maxNumMaxima = source.maxNumMaxima;
+            this.cosCriticalRad = source.cosCriticalRad;
+            this.maxLineFitMSE = source.maxLineFitMSE;
+            this.minWhiteBlackDiff = source.minWhiteBlackDiff;
+            this.deglitch = source.deglitch;
+        }
+
+        /**
+         * @return An umodifiable copy
+         */
+        public QuadThresholdParameters unmodifiable() {
+            if (!this.isMutable())
+                return this;
+            return new QuadThresholdParameters(this, false);
+        }
+
+        /**
+         * @return Whether this object can be mutated in-place
+         */
+        public boolean isMutable() {
+            return mutable;
+        }
+
+        /**
+         * Assert that this object is allowed to be mutated
+         */
+        private void assertMutable() throws UnsupportedOperationException {
+            if (!this.mutable)
+                throw new UnsupportedOperationException("Config is not mutable");
+        }
+
+        public int getMinClusterPixels() {
+            return minClusterPixels;
+        }
+
+        public void setMinClusterPixels(int minClusterPixels) {
+            this.assertMutable();
+            this.minClusterPixels = minClusterPixels;
+        }
+
+        public int getMaxNumMaxima() {
+            return maxNumMaxima;
+        }
+
+        public void setMaxNumMaxima(int maxNumMaxima) {
+            this.assertMutable();
+            this.maxNumMaxima = maxNumMaxima;
+        }
+
+        public float getCosCriticalRad() {
+            return cosCriticalRad;
+        }
+
+        public void setCosCriticalRad(float cosCriticalRad) {
+            this.assertMutable();
+            this.cosCriticalRad = cosCriticalRad;
+        }
+
+        public float getMaxLineFitMSE() {
+            return maxLineFitMSE;
+        }
+
+        public void setMaxLineFitMSE(float maxLineFitMSE) {
+            this.assertMutable();
+            this.maxLineFitMSE = maxLineFitMSE;
+        }
+
+        public int getMinWhiteBlackDiff() {
+            return minWhiteBlackDiff;
+        }
+
+        public void setMinWhiteBlackDiff(int minWhiteBlackDiff) throws IllegalArgumentException {
+            this.assertMutable();
+            this.minWhiteBlackDiff = validateMinBlackWhiteDiff(minWhiteBlackDiff);
+        }
+
+        public boolean getDeglitch() {
+            return deglitch;
+        }
+
+        public void setDeglitch(boolean deglitch) {
+            this.assertMutable();
+            this.deglitch = deglitch;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            QuadThresholdParameters that = (QuadThresholdParameters) o;
+
+            if (minClusterPixels != that.minClusterPixels) return false;
+            if (maxNumMaxima != that.maxNumMaxima) return false;
+            if (Float.compare(that.cosCriticalRad, cosCriticalRad) != 0) return false;
+            if (Float.compare(that.maxLineFitMSE, maxLineFitMSE) != 0) return false;
+            if (minWhiteBlackDiff != that.minWhiteBlackDiff) return false;
+            return deglitch == that.deglitch;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = minClusterPixels;
+            result = 31 * result + maxNumMaxima;
+            result = 31 * result + (cosCriticalRad != +0.0f ? Float.floatToIntBits(cosCriticalRad) : 0);
+            result = 31 * result + (maxLineFitMSE != +0.0f ? Float.floatToIntBits(maxLineFitMSE) : 0);
+            result = 31 * result + minWhiteBlackDiff;
+            result = 31 * result + (deglitch ? 1 : 0);
+            return result;
+        }
+
+        public QuadThresholdParameters clone() {
+            return new QuadThresholdParameters(this, true);
+        }
     }
 
     /** Configuration */
     private final Config config;
+    /** QuadThresholdParameters */
+    private final QuadThresholdParameters qtp;
     /** Map of family => hamming distance */
     private final Map<AprilTagFamily, Integer> families;
     /** Map of pointer => family */
     private final Map<Long, AprilTagFamily> ptrLookup;
 
-    private AprilTagDetector(long ptr, Config config, Map<AprilTagFamily, Integer> families, Map<Long, AprilTagFamily> ptrLookup) {
+    private AprilTagDetector(long ptr, Config config, QuadThresholdParameters qtp, Map<AprilTagFamily, Integer> families, Map<Long, AprilTagFamily> ptrLookup) {
         super(ptr);
         this.config = config;
+        this.qtp = qtp;
         this.families = families;
         this.ptrLookup = ptrLookup;
     }
@@ -408,7 +675,7 @@ public final class AprilTagDetector extends NativeObject {
         var stride = image.getStride();
         var buffer = image.buffer();
 
-        return this.nativeRead(ptr -> AprilTagDetector.nativeDetect(ptr, buffer, width, height, stride));
+        return this.nativeRead(ptr -> AprilTagDetector.nativeDetect(ptr, buffer, width, height, stride, this.ptrLookup));
     }
 
     @Override

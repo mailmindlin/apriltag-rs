@@ -4,8 +4,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-import com.mindlin.apriltagrs.AprilTagLibrary.NativeObject;
-import com.mindlin.apriltagrs.AprilTagLibrary.NativeObjectReleasedException;
 import com.mindlin.apriltagrs.util.Point2i;
 
 public final class AprilTagFamily extends NativeObject {

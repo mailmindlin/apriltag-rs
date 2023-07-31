@@ -1,25 +1,13 @@
 package com.mindlin.apriltagrs;
-import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.Runtime.Version;
-import java.lang.ref.Reference;
-import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFileAttributes;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.LongFunction;
 
 /**
  * Native library manager
@@ -86,6 +74,12 @@ public final class AprilTagLibrary {
         }
     }
 
+    /**
+     * Extract library with {@code name} to a temporary file
+     * 
+     * @param name Resource name
+     * @return Temporary path (or null if failed)
+     */
     private static Path extractFromJar(String name) {
         Path tempFile = null;
         try (var is = AprilTagLibrary.class.getResourceAsStream("/lib/" + name)) {
@@ -115,6 +109,11 @@ public final class AprilTagLibrary {
         return tempFile;
     }
 
+    /**
+     * Load internal library with name
+     * @param name Resource name
+     * @return Library path
+     */
     private static Path loadFromJar(String name) {
         var tempPath = extractFromJar(name);
         if (tempPath == null)
@@ -132,7 +131,8 @@ public final class AprilTagLibrary {
     }
 
     private static Path loadFromJar(String arch, String vendor, String os, String ext) {
-
+        var name = String.format("%s-%s-%s.%s", arch, vendor, os, ext);
+        return loadFromJar(name);
     }
 
     Path path;
@@ -157,8 +157,13 @@ public final class AprilTagLibrary {
             if ((this.path = loadFromJar(osArch, "apple", "darwin", ext)) != null)
                 return;
         } else {
-
+            final String ext = "so";
+            if ((this.path = loadFromJar(LIBRARY_NAME + "." + ext)) != null)
+                return;
+            if ((this.path = loadFromJar(osArch, "any", "linux", ext)) != null)
+                return;
         }
+        throw new UnsatisfiedLinkError("Unable to load library " + LIBRARY_NAME);
     }
 
     public native String getVersionString();
@@ -182,70 +187,12 @@ public final class AprilTagLibrary {
                 buf.array();
                 buf.arrayOffset();
                 return buf;
-            } catch (ReadOnlyBufferException | UnsupportedOperationException e) {
+            } catch (ReadOnlyBufferException e) {
+            } catch (UnsupportedOperationException e) {
             }
         }
-    }
-
-    abstract static class Cache<T> {
-        private final ConcurrentHashMap<Long, WeakReference<T>> lookup = new ConcurrentHashMap<>();
-        
-        abstract T wrap(long ptr);
-    }
-
-    static class NativeObjectReleasedException extends IllegalStateException {
-
-    }
-
-    abstract static class NativeObject implements AutoCloseable {
-        final ReentrantReadWriteLock ptrLock = new ReentrantReadWriteLock();
-        long ptr;
-
-        protected NativeObject(long ptr) throws NullPointerException {
-            if (ptr == 0)
-                throw new NullPointerException();
-            this.ptr = ptr;
-        }
-
-        protected <R> R nativeRead(LongFunction<R> callback) throws NativeObjectReleasedException {
-            var readLock = NativeObject.this.ptrLock.readLock();
-            readLock.lock();
-            try {
-                long ptr = this.ptr;
-                if (ptr == 0)
-                    throw new IllegalStateException("Use after close");
-                return callback.apply(ptr);
-            } finally {
-                readLock.unlock();
-            }
-        }
-
-        protected <R> R nativeWrite(LongFunction<R> callback) throws NativeObjectReleasedException {
-            var writeLock = NativeObject.this.ptrLock.writeLock();
-            writeLock.lock();
-            try {
-                long ptr = this.ptr;
-                if (ptr == 0)
-                    throw new IllegalStateException("Use after close");
-                return callback.apply(ptr);
-            } finally {
-                writeLock.unlock();
-            }
-        }
-
-        protected abstract void destroy(long ptr);
-
-        @Override
-        public void close() {
-            var writeLock = ptrLock.writeLock();
-            writeLock.lock();
-            try {
-                long ptr = this.ptr;
-                this.ptr = 0;
-                this.destroy(ptr);
-            } finally {
-                writeLock.unlock();
-            }
-        }
+        var result = ByteBuffer.allocateDirect(buf.remaining());
+        result.put(buf.duplicate());
+        return result.flip();
     }
 }
