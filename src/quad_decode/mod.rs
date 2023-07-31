@@ -12,11 +12,7 @@ use self::greymodel::SolvedGraymodel;
 
 #[derive(Clone)]
 pub(crate) struct Quad {
-    pub(crate) corners: [Point2D; 4],
-    /// Tag coordinates ([-1,1] at the black corners) to pixels
-    pub(crate) H: Option<Mat33>,
-    /// Pixels to tag
-    // pub(crate) Hinv: Option<Mat>,
+    pub(crate) corners: Quadrilateral,
     pub(crate) reversed_border: bool,
 }
 #[cfg(feature="compare_reference")]
@@ -153,7 +149,7 @@ impl Quad {
     /// coordinates are given in bit coordinates. ([0, fam.d]).
     ///
     /// { initial x, initial y, delta x, delta y, WHITE=1 }
-    fn sample_threshold(&self, family: &AprilTagFamily, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
+    fn sample_threshold(H: &Mat33, family: &AprilTagFamily, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
         struct Pattern {
             initial: Vec2,
             delta: Vec2,
@@ -215,8 +211,6 @@ impl Quad {
         let mut whitemodel = Graymodel::new();
         let mut blackmodel = Graymodel::new();
 
-        let H = self.H.as_ref().unwrap();
-
         for pattern in patterns {
             for i in 0..family.width_at_border {
                 let tag01 = (pattern.initial + (pattern.delta * (i as f64))) / (family.width_at_border as f64);
@@ -269,7 +263,7 @@ impl Quad {
     /// we score this separately for white and black pixels and return
     /// the minimum average threshold for black/white pixels. This is
     /// to penalize thresholds that are too close to an extreme.
-    fn decision_margin(&self, family: &AprilTagFamily, decode_sharpening: f64, im: &ImageY8, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel, im_samples: Option<&Mutex<ImageY8>>) -> (u64, f32) {
+    fn decision_margin(H: &Mat33, family: &AprilTagFamily, decode_sharpening: f64, im: &ImageY8, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel, im_samples: Option<&Mutex<ImageY8>>) -> (u64, f32) {
         let mut black_score = 0f32;
         let mut white_score = 0f32;
         let mut black_score_count = 1usize;
@@ -279,7 +273,6 @@ impl Quad {
 
         let min_coord = (family.width_at_border as i32 - family.total_width as i32)/2;
         let half = Vec2::dup(0.5);
-        let H = self.H.as_ref().unwrap();
 
         let combined_model = whitemodel + blackmodel;
 
@@ -349,12 +342,49 @@ impl Quad {
         Some((score, entry))
     }
 
-    fn decode_family(&self, info: &QuadDecodeInfo, qd: &QuickDecode) -> Option<AprilTagDetection> {
-        #[cfg(feature="debug")]
-        let im_samples = info.im_samples;
-        #[cfg(not(feature="debug"))]
-        let im_samples = None;
-        let (decision_margin, entry) = self.decode(&info.det_params, qd, info.im_orig, im_samples)?;
+    fn decode_family(&self, info: &QuadDecodeInfo, qd: &QuickDecode, H: &Mat33, #[cfg(feature="compare_reference")] quad_sys: &mut apriltag_sys::quad) -> Option<AprilTagDetection> {
+        let decode_res = self.decode(info, qd, H);
+
+        #[cfg(feature="compare_reference")]
+        {
+            use crate::sys::{AprilTagDetectorSys, SysPtr, ImageU8Sys};
+            let mut td_sys = AprilTagDetectorSys::new().unwrap();
+            td_sys.as_mut().decode_sharpening = info.det_params.decode_sharpening;
+            let family_sys = SysPtr::<apriltag_sys::apriltag_family>::new(&qd.family).unwrap();
+            let im_sys = ImageU8Sys::new(info.im_orig).unwrap();
+            let decode_res_sys = unsafe {
+                apriltag_sys::quick_decode_init(family_sys.as_ptr(), qd.bits_corrected as _);
+                let mut entry_sys: apriltag_sys::quick_decode_entry = std::mem::zeroed();
+                let decode_margin_sys: f32 = apriltag_sys::quad_decode(
+                    td_sys.as_ptr(),
+                    family_sys.as_ptr(),
+                    im_sys.as_ptr(),
+                    quad_sys,
+                    &mut entry_sys,
+                    std::ptr::null_mut(),
+                );
+                apriltag_sys::quick_decode_uninit(family_sys.as_ptr());
+                dbg!(decode_margin_sys);
+                if decode_margin_sys < 0. || entry_sys.hamming >= 255 {
+                    None
+                } else {
+                    Some((decode_margin_sys, QuickDecodeResult {
+                        id: entry_sys.id,
+                        hamming: entry_sys.hamming,
+                        rotation: match entry_sys.rotation {
+                            0 => crate::families::Rotation::Identity,
+                            1 => crate::families::Rotation::Deg90,
+                            2 => crate::families::Rotation::Deg180,
+                            3 => crate::families::Rotation::Deg270,
+                            _ => panic!("Invalid rotation"),
+                        }
+                    }))
+                }
+            };
+            println!("Check: {decode_res:?} vs {decode_res_sys:?}");
+            assert_eq!(decode_res, decode_res_sys);
+        }
+        let (decision_margin, entry) = decode_res?;
 
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
