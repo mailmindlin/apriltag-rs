@@ -2,13 +2,48 @@ use std::{ops::{Index, IndexMut, MulAssign, AddAssign, Sub, Add, Mul}, mem::swap
 
 use crate::util::math::Vec3;
 
+use super::{OutOfBoundsError, MatDims, Mat};
+
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
 pub struct Mat33(pub [f64; 9]);
 
+
+impl TryFrom<super::Mat> for Mat33 {
+    type Error = OutOfBoundsError;
+
+    fn try_from(value: super::Mat) -> Result<Self, Self::Error> {
+        if value.dims != (MatDims { rows: 3, cols: 3 }) {
+            return Err(OutOfBoundsError { dims: value.dims, index: super::MatIndex { row: 2, col: 2 } });
+        }
+        let a: &[f64] = &value.data;
+        let b: Result<[f64; 9], _> = a.try_into();
+        match b {
+            Ok(elems) => Ok(Self(elems)),
+            Err(_) => Err(OutOfBoundsError { dims: value.dims, index: super::MatIndex { row: 2, col: 2 } })
+        }
+    }
+}
+
+impl From<Mat33> for Mat {
+    fn from(value: Mat33) -> Self {
+        Self::create(3, 3, &value.0)
+    }
+}
+
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Mat33 {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        <&[f64] as float_cmp::ApproxEq>::approx_eq(&self.0, &other.0, margin)
+    }
+}
+
 pub(crate) struct Mat33SVD {
     pub U: Mat33,
+    #[allow(unused)]
     pub S: Mat33,
     pub V: Mat33
 }
@@ -17,11 +52,12 @@ impl Mat33 {
     pub(crate) const fn zeroes() -> Self {
         Self([0.; 9])
     }
+    
     pub(crate) const fn of(v: [f64; 9]) -> Self {
         Self(v)
     }
 
-    pub(crate) const fn data(&self) -> &[f64; 9] {
+    pub(crate) const fn data(&self) -> &[f64] {
         &self.0
     }
 
