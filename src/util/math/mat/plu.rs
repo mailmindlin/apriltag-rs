@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::util::mem::calloc;
 
 use super::mat::Mat;
