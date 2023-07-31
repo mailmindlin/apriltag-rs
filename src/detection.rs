@@ -1,6 +1,6 @@
 use std::{sync::Arc, cmp::Ordering};
 
-use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D}, math::mat::Mat33}, TimeProfile};
+use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::mat::Mat33}, TimeProfile};
 
 /// Represents the detection of a tag. These are returned to the user
 /// and must be individually destroyed by the user.
@@ -38,7 +38,7 @@ pub struct AprilTagDetection {
 
 	/// The corners of the tag in image pixel coordinates. These always
 	/// wrap counter-clock wise around the tag.
-	pub corners: [Point2D; 4],
+	pub corners: Quadrilateral,
 }
 
 impl AprilTagDetection {
@@ -92,19 +92,24 @@ impl AprilTagDetection {
 
 #[derive(Default)]
 pub struct Detections {
-	pub tp: TimeProfile,
-	pub nquads: u32,
 	pub detections: Vec<AprilTagDetection>,
+	pub nquads: u32,
+	pub tp: TimeProfile,
 }
 
 fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> Vec<T> {
-	if drop_idxs.len() > 1 {
-		// Pop as many from the end as possible
-		drop_idxs.sort_unstable();
-		while let Some(last) = drop_idxs.last() && *last == elements.len() - 1 {
-			drop_idxs.pop();
-			elements.pop();
+	// Pop as many from the end as possible (this is cheap)
+	drop_idxs.sort_unstable();
+	while let Some(idx) = drop_idxs.last() {
+		if elements.is_empty() || *idx != elements.len() - 1 {
+			break;
 		}
+		let idx_pop = drop_idxs.pop();
+		#[cfg(debug_assertions)]
+		debug_assert_eq!(idx_pop, Some(elements.len() - 1));
+		let elem_pop = elements.pop();
+		#[cfg(debug_assertions)]
+		debug_assert!(elem_pop.is_some());
 	}
 
 	assert!(elements.len() >= drop_idxs.len());
@@ -249,16 +254,17 @@ pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Ve
 	// This reduces average time complexity from O(n^2) to O(n log n)
 	detections.sort_unstable_by(AprilTagDetection::cmp_tag);
 
+	//TODO: should we sort drop_idxs?
 	let mut drop_idxs = Vec::new();
 	'outer: for (i0, det0) in detections.iter().enumerate() {
 		if drop_idxs.contains(&i0) {
 			continue;
 		}
-		let poly0 = Poly2D::of(&det0.corners);
+		let poly0 = Poly2D::from(det0.corners);
 
 		for (i1, det1) in detections.iter().enumerate().skip(i0+1) {
 			if !det0.is_same_tag(det1) {
-				// They can't be the same detection
+				// They can't be the same detection (we skip outer because detections is already sorted by tag)
 				continue 'outer;
 			}
 
@@ -266,7 +272,7 @@ pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Ve
 				continue;
 			}
 
-			let poly1 = Poly2D::of(&det1.corners);
+			let poly1 = Poly2D::from(det1.corners);
 
 			if poly0.overlaps_polygon(&poly1) {
 				// the tags overlap. Delete one, keep the other.
