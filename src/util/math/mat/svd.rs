@@ -710,20 +710,23 @@ impl MatSVD {
             LP[(idxs[i], i)] = if vals[i] < 0. { -1. } else { 1. };
             RP[(idxs[i], i)] = 1.; //vals[i] < 0 ? -1 : 1;
         }
-        std::mem::drop(idxs);
-        std::mem::drop(vals);
+        drop(idxs);
+        drop(vals);
 
         // we've factored:
         // LP*(something)*RP'
 
         // solve for (something)
-        B = Mat::op("M'*F*M", &[&LP, &B, &RP]).unwrap();
+        // B = Mat::op("M'*F*M", &[&LP, &B, &RP]).unwrap();
+        let mut B = LP.transpose().matmul(&B).matmul(&RP);
 
         // update LS and RS, remembering that RS will be transposed.
-        let LS = Mat::op("F*M", &[&LS, &LP]).unwrap();
-        std::mem::drop(LP);
-        let RS = Mat::op("F*M", &[&RS, &RP]).unwrap();
-        std::mem::drop(RP);
+        // let LS = Mat::op("F*M", &[&LS, &LP]).unwrap();
+        let LS = LS.matmul(&LP);
+        drop(LP);
+        // let RS = Mat::op("F*M", &[&RS, &RP]).unwrap();
+        let RS = RS.matmul(&RP);
+        drop(RP);
 
         // make B exactly diagonal
         for i in 0..B.rows() {
