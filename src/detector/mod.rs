@@ -232,6 +232,21 @@ impl AprilTagDetector {
 
 		tp.stamp("cleanup");
 
+		#[cfg(feature="compare_reference")]
+		{
+			use crate::sys::{AprilTagDetectorSys, ImageU8Sys, ZArraySys};
+			let (td_sys, fams_sys) = AprilTagDetectorSys::new_with_families(self).unwrap();
+
+			let im_sys = ImageU8Sys::new(im_orig).unwrap();
+			let dets = ZArraySys::<*mut apriltag_sys::apriltag_detection>::wrap(unsafe { apriltag_sys::apriltag_detector_detect(td_sys.as_ptr(), im_sys.as_ptr()) }).unwrap();
+
+			assert_eq!(td_sys.as_ref().nquads, nquads);
+
+			drop(td_sys);
+			println!("sys dets: {dets:?}");
+			drop(fams_sys);
+		}
+
 		Ok(Detections {
 			tp,
 			nquads,
