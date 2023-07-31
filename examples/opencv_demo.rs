@@ -64,7 +64,8 @@ fn build_detector(args: &Args) -> AprilTagDetector {
             panic!();
         };
 
-        builder.add_family_bits(family, args.hamming).unwrap();
+        builder.add_family_bits(family, args.hamming)
+            .expect("Error adding AprilTag family");
     }
 
     builder.config.quad_decimate = args.decimate;
@@ -96,6 +97,8 @@ fn main() {
     }
 
     cap.set(VideoCaptureProperties::CAP_PROP_FPS as i32, 60.).unwrap();
+    cap.set(VideoCaptureProperties::CAP_PROP_FRAME_WIDTH as i32, 10000.).unwrap();
+    cap.set(VideoCaptureProperties::CAP_PROP_FRAME_HEIGHT as i32, 10000.).unwrap();
 
     // Initialize tag detector with options
     let detector = build_detector(&args);
@@ -117,6 +120,7 @@ fn main() {
 
         let mut gray = Mat::default();
         cvt_color(&mut frame, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0).unwrap();
+        tp.stamp("cvt_color");
         // Make an image_u8_t header for the Mat data
         let mut im = ImageY8::zeroed(gray.cols() as usize, gray.rows() as usize);
         for (y, mut dst) in im.rows_mut() {
@@ -129,7 +133,7 @@ fn main() {
         //     *dst = v.into();
         // }
 
-        tp.stamp("cvconvert");
+        tp.stamp("bufer_copy");
 
         let detections = match detector.detect(&im) {
             Ok(dets) => dets,
@@ -143,6 +147,10 @@ fn main() {
 
         // Draw detection outlines
         for det in detections.detections {
+            // println!("dm={}", det.decision_margin);
+            if det.decision_margin < 32. {
+                continue;
+            }
             line(&mut frame,
                 Point{ x: det.corners[0].x() as i32, y: det.corners[0].y() as i32 },
                 Point{ x: det.corners[1].x() as i32, y: det.corners[1].y() as i32 },
