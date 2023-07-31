@@ -83,7 +83,7 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
             let mut M3 = Mat33::zeroes();
             for j in 0..n_points {
                 // let M3_update = Mat::op("(M-M)*M'", &[&q[j], &q_mean, &p_res[j]]).unwrap();
-                let M3_update = q[j].sub(&q_mean).outer(&p_res[j]);
+                let M3_update = (&q[j] - &q_mean).outer(&p_res[j]);
                 M3 += &M3_update;
             }
             
@@ -124,7 +124,7 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
             let e_x = Vec3::of(1., 0., 0.);
 
             // let R_t_1_tmp = Mat::op("M-(M'*M)*M", &[&e_x, &e_x, &R_t_3, &R_t_3]).unwrap();
-            let R_t_1_tmp = e_x.sub(&e_x.outer(&R_t_3).mul(&R_t_3));
+            let R_t_1_tmp = e_x.sub(e_x.outer(&R_t_3).mul(&R_t_3));
 
             R_t_1_tmp.normalized()
         };
