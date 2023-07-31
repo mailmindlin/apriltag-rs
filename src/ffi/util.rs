@@ -63,10 +63,6 @@ impl<C: Container, F> ManagedPtr<C, F> where <C as Deref>::Target: Sized {
         let ptr = mem::replace(self.ptr.get_mut(), ptr::null_mut());
         Self::unwrap_ptr(ptr)
     }
-    pub(super) fn swap(&mut self, value: C) -> Option<C> {
-        let prev = mem::replace(self.ptr.get_mut(), C::into_raw(value) as _);
-        Self::unwrap_ptr(prev)
-    }
 }
 
 impl<C: Container, F> Drop for ManagedPtr<C, F> where <C as Deref>::Target: Sized {
