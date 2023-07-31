@@ -522,9 +522,9 @@ impl Mul<&Vec3> for &Mat33 {
 
     fn mul(self, rhs: &Vec3) -> Self::Output {
         Vec3::of(
-            (self.0[0] + self.0[1] + self.0[2]) * rhs.0,
-            (self.0[3] + self.0[4] + self.0[5]) * rhs.1,
-            (self.0[6] + self.0[7] + self.0[8]) * rhs.2,
+            self.0[0] * rhs.0 + self.0[1] * rhs.1 + self.0[2] * rhs.2,
+            self.0[3] * rhs.0 + self.0[4] * rhs.1 + self.0[5] * rhs.2,
+            self.0[6] * rhs.0 + self.0[7] * rhs.1 + self.0[8] * rhs.2,
         )
     }
 }
