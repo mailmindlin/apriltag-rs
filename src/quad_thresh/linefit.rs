@@ -48,7 +48,7 @@ impl From<apriltag_sys::pt> for Pt {
 }
 
 #[inline]
-pub(super) fn ptsort(pts: &mut [Pt]) {
+fn ptsort_inner(pts: &mut [Pt]) {
     //TODO: speed test
     pts.sort_unstable_by(Pt::compare_angle);
     return;
@@ -102,8 +102,107 @@ pub(super) fn ptsort(pts: &mut [Pt]) {
         }
         _ => {
             // Fall back to merge sort
-            pts.sort_unstable_by(Pt::compare_angle);
+            // pts.sort_unstable_by(Pt::compare_angle);
+            let mut tmp = pts.to_vec();
+
+            let (A, B) = tmp.split_at_mut(pts.len() / 2);
+            ptsort_inner(A);
+            ptsort_inner(B);
+
+            // #define MERGE(apos,bpos)                        \
+            // if (pt_compare_angle(&(as[apos]), &(bs[bpos])) < 0)        \
+            //     pts[outpos++] = as[apos++];             \
+            // else                                        \
+            //     pts[outpos++] = bs[bpos++];
+
+            let mut Apos = 0;
+            let mut Bpos = 0;
+            let mut Rpos = 0;
+
+            let mut MERGE = |Apos: &mut usize, Bpos: &mut usize| {
+                if Pt::compare_angle(&A[*Apos], &B[*Bpos]).is_lt() {
+                    pts[Rpos] = A[*Apos];
+                    *Apos += 1;
+                } else {
+                    pts[Rpos] = B[*Bpos];
+                    *Bpos += 1;
+                }
+                Rpos += 1;
+            };
+            while Apos + 8 < A.len() && Bpos + 8 < B.len() {
+                MERGE(&mut Apos, &mut Bpos); MERGE(&mut Apos, &mut Bpos);
+                MERGE(&mut Apos, &mut Bpos); MERGE(&mut Apos, &mut Bpos);
+                MERGE(&mut Apos, &mut Bpos); MERGE(&mut Apos, &mut Bpos);
+                MERGE(&mut Apos, &mut Bpos); MERGE(&mut Apos, &mut Bpos);
+            }
+
+            while Apos < A.len() && Bpos < B.len() {
+                MERGE(&mut Apos, &mut Bpos);
+            }
+
+            if Apos < A.len() {
+                let count = A.len() - Apos;
+                pts[Rpos..Rpos+count].copy_from_slice(&A[Apos..]);
+                Rpos += count;
+            }
+
+            if Bpos < B.len() {
+                let count = B.len() - Bpos;
+                pts[Rpos..Rpos+count].copy_from_slice(&B[Bpos..]);
+                Rpos += count;
+            }
+            assert_eq!(Rpos, pts.len());
         }
+    }
+}
+
+#[cfg(not(feature="compare_reference"))]
+#[inline]
+pub(super) fn ptsort(pts: &mut [Pt]) {
+    ptsort_inner(pts)
+}
+
+#[cfg(feature="compare_reference")]
+pub(super) fn ptsort(pts: &mut [Pt]) {
+    let initial = pts.to_vec();
+    let mut pts_sys = Vec::with_capacity(pts.len());
+    for pt in pts.iter() {
+        pts_sys.push(apriltag_sys::pt::from(*pt));
+    }
+    assert_eq!(pts.len(), pts_sys.len());
+
+    ptsort_inner(pts);
+
+    unsafe {
+        apriltag_sys::ptsort(pts_sys.as_mut_ptr(), pts_sys.len() as _);
+    }
+
+    // fn compare_indices<T: Into<Pt> + Clone>(base: &[Pt], shuffled: &[T]) -> Vec<usize> {
+    //     assert_eq!(base.len(), shuffled.len());
+    //     let mut results = Vec::with_capacity(base.len());
+    //     let mut idx_used = vec![false; base.len()];
+    //     for i in 0..shuffled.len() {
+    //         let shv: Pt = shuffled[i].clone().into();
+    //         let idx = if base[i] == shv && idx_used[i] {
+    //             i
+    //         } else {
+    //             base.iter()
+    //                 .enumerate()
+    //                 .find(|(i, bv)| !idx_used[*i] && *bv == &shv)
+    //                 .map(|(i, _)| i)
+    //                 .unwrap()
+    //         };
+    //         idx_used[idx] = true;
+    //         results.push(idx);
+    //     }
+    //     results
+    // }
+    // println!(" R ptsort: {:?}", compare_indices(&initial, pts));
+    // println!(" C ptsort: {:?}", compare_indices(&initial, &pts_sys));
+
+    for (i, (rs, sys)) in pts.iter().zip(pts_sys.iter()).enumerate() {
+        let sys = Pt::from(*sys);
+        assert_eq!(*rs, sys, "Mismatch at index {i}");
     }
 }
 
@@ -116,6 +215,34 @@ pub(super) struct LineFitPoint {
     pub(super) Mxy: f64,
     /// Total weight
     pub(super) W: f64,
+}
+
+#[cfg(feature="compare_reference")]
+impl From<apriltag_sys::line_fit_pt> for LineFitPoint {
+    fn from(value: apriltag_sys::line_fit_pt) -> Self {
+        Self {
+            Mx: value.Mx,
+            My: value.My,
+            Mxx: value.Mxx,
+            Myy: value.Myy,
+            Mxy: value.Mxy,
+            W: value.W,
+        }
+    }
+}
+
+#[cfg(feature="compare_reference")]
+impl From<LineFitPoint> for apriltag_sys::line_fit_pt {
+    fn from(value: LineFitPoint) -> Self {
+        Self {
+            Mx: value.Mx,
+            My: value.My,
+            Mxx: value.Mxx,
+            Myy: value.Myy,
+            Mxy: value.Mxy,
+            W: value.W,
+        }
+    }
 }
 
 pub(super) struct LineFitData {
@@ -166,8 +293,8 @@ fn get_point(lfps: &[LineFitPoint], i0: usize, i1: usize) -> (LineFitPoint, usiz
             Mx:  (pt_last.Mx   - pt_i0.Mx)   + pt_i1.Mx,
             My:  (pt_last.My   - pt_i0.My)   + pt_i1.My,
             Mxx: (pt_last.Mxx  - pt_i0.Mxx)  + pt_i1.Mxx,
-            Myy: (pt_last.Mxy  - pt_i0.Mxy)  + pt_i1.Mxy,
-            Mxy: (pt_last.Myy  - pt_i0.Myy)  + pt_i1.Myy,
+            Myy: (pt_last.Myy  - pt_i0.Myy)  + pt_i1.Myy,
+            Mxy: (pt_last.Mxy  - pt_i0.Mxy)  + pt_i1.Mxy,
             W:   (pt_last.W    - pt_i0.W)    + pt_i1.W,
         };
 
@@ -182,8 +309,40 @@ pub(crate) struct LineFitError {
     pub(crate) mse: f64,
 }
 
+#[cfg(feature="compare_reference")]
+fn fit_line_sys(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitData {
+    // println!("Calling apriltag_sys::fit_line(#{}, {i0}, {i1})", lfps.len());
+    let mut lfps_sys = Vec::new();
+    for lfp in lfps.iter() {
+        lfps_sys.push(apriltag_sys::line_fit_pt {
+            Mx: lfp.Mx,
+            My: lfp.My,
+            Mxx: lfp.Mxx,
+            Myy: lfp.Myy,
+            Mxy: lfp.Mxy,
+            W: lfp.W,
+        });
+    }
+    let mut lineparm = [0f64; 4];
+    let mut err = f64::NAN;
+    let mut mse = f64::NAN;
+    unsafe {
+        apriltag_sys::fit_line(
+            lfps_sys.as_mut_ptr(),
+            lfps_sys.len().try_into().unwrap(),
+            i0.try_into().unwrap(),
+            i1.try_into().unwrap(),
+            lineparm.as_mut_ptr(),
+            &mut err,
+            &mut mse
+        );
+    }
+    LineFitData { lineparm, err, mse }
+}
+
 pub(super) fn fit_line_error(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitError {
     let (pt, N) = get_point(lfps, i0, i1);
+    // println!("->Mx={:.15} My={:.15} Mxx={:.15} Mxy={:.15} Myy={:.15} W={:.15} N={}", pt.Mx, pt.My, pt.Mxx, pt.Mxy, pt.Myy, pt.W, N);
 
     assert!(N >= 2);
 
@@ -193,11 +352,13 @@ pub(super) fn fit_line_error(lfps: &[LineFitPoint], i0: usize, i1: usize) -> Lin
     let Cxx = pt.Mxx / W - Ex*Ex;
     let Cxy = pt.Mxy / W - Ex*Ey;
     let Cyy = pt.Myy / W - Ey*Ey;
+    // println!("->E=({Ex:.15}, {Ey:.15}) Cxx={Cxx:.15} Cxy={Cxy:.15} Cyy={Cyy:.15}");
 
     // let eig = 0.5*((pt.Mxx / W - (pt.Mx / W)*(pt.Mx / W)) + (pt.Myy / W - (pt.My / W)*(pt.My / W)) + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
 
     // Instead of using the above cos/sin method, pose it as an eigenvalue problem.
-    let eig = 0.5*(Cxx + Cyy + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
+    let eig = 0.5*(Cxx + Cyy - sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
+    // println!("->Inner {:.15} -> {:.15} -> {eig:.15}", (Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy, sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
 
     // sum of squared errors =
     //
@@ -209,7 +370,18 @@ pub(super) fn fit_line_error(lfps: &[LineFitPoint], i0: usize, i1: usize) -> Lin
 
     // sum of squared errors
     let err = N as f64 * eig;
-    LineFitError { err, mse: eig }
+    let mse = eig;
+
+    #[cfg(feature="compare_reference")]
+    {
+        use float_cmp::assert_approx_eq;
+        let res_sys = fit_line_sys(lfps, i0, i1);
+
+        assert_approx_eq!(f64, mse, res_sys.mse, epsilon = 1e-5);
+        assert_approx_eq!(f64, err, res_sys.err, epsilon = 1e-5);
+    }
+
+    LineFitError { err, mse }
 }
 
 /// lfps contains *cumulative* moments for N points, with
@@ -220,12 +392,18 @@ pub(super) fn fit_line_error(lfps: &[LineFitPoint], i0: usize, i1: usize) -> Lin
 pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitData {
     let (pt, N) = get_point(lfps, i0, i1);
 
+    // println!("\t R fit_line: Mx={:.15} My={:.15} Mxx={:.15} Mxy={:.15} Myy={:.15} W={:.15} N={}", pt.Mx, pt.My, pt.Mxx, pt.Mxy, pt.Myy, pt.W, N);
+
     let W = pt.W;
     let Ex = pt.Mx / W;
     let Ey = pt.My / W;
     let Cxx = pt.Mxx / W - Ex*Ex;
     let Cxy = pt.Mxy / W - Ex*Ey;
     let Cyy = pt.Myy / W - Ey*Ey;
+
+    let eig_small = 0.5*(Cxx + Cyy - sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
+
+    // println!("\t R fit_line: \tE=({:.15}, {:.15}) Cxx={:.15} Cxy={:.15} Cyy={:.15} Esm={eig_small:.15}", Ex, Ey, Cxx, Cxy, Cyy);
 
     // Instead of using the above cos/sin method, pose it as an eigenvalue problem.
     let eig = 0.5*(Cxx + Cyy + sqrtf((Cxx - Cyy)*(Cxx - Cyy) + 4. * Cxy*Cxy));
@@ -262,10 +440,24 @@ pub(super) fn fit_line(lfps: &[LineFitPoint], i0: usize, i1: usize) -> LineFitDa
     //  nx*nx*N*Cxx + 2nx*ny*N*Cxy + ny*ny*N*Cyy
 
     // sum of squared errors
-    let err = N as f64 * eig;
+    let err = N as f64 * eig_small;
 
     // mean squared error
-    let mse = eig;
+    let mse = eig_small;
+
+    // println!("\t R fit_line: \tL={lineparm:.15?} err={err:.15} mse={mse:.15}");
+
+    #[cfg(feature="compare_reference")]
+    {
+        use float_cmp::assert_approx_eq;
+        let res_sys = fit_line_sys(lfps, i0, i1);
+
+        const EPSILON: f64 = 1e-6;
+
+        assert_approx_eq!(f64, mse, res_sys.mse, epsilon = EPSILON);
+        assert_approx_eq!(f64, err, res_sys.err, epsilon = EPSILON);
+        assert_approx_eq!(&[f64], &lineparm, &res_sys.lineparm, epsilon = EPSILON);
+    }
 
     LineFitData {
         lineparm,
