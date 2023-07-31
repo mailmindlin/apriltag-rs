@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, hash_map::Entry}, hash::{Hash, BuildHasher, Hasher}};
+use std::{collections::{HashMap, hash_map::{Entry, RandomState}}, hash::{Hash, BuildHasher, Hasher}};
 
 use rayon::prelude::*;
 
@@ -6,18 +6,19 @@ use crate::{util::image::ImageY8, detector::DetectorConfig};
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
 struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
+    // value: u64,
 }
 
-impl Hash for ClusterId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let u = (self.rep0 as u64) << 32 | (self.rep1 as u64);
-        u.hash(state)
-    }
-}
+// impl Hash for ClusterId {
+//     fn hash<H: Hasher>(&self, state: &mut H) {
+//         let u = (self.rep0 as u64) << 32 | (self.rep1 as u64);
+//         u.hash(state)
+//     }
+// }
 
 impl ClusterId {
     const fn new(repa: UnionFindId, repb: UnionFindId) -> Self {
@@ -26,6 +27,9 @@ impl ClusterId {
         } else {
             (repb, repa)
         };
+        // Self {
+        //     value: (repa as u64) << 32 | (repb as u64)
+        // }
         Self {
             rep0,
             rep1,
@@ -33,30 +37,31 @@ impl ClusterId {
     }
 }
 
-#[derive(Clone, Copy)]
-struct ClusterHasher(u64);
+// #[derive(Clone, Copy, Default)]
+// struct ClusterHasher(u64);
 
-impl BuildHasher for ClusterHasher {
-    type Hasher = Self;
+// impl BuildHasher for ClusterHasher {
+//     type Hasher = Self;
 
-    fn build_hasher(&self) -> Self::Hasher {
-        *self
-    }
-}
+//     fn build_hasher(&self) -> Self::Hasher {
+//         *self
+//     }
+// }
 
-impl Hasher for ClusterHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
+// impl Hasher for ClusterHasher {
+//     fn finish(&self) -> u64 {
+//         self.0
+//     }
 
-    fn write_u64(&mut self, i: u64) {
-        self.0 = self.0 * 2654435761 + i
-    }
+//     fn write_u64(&mut self, i: u64) {
+//         self.0 = self.0 * 2654435761 + i
+//     }
 
-    fn write(&mut self, _bytes: &[u8]) {
-        todo!()
-    }
-}
+//     fn write(&mut self, _bytes: &[u8]) {
+//         todo!()
+//     }
+// }
+type ClusterHasher = RandomState;
 
 fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Cluster, uf: &impl UnionFindStatic<(u32, u32)>) {
     let width = threshim.width();
@@ -111,7 +116,7 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
                     let (rep1, size1) = uf.get_set_static((off_x as _, off_y as _));
                     if size1 > 24 {
                         let key = ClusterId::new(rep0, rep1);
-                        let value = {
+                        let value: Pt = {
                             let dv = (v1 as i16) - (v0 as i16);
                             #[cfg(debug_assertions)]
                             let x = Pt {
@@ -142,6 +147,13 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
             }
         }
     }
+    #[cfg(feature="extra_debug")]
+    if !clustermap.is_empty() && false {
+        println!("Found {} clusters on line {}..{}", clustermap.len(), y0, y1);
+        for (cid, cluster) in clustermap.iter() {
+            println!(" - {}/{} len {}", cid.rep0, cid.rep1, cluster.len());
+        }
+    }
 }
 
 type Cluster = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
@@ -165,15 +177,8 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
 
     let sz = threshim.height() - 1;
     let cluster_entries = if config.single_thread() && false {
-        let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0));
+        let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
         do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
-        #[cfg(feature="extra_debug")]
-        if !clusters.is_empty() && false {
-            println!("Found {} clusters on line {}..{}", clusters.len(), y0, y1);
-            for cluster in clusters.iter() {
-                println!(" - {}/{} len {}", cluster.id.rep0, cluster.id.rep1, cluster.data.len());
-            }
-        }
         clustermap
     } else {
         let chunksize = 1 + sz / config.nthreads;
@@ -182,7 +187,7 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
         (0..sz)
             .into_par_iter()
             .step_by(chunksize)
-            .fold(|| Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher(0)), |mut clustermap, i| {
+            .fold(|| Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default()), |mut clustermap, i| {
             // .map(|i| {
                 let y0 = i;
                 let y1 = std::cmp::min(sz, i + chunksize);
@@ -191,7 +196,7 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
                 clustermap
             })
             //TODO: it might be more efficient to reduce adjacent clusters
-            .reduce(|| Cluster::with_hasher(ClusterHasher(0)), merge_clusters)
+            .reduce(|| Cluster::with_hasher(ClusterHasher::default()), merge_clusters)
     };
 
     // Convert from ClusterEntry -> Vec<Pt>
