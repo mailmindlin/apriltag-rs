@@ -45,10 +45,12 @@ struct Args {
     refine_edges: bool,
     #[arg(long, default_value_t=false)]
     opencl: bool,
+    #[arg(long)]
+    debug_path: Option<PathBuf>,
 }
 
-fn build_detector(args: &Args, dbp: &str) -> AprilTagDetector {
-    let mut detector = AprilTagDetector::builder();
+fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
+    let mut builder = AprilTagDetector::builder();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
@@ -64,25 +66,28 @@ fn build_detector(args: &Args, dbp: &str) -> AprilTagDetector {
         } else {
             println!("Error: Unknown family name: {}", family_name);
             println!("Valid family names:");
-            println!(" - tag16h5");
-            println!(" - tag25h9");
-            println!(" - tag36h10");
-            println!(" - tag36h11");
+            for name in AprilTagFamily::names() {
+                println!(" - {name}");
+            }
             panic!();
         };
 
-        detector.add_family_bits(family, args.hamming).unwrap();
+        builder.add_family_bits(family, args.hamming)
+            .expect("Error adding AprilTag family");
     }
 
-    detector.config.quad_decimate = args.decimate;
-    detector.config.quad_sigma = args.blur;
-    detector.config.nthreads = args.threads;
-    detector.config.debug = args.debug;
-    detector.config.refine_edges = args.refine_edges;
-    detector.config.debug_path = Some(format!("./debug/{dbp}"));
+    builder.config.quad_decimate = args.decimate;
+    builder.config.quad_sigma = args.blur;
+    builder.config.nthreads = args.threads;
+    builder.config.debug = args.debug;
+    builder.config.refine_edges = args.refine_edges;
+    if let Some(path) = dbp {
+        detector.config.debug_path = Some(format!("./debug/{path}"));
+    } else if let Some(path) = &args.debug_path {
+        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+    }
 
-    detector
-        .build()
+    builder.build()
         .expect("Error building AprilTagDetector")
 }
 
@@ -102,9 +107,11 @@ fn main() {
     }
 
     cap.set(VideoCaptureProperties::CAP_PROP_FPS as i32, 60.).unwrap();
+    cap.set(VideoCaptureProperties::CAP_PROP_FRAME_WIDTH as i32, 10000.).unwrap();
+    cap.set(VideoCaptureProperties::CAP_PROP_FRAME_HEIGHT as i32, 10000.).unwrap();
 
     // Initialize tag detector with options
-    let detector = build_detector(&args);
+    let detector = build_detector(&args, None);
 
     meter.stop().unwrap();
     let m = String::from("multiple");
@@ -123,6 +130,7 @@ fn main() {
 
         let mut gray = Mat::default();
         cvt_color(&mut frame, &mut gray, ColorConversionCodes::COLOR_BGR2GRAY as i32, 0).unwrap();
+        tp.stamp("cvt_color");
         // Make an image_u8_t header for the Mat data
         let mut im = ImageY8::zeroed(gray.cols() as usize, gray.rows() as usize);
         for (y, mut dst) in im.rows_mut() {
@@ -135,7 +143,7 @@ fn main() {
         //     *dst = v.into();
         // }
 
-        tp.stamp("cvconvert");
+        tp.stamp("bufer_copy");
 
         let detections = match detector.detect(&im) {
             Ok(dets) => dets,
@@ -148,6 +156,10 @@ fn main() {
 
         // Draw detection outlines
         for det in detections.detections {
+            // println!("dm={}", det.decision_margin);
+            if det.decision_margin < 32. {
+                continue;
+            }
             line(&mut frame,
                 Point{ x: det.corners[0].x() as i32, y: det.corners[0].y() as i32 },
                 Point{ x: det.corners[1].x() as i32, y: det.corners[1].y() as i32 },

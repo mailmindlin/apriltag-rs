@@ -91,25 +91,25 @@ impl MatDims {
 
 	/// Check if this represents a scalar
 	#[inline]
-	pub fn is_scalar(&self) -> bool {
+	pub const fn is_scalar(&self) -> bool {
 		(self.rows == 0) && (self.cols == 0)
 	}
 
     /// Check if this represents a vector
 	#[inline]
-	pub fn is_vector(&self) -> bool {
+	pub const fn is_vector(&self) -> bool {
 		self.rows == 1 || self.cols == 1
 	}
 
     /// Check if this represents a vector of some length
 	#[inline]
-	pub fn is_vector_len(&self, len: usize) -> bool {
+	pub const fn is_vector_len(&self, len: usize) -> bool {
 		(self.cols == 1 && self.rows == len) || (self.cols == len && self.rows == 1)
 	}
 
     /// Check if this represents a square matrix
 	#[inline]
-	pub fn is_square(&self) -> bool {
+	pub const fn is_square(&self) -> bool {
 		self.rows == self.cols
 	}
 }

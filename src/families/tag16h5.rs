@@ -61,3 +61,19 @@ pub fn tag16h5_create() -> AprilTagFamily {
         name: Cow::Borrowed("tag16h5"),
     }
 }
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature="compare_reference")]
+    #[test]
+    fn compare_16h5() {
+        let tag = super::tag16h5_create();
+
+        unsafe {
+            let tag_sys = apriltag_sys::tag16h5_create();
+            let ts = tag_sys.as_ref().unwrap();
+            tag.assert_similar(ts);
+            apriltag_sys::tag16h5_destroy(tag_sys);
+        };
+    }
+}

@@ -14,8 +14,6 @@ pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) ->
 	for quad in quads.iter() {
 		let color = rng.gen_color_gray(100).into();
 
-		println!("Corners: {:?}", quad.corners);
-
 		im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 		im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
 		im_quads.draw_line(quad.corners[2], quad.corners[3], &color, 1);
@@ -64,7 +62,7 @@ pub(super) fn debug_output_ps(mut f: File, mut img: ImageY8, detections: &[April
 		let rgb = rng.gen_color_rgb(100);
 
 		f.setrgbcolor(&rgb)?;
-		f.command(|c| {
+		f.path(|c| {
 			c.moveto(&det.corners[0])?;
 			c.lineto(&det.corners[1])?;
 			c.lineto(&det.corners[2])?;
@@ -121,7 +119,7 @@ pub(super) fn debug_quads_ps(mut f: File, mut img: ImageY8, quads: &[Quad]) -> s
 		let rgb = rng.gen_color_rgb(100);
 
 		f.setrgbcolor(&rgb)?;
-		f.command(|c| {
+		f.path(|c| {
 			c.moveto(&q.corners[0])?;
 			c.lineto(&q.corners[1])?;
 			c.lineto(&q.corners[2])?;

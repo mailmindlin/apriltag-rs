@@ -3,16 +3,31 @@ use std::ops::Mul;
 use super::{math::{mat::{Mat, SvdOptions, Mat33}, Vec3}, geom::Point2D};
 
 
-
-//void homography_project(const matd_t *H, double x, double y, double *ox, double *oy);
 #[inline]
 pub(crate) fn homography_project(H: &Mat33, x: f64, y: f64) -> Point2D {
     let v = H.mul(&Vec3::of(x, y, 1.));
 
-    Point2D::of(
+    let res = Point2D::of(
         v.0 / v.2, // x
         v.1 / v.2, // y
-    )
+    );
+
+    #[cfg(feature="compare_reference")]
+    {
+        use float_cmp::assert_approx_eq;
+        let H1: Mat = (*H).into();
+        let mat_sys = crate::sys::SysPtr::<apriltag_sys::matd_t>::new_like(&H1).unwrap();
+
+        let mut ox = f64::NAN;
+        let mut oy = f64::NAN;
+        unsafe {
+            apriltag_sys::homography_project(mat_sys.as_ptr(), x, y, &mut ox, &mut oy);
+        }
+        assert_approx_eq!(f64, ox, res.x(), epsilon=1e-6);
+        assert_approx_eq!(f64, oy, res.y(), epsilon=1e-6);
+    }
+
+    res
 }
 
 pub enum HomographyMode {
@@ -20,9 +35,9 @@ pub enum HomographyMode {
     SVD,
 }
 
-// correspondences is a list of float[4]s, consisting of the points x
-// and y concatenated. We will compute a homography such that y = Hx
-pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat {
+/// correspondences is a list of float[4]s, consisting of the points x
+/// and y concatenated. We will compute a homography such that y = Hx
+pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat33 {
     // compute centroids of both sets of points (yields a better
     // conditioned information matrix)
     let mut x_cx = 0f64;
@@ -150,51 +165,39 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
         }
     }
 
-    let mut H = Mat::zeroes(3,3);
+    let mut H = Mat33::zeroes();
 
     match mode {
         HomographyMode::INVERSE => {
             // compute singular vector by (carefully) inverting the rank-deficient matrix.
 
-            if true {
-                let Ainv = A.inv().unwrap();
-                let mut scale = 0.;
-
-                for i in 0..9 {
-                    let value = Ainv[(i,0)];
-                    scale += value * value;
-                }
-                scale = scale.sqrt();
-
-                for i in 0..3 {
-                    for j in 0..3 {
-                        H[(i,j)] = Ainv[(3*i+j, 0)] / scale;
-                    }
-                }
-
-                std::mem::drop(Ainv);
+            let Ainv = if true {
+                A.inv().unwrap()
             } else {
                 let b = Mat::create(9, 1, &[ 1., 0., 0., 0., 0., 0., 0., 0., 0. ]);
 
-                let Ainv = if false {
+                if false {
                     let lu = A.plu();
                     lu.solve(&b)
                 } else {
                     let chol = A.chol();
                     chol.solve(&b)
-                };
+                }
+            };
 
-                let scale = (0..9)
-                    .map(|i| Ainv[(i, 0)])
-                    .map(|v| v * v)
-                    .sum::<f64>()
-                    .sqrt()
-                    .recip();
+            let scale = {
+                let mut scale = 0.;
+    
+                for i in 0..9 {
+                    let value = Ainv[(i,0)];
+                    scale += value * value;
+                }
+                scale.sqrt().recip()
+            };
 
-                for i in 0..3 {
-                    for j in 0..3 {
-                        H[(i,j)] = Ainv[(3*i+j,0)] * scale;
-                    }
+            for i in 0..3 {
+                for j in 0..3 {
+                    H[(i,j)] = Ainv[(3*i+j, 0)] / scale;
                 }
             }
         },
@@ -211,20 +214,21 @@ pub fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) ->
     }
 
     let Tx = {
-        let mut Tx = Mat::identity(3);
+        let mut Tx = Mat33::identity();
         Tx[(0,2)] = -x_cx;
         Tx[(1,2)] = -x_cy;
         Tx
     };
 
     let Ty = {
-        let mut Ty = Mat::identity(3);
+        let mut Ty = Mat33::identity();
         Ty[(0,2)] = -y_cx;
         Ty[(1,2)] = -y_cy;
         Ty
     };
 
-    Mat::op("M*M*M", &[&Ty, &H, &Tx]).unwrap()
+    // Mat::op("M*M*M", &[&Ty, &H, &Tx]).unwrap()
+    Ty.matmul(&H).matmul(&Tx)
 }
 
 

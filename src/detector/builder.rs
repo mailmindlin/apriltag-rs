@@ -114,8 +114,20 @@ impl DetectorBuilder {
 		self
 	}
 
+	pub fn opencl_mode(&self) -> &OpenClMode {
+		#[cfg(feature="opencl")]
+		{
+			self.ocl = mode;
+		}
+		#[cfg(not(feature="opencl"))]
+		&OpenClMode::Disabled
+	}
+
 	pub fn use_opencl(&mut self, mode: OpenClMode) {
-		self.ocl = mode;
+		#[cfg(feature="opencl")]
+		{
+			self.ocl = mode;
+		}
 	}
 
 	/// Clear AprilTag families to detect
@@ -131,7 +143,7 @@ impl DetectorBuilder {
 
 	/// Build a detector with these options
 	pub fn build(self) -> Result<AprilTagDetector, DetectorBuildError> {
-        AprilTagDetector::new(self.config, self.tag_families, self.ocl)
+        AprilTagDetector::new(self.config, self.tag_families)
 	}
 }
 

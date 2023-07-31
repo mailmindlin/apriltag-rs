@@ -124,7 +124,7 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
 
     for q in quads.iter() {
         ps.setrgbcolor(&rng.gen_color_rgb(100))?;
-        ps.command(|c| {
+        ps.path(|c| {
             c.moveto(&q.corners[0])?;
             c.lineto(&q.corners[0])?;
             c.lineto(&q.corners[1])?;

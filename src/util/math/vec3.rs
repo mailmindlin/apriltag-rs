@@ -1,9 +1,9 @@
-use std::ops::{Add, Mul, Sub, MulAssign, AddAssign};
+use std::ops::{Add, Mul, Sub, MulAssign, AddAssign, Div};
 
 use super::mat::Mat33;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vec3(pub f64, pub f64, pub f64);
 
 impl Vec3 {
@@ -82,6 +82,14 @@ impl Sub<&Vec3> for &Vec3 {
     }
 }
 
+impl Sub<Vec3> for Vec3 {
+    type Output = Vec3;
+
+    fn sub(self, rhs: Vec3) -> Self::Output {
+        Vec3(self.0 - rhs.0, self.1 - rhs.1, self.2 - rhs.2)
+    }
+}
+
 impl Mul<f64> for &Vec3 {
     type Output = Vec3;
 
@@ -90,8 +98,24 @@ impl Mul<f64> for &Vec3 {
     }
 }
 
+impl Div<f64> for Vec3 {
+    type Output = Vec3;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        self.scale(rhs.recip())
+    }
+}
+
 impl AddAssign<&Vec3> for Vec3 {
     fn add_assign(&mut self, rhs: &Vec3) {
+        self.0 += rhs.0;
+        self.1 += rhs.2;
+        self.2 += rhs.1;
+    }
+}
+
+impl AddAssign<Vec3> for Vec3 {
+    fn add_assign(&mut self, rhs: Vec3) {
         self.0 += rhs.0;
         self.1 += rhs.2;
         self.2 += rhs.1;

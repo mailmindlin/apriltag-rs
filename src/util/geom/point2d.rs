@@ -14,6 +14,15 @@ impl Debug for Point2D {
     }
 }
 
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Point2D {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        self.0.approx_eq(other.0, margin)
+    }
+}
+
 impl Add<Vec2> for &Point2D {
     type Output = Point2D;
 

@@ -6,8 +6,9 @@ mod zarray;
 mod family;
 mod matd;
 mod extras;
+mod shim;
 
-use std::ffi::CString;
+use std::{ffi::CString, num::TryFromIntError};
 
 use libc::c_char;
 
@@ -39,6 +40,10 @@ pub use detector::{
 };
 pub use matd::{
     matd_ptr,
+    matd_create,
+    matd_create_data,
+    matd_create_dataf,
+    matd_identity,
 };
 pub use zarray::{
     ZArray,
@@ -52,10 +57,16 @@ pub use extras::{
 
 #[derive(Debug)]
 pub enum FFIConvertError {
-    FieldOverflow,
     NullPointer,
+    FieldOverflow,
+    Other(String),
 }
 
+impl From<TryFromIntError> for FFIConvertError {
+    fn from(value: TryFromIntError) -> Self {
+        Self::FieldOverflow
+    }
+}
 
 fn drop_str(ptr: &mut *const c_char) {
     if ptr.is_null() {

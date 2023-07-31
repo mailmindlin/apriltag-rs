@@ -7,7 +7,6 @@ mod tag16h5;
 mod tag25h9;
 mod tag36h10;
 mod tag36h11;
-pub mod generator;
 mod util;
 pub use util::{rotate90, rotations};
 
@@ -19,7 +18,7 @@ pub use tag36h11::tag36h11_create;
 pub(crate) type Code = u64;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rotation {
 	Identity,
 	Deg90,
@@ -86,12 +85,38 @@ impl AprilTagFamily {
         Some(Arc::new(res))
     }
 
+    pub fn names() -> impl IntoIterator<Item = &'static str> {
+        vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11"]
+    }
+
+    pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
+        let mut bit_x = Vec::with_capacity(self.bits.len());
+        let mut bit_y = Vec::with_capacity(self.bits.len());
+        for (x, y) in self.bits.iter() {
+            bit_x.push(*x);
+            bit_y.push(*y);
+        }
+        (bit_x, bit_y)
+    }
     fn similar_to(&self, other: &Self) -> bool {
         self.bits == other.bits
             && (self.width_at_border == other.width_at_border)
             && (self.total_width == other.total_width)
             && (self.reversed_border == other.reversed_border)
             && (self.min_hamming == other.min_hamming) //TODO: we might not care
+    }
+
+    #[cfg(all(test, feature="compare_reference"))]
+    fn assert_similar(&self, ts: &apriltag_sys::apriltag_family) {
+        assert_eq!(self.width_at_border, ts.width_at_border as u32);
+        assert_eq!(self.total_width, ts.total_width as u32);
+        assert_eq!(self.reversed_border, ts.reversed_border);
+        assert_eq!(self.min_hamming, ts.h);
+        assert_eq!(self.codes.len(), ts.ncodes as usize);
+        assert_eq!(&self.codes, unsafe { std::slice::from_raw_parts(ts.codes, ts.ncodes as usize) });
+        let (bit_x, bit_y) = self.split_bits();
+        assert_eq!(&bit_x, unsafe { std::slice::from_raw_parts(ts.bit_x, ts.nbits as usize) });
+        assert_eq!(&bit_y, unsafe { std::slice::from_raw_parts(ts.bit_y, ts.nbits as usize) });
     }
 
     pub fn to_image(&self, idx: usize) -> ImageBuffer<Luma<u8>> {

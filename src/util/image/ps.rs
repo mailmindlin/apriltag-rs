@@ -45,7 +45,7 @@ impl<'a, W: io::Write> PostScriptWriter<'a, W> {
         )
     }
 
-    pub(crate) fn command(&mut self, callback: impl FnOnce(&mut PSCommandWriter<W>) -> Result<()>) -> Result<()> {
+    pub(crate) fn path(&mut self, callback: impl FnOnce(&mut PSCommandWriter<W>) -> Result<()>) -> Result<()> {
         {
             let mut child = PSCommandWriter(self.inner);
             callback(&mut child)?;

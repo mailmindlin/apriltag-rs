@@ -1,19 +1,33 @@
-use std::{ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign}, fmt::Debug};
+#![allow(unused)]
+use std::{ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign}, fmt::Debug, alloc::AllocError};
 
-use crate::util::mem::calloc;
+use crate::util::mem::{calloc, try_calloc};
 
 use super::{plu::MatPLU, MatChol, svd::{MatSVD, SvdOptions}, MatDims, MatIndex, OutOfBoundsError};
 
 #[derive(Clone, Debug)]
 pub struct Mat {
+	pub(crate) data: Box<[MatElement]>,
 	pub(super) dims: MatDims,
-	pub(super) data: Box<[f64]>,
 }
 
 type MatElement = f64;
 
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Mat {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        if self.dims != other.dims {
+			return false;
+		}
+		assert_eq!(self.data.len(), other.data.len());
+		<&[f64] as float_cmp::ApproxEq>::approx_eq(&self.data, &other.data, margin)
+    }
+}
+
 impl Mat {
-	pub const EPS: f64 = 1e-8;
+	pub const EPS: MatElement = 1e-8;
 
 	/// Create matrix full of zeroes
 	pub fn zeroes(rows: usize, cols: usize) -> Self {
@@ -21,28 +35,33 @@ impl Mat {
 			rows,
 			cols,
 		};
-		Self::zeroes_dim(dims)
+		Self::zeroes_dim(dims).unwrap()
 	}
 
 	#[inline]
-	pub fn zeroes_dim(dims: MatDims) -> Self {
+	pub fn zeroes_dim(dims: MatDims) -> Result<Self, AllocError> {
 		if dims.is_scalar() {
-			Self::scalar(0.)
+			Ok(Self::scalar(0.))
 		} else {
-			Self {
+			let data = try_calloc(dims.len())?;
+			Ok(Self {
 				dims,
-				data: calloc(dims.len()),
-			}
+				data,
+			})
 		}
 	}
 
 	#[inline]
 	pub fn zeroes_like(other: &Self) -> Self {
-		Self::zeroes_dim(other.dims)
+		Self::zeroes_dim(other.dims).unwrap()
+	}
+
+	pub fn create(rows: usize, cols: usize, raw: &[f64]) -> Self {
+		Self::try_create(rows, cols, raw).unwrap()
 	}
 
 	/// Create matrix from data
-	pub fn create(rows: usize, cols: usize, raw: &[f64]) -> Self {
+	pub fn try_create(rows: usize, cols: usize, raw: &[f64]) -> Result<Self, AllocError> {
 		let dims = MatDims {
 			rows,
 			cols,
@@ -50,18 +69,21 @@ impl Mat {
 		assert_eq!(dims.len(), raw.len(), "Data length mismatch");
 
 		if dims.is_scalar() {
-			return Self::scalar(raw[0]);
+			return Ok(Self::scalar(raw[0]));
 		}
-		let mut data = calloc(raw.len());
-		assert_eq!(data.len(), dims.len());
-		data.copy_from_slice(raw);
-		Self {
-			dims,
-			data,
-		}
+
+		let mut result = Self::zeroes_dim(dims)?;
+		assert_eq!(result.data.len(), dims.len());
+		result.data.copy_from_slice(raw);
+		Ok(result)
 	}
 
-	/// Create new scalar
+	/// Create new scalar with the supplied value
+	/// 
+	/// NOTE: Scalars are different than 1x1 matrices (implementation note:
+	/// they are encoded as 0x0 matrices). For example: for matrices A*B, A
+	/// and B must both have specific dimensions. However, if A is a
+	/// scalar, there are no restrictions on the size of B.
 	pub fn scalar(value: f64) -> Self {
 		Self {
 			dims: MatDims::scalar(),
@@ -70,12 +92,12 @@ impl Mat {
 	}
 
 	#[inline]
-	pub fn rows(&self) -> usize {
+	pub const fn rows(&self) -> usize {
 		self.dims.rows
 	}
 
 	#[inline]
-	pub fn cols(&self) -> usize {
+	pub const fn cols(&self) -> usize {
 		self.dims.cols
 	}
 
@@ -102,6 +124,10 @@ impl Mat {
 	}
 
 	/// Create identity matrix of dimension
+	/// Creates a square identity matrix with the given number of rows (and
+	/// therefore columns), or a scalar with value 1 in the case where dim=0.
+	/// It is the caller's responsibility to call matd_destroy() on the
+	/// returned matrix.
 	pub fn identity(dim: usize) -> Mat {
 		if dim == 0 {
 			Self::scalar(1.)
@@ -338,7 +364,7 @@ impl Mat {
 
 				let invdet = det.recip();
 
-				let mut m = Self::zeroes_dim(self.dims);
+				let mut m = Self::zeroes_dim(self.dims).unwrap();
 				m[(0,0)] = 1.0 * invdet;
 				Some(m)
 			},
@@ -350,7 +376,7 @@ impl Mat {
 
 				let invdet = det.recip();
 
-				let mut m = Self::zeroes_dim(self.dims);
+				let mut m = Self::zeroes_dim(self.dims).unwrap();
 				m[(0,0)] = self[(1,1)] * invdet;
 				m[(0,1)] = self[(0,1)] * invdet;
 				m[(1,0)] = self[(1,0)] * invdet;
@@ -390,7 +416,7 @@ impl Mat {
 			return Self::scalar(scalar);
 		}
 
-		let mut res = Self::zeroes_dim(self.dims);
+		let mut res = Self::zeroes_dim(self.dims).unwrap();
 		for i in 0..self.dims.rows {
 			for j in 0..self.dims.cols {
 				res[(j,i)] = self[(i,j)];
@@ -471,6 +497,10 @@ impl Mat {
 		for elem in self.data.iter_mut() {
 			*elem *= scalar;
 		}
+	}
+
+	pub fn transpose_matmul(&self, rhs: &Mat) -> Mat {
+		self.transpose().matmul(rhs)
 	}
 
 	pub fn matmul(&self, rhs: &Mat) -> Mat {

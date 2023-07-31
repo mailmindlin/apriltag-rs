@@ -12,8 +12,11 @@ jni = ["dep:jni"]
 cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
 extra_debug = ["debug"]
+compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 
-default = ["cpython", "jni", "cffi", "debug"]
+default = ["cpython", "jni", "debug", "cffi", "dep:opencv"]
+# default = ["debug"]
+# default = ["debug", "compare_reference", "extra_debug"]
 
 [profile.dev]
 default = ["cpython", "jni", "cffi", "debug", "extra_debug"]
@@ -52,7 +55,18 @@ optional = true
 version = "0.3.1"
 optional = true
 
+[dependencies.apriltag-sys]
+path="../apriltag-rust-deep/apriltag-sys"
+optional = true
+[dependencies.float-cmp]
+version = "0.9.0"
+optional = true
+
 
 [dev-dependencies]
 image = "0.24.6"
-opencv = "0.82.1"
+
+[dependencies.opencv]
+version = "0.83.0"
+features = ["clang-runtime"]
+optional = true

@@ -1,14 +1,49 @@
-use std::{ops::{Index, IndexMut, MulAssign, AddAssign, Sub, Add, Mul}, mem::{transmute, swap}};
+use std::{ops::{Index, IndexMut, MulAssign, AddAssign, Sub, Add, Mul}, mem::swap};
 
 use crate::util::math::Vec3;
+
+use super::{OutOfBoundsError, MatDims, Mat};
 
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
-pub struct Mat33([f64; 9]);
+pub struct Mat33(pub [f64; 9]);
+
+
+impl TryFrom<super::Mat> for Mat33 {
+    type Error = OutOfBoundsError;
+
+    fn try_from(value: super::Mat) -> Result<Self, Self::Error> {
+        if value.dims != (MatDims { rows: 3, cols: 3 }) {
+            return Err(OutOfBoundsError { dims: value.dims, index: super::MatIndex { row: 2, col: 2 } });
+        }
+        let a: &[f64] = &value.data;
+        let b: Result<[f64; 9], _> = a.try_into();
+        match b {
+            Ok(elems) => Ok(Self(elems)),
+            Err(_) => Err(OutOfBoundsError { dims: value.dims, index: super::MatIndex { row: 2, col: 2 } })
+        }
+    }
+}
+
+impl From<Mat33> for Mat {
+    fn from(value: Mat33) -> Self {
+        Self::create(3, 3, &value.0)
+    }
+}
+
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Mat33 {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        <&[f64] as float_cmp::ApproxEq>::approx_eq(&self.0, &other.0, margin)
+    }
+}
 
 pub(crate) struct Mat33SVD {
     pub U: Mat33,
+    #[allow(unused)]
     pub S: Mat33,
     pub V: Mat33
 }
@@ -17,11 +52,12 @@ impl Mat33 {
     pub(crate) const fn zeroes() -> Self {
         Self([0.; 9])
     }
+    
     pub(crate) const fn of(v: [f64; 9]) -> Self {
         Self(v)
     }
 
-    pub(crate) const fn data(&self) -> &[f64; 9] {
+    pub(crate) const fn data(&self) -> &[f64] {
         &self.0
     }
 
@@ -456,19 +492,19 @@ impl Mat33 {
 impl Index<(usize, usize)> for Mat33 {
     type Output = f64;
 
-    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
-        debug_assert!(x < 3);
-        debug_assert!(y < 3);
-        let idx = x + 3 * y;
+    fn index(&self, (row, col): (usize, usize)) -> &Self::Output {
+        debug_assert!(row < 3);
+        debug_assert!(col < 3);
+        let idx = row * 3 + col;
         &self.0[idx]
     }
 }
 
 impl IndexMut<(usize, usize)> for Mat33 {
-    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
-        debug_assert!(x < 3);
-        debug_assert!(y < 3);
-        let idx = x + 3 * y;
+    fn index_mut(&mut self, (row, col): (usize, usize)) -> &mut Self::Output {
+        debug_assert!(row < 3);
+        debug_assert!(col < 3);
+        let idx = row * 3 + col;
         &mut self.0[idx]
     }
 }
@@ -522,9 +558,9 @@ impl Mul<&Vec3> for &Mat33 {
 
     fn mul(self, rhs: &Vec3) -> Self::Output {
         Vec3::of(
-            (self.0[0] + self.0[1] + self.0[2]) * rhs.0,
-            (self.0[3] + self.0[4] + self.0[5]) * rhs.1,
-            (self.0[6] + self.0[7] + self.0[8]) * rhs.2,
+            self.0[0] * rhs.0 + self.0[1] * rhs.1 + self.0[2] * rhs.2,
+            self.0[3] * rhs.0 + self.0[4] * rhs.1 + self.0[5] * rhs.2,
+            self.0[6] * rhs.0 + self.0[7] * rhs.1 + self.0[8] * rhs.2,
         )
     }
 }

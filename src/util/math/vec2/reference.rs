@@ -1,4 +1,6 @@
-use std::{ops::{Add, Sub, Neg, Div, Mul, MulAssign, AddAssign, DivAssign}};
+use std::ops::{Add, Sub, Neg, Div, Mul, MulAssign, AddAssign, DivAssign, SubAssign};
+
+use crate::util::math::Vec3;
 
 use super::{Vec2Builder, FMA};
 
@@ -19,6 +21,16 @@ impl const Vec2Builder for Vec2 {
     #[inline]
     fn of(x: f64, y: f64) -> Self {
         Self(x, y)
+    }
+}
+
+#[cfg(feature="compare_reference")]
+impl float_cmp::ApproxEq for Vec2 {
+    type Margin = float_cmp::F64Margin;
+
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        let margin: Self::Margin = margin.into();
+        self.0.approx_eq(other.0, margin) && self.1.approx_eq(other.1, margin)
     }
 }
 
@@ -53,6 +65,14 @@ impl Vec2 {
         self.1
     }
 
+    #[inline]
+    pub fn gradient(&self) -> Vec3 {
+        let xx = self.x() * self.x();
+        let xy = self.x() * self.y();
+        let yy = self.y() * self.y();
+        Vec3(xx, xy, yy)
+    }
+
     pub const fn squish32(&self) -> Self {
         Self::of(self.x() as f32 as _, self.y() as f32 as _)
     }
@@ -61,6 +81,29 @@ impl Vec2 {
     #[inline]
     pub fn mag(&self) -> f64 {
         f64::hypot(self.x(), self.y())
+    }
+
+    /// `(y, -x)`
+    pub fn rev_negx(self) -> Self {
+        Self(
+            self.1,
+            -self.0
+        )
+    }
+
+    /// `(-y, x)`
+    pub fn rev_negy(self) -> Self {
+        Self(
+            -self.1,
+            self.0
+        )
+    }
+
+    pub const fn rev(self) -> Self {
+        Self(
+            self.1,
+            self.0
+        )
     }
 
     #[inline]
@@ -90,6 +133,7 @@ impl Add<Vec2> for Vec2 {
 }
 
 impl AddAssign<Vec2> for Vec2 {
+    #[inline(always)]
     fn add_assign(&mut self, rhs: Vec2) {
         self.0 += rhs.0;
         self.1 += rhs.1;
@@ -99,8 +143,16 @@ impl AddAssign<Vec2> for Vec2 {
 impl Add<&Vec2> for Vec2 {
     type Output = Vec2;
 
-    fn add(mut self, rhs: &Vec2) -> Self::Output {
+    fn add(self, rhs: &Vec2) -> Self::Output {
         Self(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl Add<&Vec2> for &Vec2 {
+    type Output = Vec2;
+
+    fn add(self, rhs: &Vec2) -> Self::Output {
+        Vec2(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
@@ -125,6 +177,14 @@ impl Sub<&Vec2> for &Vec2 {
 
     fn sub(self, rhs: &Vec2) -> Self::Output {
         Vec2(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl SubAssign<Vec2> for Vec2 {
+    #[inline(always)]
+    fn sub_assign(&mut self, rhs: Vec2) {
+        self.0 -= rhs.0;
+        self.1 -= rhs.1;
     }
 }
 

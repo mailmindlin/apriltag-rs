@@ -1,9 +1,84 @@
 use std::{alloc::{alloc_zeroed, AllocError, dealloc, Layout}, ptr::NonNull};
 
-use libc::{c_uint, c_double, c_void};
+use libc::{c_uint, c_double, c_void, c_int, c_float};
+
+use crate::{util::math::mat::Mat};
+
+use super::shim::{IncompleteArrayField, InPtr, cffi_wrapper, param, ReadPtr};
 
 #[repr(transparent)]
 pub struct matd_ptr(*const c_void);
+
+impl Default for matd_ptr {
+    fn default() -> Self {
+        Self(std::ptr::null())
+    }
+}
+
+#[repr(C)]
+pub struct matd_t {
+    pub nrows: c_uint,
+    pub ncols: c_uint,
+    pub data: IncompleteArrayField<c_double>,
+}
+
+/// Creates a double matrix with the given number of rows and columns (or a scalar
+/// in the case where rows=0 and/or cols=0). All data elements will be initialized
+/// to zero. It is the caller's responsibility to call matd_destroy() on the
+/// returned matrix.
+#[no_mangle]
+pub unsafe extern "C" fn matd_create(rows: c_int, cols: c_int) -> matd_ptr {
+    cffi_wrapper(|| {
+        let rows: usize = param::try_read(rows, "rows")?;
+        let cols: usize = param::try_read(cols, "cols")?;
+        let result = Mat::zeroes(rows, cols);
+        todo!()
+    })
+}
+
+/// Creates a double matrix with the given number of rows and columns (or a scalar
+/// in the case where rows=0 and/or cols=0). All data elements will be initialized
+/// using the supplied array of data, which must contain at least rows*cols elements,
+/// arranged in row-major order (i.e. index = row*ncols + col). It is the caller's
+/// responsibility to call matd_destroy() on the returned matrix.
+#[no_mangle]
+pub unsafe extern "C" fn matd_create_data<'a>(rows: c_int, cols: c_int, data: InPtr<'a, c_double>) -> matd_ptr {
+    cffi_wrapper(|| {
+        let rows: usize = param::try_read(rows, "rows")?;
+        let cols: usize = param::try_read(cols, "cols")?;
+        let data = data.try_array(rows * cols, "data")?;
+        let result = Mat::create(rows, cols, data);
+        todo!()
+    })
+}
+
+/// Creates a double matrix with the given number of rows and columns (or a scalar
+/// in the case where rows=0 and/or cols=0). All data elements will be initialized
+/// using the supplied array of float data, which must contain at least rows*cols elements,
+/// arranged in row-major order (i.e. index = row*ncols + col). It is the caller's
+/// responsibility to call matd_destroy() on the returned matrix.
+#[no_mangle]
+pub unsafe extern "C" fn matd_create_dataf<'a>(rows: c_int, cols: c_int, data: InPtr<'a, c_float>) -> matd_ptr {
+    cffi_wrapper(|| {
+        let rows: usize = param::try_read(rows, "rows")?;
+        let cols: usize = param::try_read(cols, "cols")?;
+        let data = data.try_array(rows * cols, "data")?;
+        todo!()
+    })
+}
+
+/// Creates a square identity matrix with the given number of rows (and
+/// therefore columns), or a scalar with value 1 in the case where dim=0.
+/// It is the caller's responsibility to call matd_destroy() on the
+/// returned matrix.
+#[no_mangle]
+pub unsafe extern "C" fn matd_identity(dim: c_int) -> matd_ptr {
+    cffi_wrapper(|| {
+        let dim: usize = param::try_read(dim, "dim")?;
+        let result = Mat::identity(dim);
+        todo!()
+    })
+}
 
 #[repr(C)]
 struct matd_like<T: ?Sized> {

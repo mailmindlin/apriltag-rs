@@ -15,7 +15,7 @@ struct QuickDecodeValue {
 	hamming: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct QuickDecodeResult {
 	/// Tag ID
 	pub id: u16,
@@ -29,7 +29,8 @@ pub(crate) struct QuickDecodeResult {
 #[derive(Clone)]
 pub(crate) struct QuickDecode {
 	pub family: Arc<AprilTagFamily>,
-	table: LookupTable<QuickDecodeValue>
+	table: LookupTable<QuickDecodeValue>,
+	pub bits_corrected: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +102,7 @@ impl QuickDecode {
 			Self {
 				family: family.clone(),
 				table,
+				bits_corrected,
 			}
 		};
 

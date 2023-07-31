@@ -22,6 +22,65 @@ if TYPE_CHECKING:
 		def to_image(self, idx: int) -> np.ndarray[np.uint8]:
 			pass
 	
+	class DetectorConfig:
+		"""Configuration for the AprilTag detector"""
+		@property
+		def nthreads(self) -> int:
+			...
+		
+		@nthreads.setter
+		def nthreads(self, value: int):
+			...
+		
+		@property
+		def quad_decimate(self) -> float:
+			...
+		
+		@quad_decimate.setter
+		def quad_decimate(self, value: float):
+			...
+		
+		@property
+		def quad_sigma(self) -> float:
+			...
+		
+		@quad_sigma.setter
+		def quad_sigma(self, value: float):
+			...
+		
+		@property
+		def refine_edges(self) -> bool:
+			"""
+			When true, the edges of the each quad are adjusted to "snap to" strong
+			gradients nearby. This is useful when decimation is employed, as it can
+			increase the quality of the initial quad estimate substantially.
+			Generally recommended to be on (1).
+			
+			Very computationally inexpensive. Option is ignored if 
+			`quad_decimate = 1`.
+			"""
+			...
+		
+		@refine_edges.setter
+		def refine_edges(self, value: bool):
+			...
+		
+		@property
+		def decode_sharpening(self) -> float:
+			...
+		
+		@decode_sharpening.setter
+		def decode_sharpening(self, value: float):
+			...
+		
+		@property
+		def debug(self) -> bool:
+			"Whether or not debug mode is enabled"
+			...
+		
+		@debug.setter
+		def debug(self, value: bool):
+			...
 
 	class Detection:
 		tag_id: int
@@ -37,9 +96,10 @@ if TYPE_CHECKING:
 else:
 	AprilTagFamily = raw.AprilTagFamily
 	Detections = raw.Detections
+	DetectorConfig = raw.DetectorConfig
 	Detection = raw.Detection
 
-class Detector:
+class DetectorBuilder:
 	def __init__(self, *,
 			families: Optional[Sequence[Union[str, AprilTagFamily, tuple[str, int], tuple[AprilTagFamily, int]]]] = None,
 			nthreads: Optional[int] = None,
@@ -50,6 +110,34 @@ class Detector:
 			debug: Optional[bool] = None,
 			camera_params: Optional[Sequence[float]] = None,
 	):
+		pass
+	
+	@property
+	def config(self) -> DetectorConfig:
+		return self._inner.config
+	
+	def build(self) -> 'Detector':
+		pass
+
+class Detector:
+	@staticmethod
+	def builder() -> DetectorBuilder:
+		return DetectorBuilder()
+	
+	def __init__(self, *,
+			families: Optional[Sequence[Union[str, AprilTagFamily, tuple[str, int], tuple[AprilTagFamily, int]]]] = None,
+			nthreads: Optional[int] = None,
+			quad_decimate: Optional[float] = None,
+			quad_sigma: Optional[float] = None,
+			refine_edges: Optional[bool] = None,
+			decode_sharpening: Optional[float] = None,
+			debug: Optional[bool] = None,
+			camera_params: Optional[Sequence[float]] = None,
+	):
+		builder = self.builder()
+		if nthreads is not None:
+			builder.config.nthreads = nthreads
+		
 		self._inner = raw.Detector(
 			nthreads=nthreads,
 			quad_decimate=quad_decimate,
@@ -68,63 +156,7 @@ class Detector:
 					hamming = 2
 				self.add_family(family, hamming)
 	
-	@property
-	def nthreads(self) -> int:
-		return self._inner.nthreads
 	
-	@nthreads.setter
-	def nthreads(self, value: int):
-		self._inner.nthreads = value
-	
-	@property
-	def quad_decimate(self) -> float:
-		return self._inner.quad_decimate
-	
-	@quad_decimate.setter
-	def quad_decimate(self, value: float):
-		self._inner.quad_decimate = value
-	
-	@property
-	def quad_sigma(self) -> float:
-		return self._inner.quad_sigma
-	
-	@quad_sigma.setter
-	def quad_sigma(self, value: float):
-		self._inner.quad_sigma = value
-	
-	@property
-	def refine_edges(self) -> bool:
-		"""
-		When true, the edges of the each quad are adjusted to "snap to" strong
-		gradients nearby. This is useful when decimation is employed, as it can
-		increase the quality of the initial quad estimate substantially.
-		Generally recommended to be on (1).
-		
-		Very computationally inexpensive. Option is ignored if 
-		`quad_decimate = 1`.
-		"""
-		return self._inner.refine_edges
-	
-	@refine_edges.setter
-	def refine_edges(self, value: bool):
-		self._inner.refine_edges = value
-	
-	@property
-	def decode_sharpening(self) -> float:
-		return self._inner.decode_sharpening
-	
-	@decode_sharpening.setter
-	def decode_sharpening(self, value: float):
-		self._inner.decode_sharpening = value
-	
-	@property
-	def debug(self) -> bool:
-		"Whether or not debug mode is enabled"
-		return self._inner.debug
-	
-	@debug.setter
-	def debug(self, value: bool):
-		self._inner.debug = value
 	
 	def add_family(self, family: Union[AprilTagFamily, str], hamming_bits: Optional[int] = 2):
 		if isinstance(family, str):

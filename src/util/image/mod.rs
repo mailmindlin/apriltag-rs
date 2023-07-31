@@ -16,7 +16,7 @@ pub use pnm::ImageWritePNM;
 pub use index::ImageDimensions;
 use self::{pnm::PNM, rows::{Row, Rows, RowMut, RowsMut}, pixels::{Pixels, EnumeratePixels, PixelsMut, EnumeratePixelsMut}, pixel::DefaultAlignment};
 
-use super::{mem::{SafeZero, calloc}, geom::Point2D, dims::{Dimensions2D}};
+use super::{mem::{SafeZero, calloc}, geom::Point2D, dims::Dimensions2D};
 
 pub type Image<P, Container = DC<P>> = ImageBuffer<P, Container>;
 

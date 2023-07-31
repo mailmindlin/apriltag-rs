@@ -3,13 +3,13 @@ mod config;
 mod debug;
 
 pub use config::DetectorConfig;
-pub use builder::{DetectorBuilder, DetectorBuildError};
+pub use builder::{DetectorBuilder, DetectorBuildError, OpenClMode};
 
 use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{geom::Point2D, math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::apriltag_quad_thresh, dbg::TimeProfile, Detections, detection::reconcile_detections};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::apriltag_quad_thresh, dbg::TimeProfile, Detections, detection::reconcile_detections, detector::config::QuadDecimateMode};
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -76,6 +76,8 @@ fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 	}
 }
 
+
+
 impl AprilTagDetector {
 	/// Create a new builder
 	pub fn builder() -> DetectorBuilder {
@@ -112,14 +114,21 @@ impl AprilTagDetector {
 		///////////////////////////////////////////////////////////
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
-		let mut quad_im = if self.params.quad_decimate > 1. {
-			let quad_im = im_orig.decimate(self.params.quad_decimate);
-
-			tp.stamp("decimate");
-			quad_im
-		} else {
-			//TODO: can we not copy here?
-			im_orig.clone()
+		let mut quad_im = match self.params.quad_decimate_mode() {
+			QuadDecimateMode::None => {
+				//TODO: can we not copy here?
+				im_orig.clone()
+			},
+			QuadDecimateMode::ThreeHalves => {
+				let quad_im = im_orig.decimate_three_halves();
+				tp.stamp("decimate");
+				quad_im
+			},
+			QuadDecimateMode::Scaled(quad_decimate) => {
+				let quad_im = im_orig.decimate(quad_decimate);
+				tp.stamp("decimate");
+				quad_im
+			}
 		};
 
 		quad_sigma(&mut quad_im, self.params.quad_sigma);
@@ -130,28 +139,33 @@ impl AprilTagDetector {
 		self.params.debug_image("debug_preprocess.pnm", |mut f| quad_im.write_pnm(&mut f));
 
 		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
-		std::mem::drop(quad_im);
+		drop(quad_im);
 
 		#[cfg(feature="extra_debug")]
 		println!("Found {} quads", quads.len());
 
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
-		if self.params.quad_decimate > 1. {
-			let quad_decimate = self.params.quad_decimate as f64;
-			for q in quads.iter_mut() {
-				for corner in q.corners.iter_mut() {
-					if self.params.quad_decimate == 1.5 {
-						*corner.vec_mut() *= quad_decimate;
-					} else {
-						let half = Vec2::dup(0.5);
-						*corner = Point2D::from_vec((corner.vec() - &half) * quad_decimate + &half);
-					}
+		match self.params.quad_decimate_mode() {
+			QuadDecimateMode::None => {},
+			QuadDecimateMode::ThreeHalves => {
+				for q in quads.iter_mut() {
+					q.corners *= 1.5;
+				}
+			},
+			QuadDecimateMode::Scaled(scale) => {
+				let half = Vec2::dup(0.5);
+				for q in quads.iter_mut() {
+					q.corners -= half;
+					q.corners *= scale as f64;
+					q.corners += half;
 				}
 			}
 		}
 
-		let nquads: u32 = quads.len().try_into().unwrap();
+		let nquads: u32 = quads.len()
+			.try_into()
+			.unwrap();
 
 		tp.stamp("quads");
 
@@ -163,35 +177,37 @@ impl AprilTagDetector {
 		let detections = if true {
 			#[cfg(feature="debug")]
 			let im_samples = if self.params.generate_debug_image() { Some(Mutex::new(ImageY8::clone_like(im_orig))) } else { None };
+			
+			let info = QuadDecodeInfo {
+				det_params: &self.params,
+				tag_families: &self.tag_families,
+				im_orig,
+				#[cfg(feature="debug")]
+				im_samples: im_samples.as_ref(),
+			};
 
 			let detections = if quads.len() > 4 && !self.params.single_thread() {
 				self.wp.install(|| {
-					quads
-						.par_iter_mut()
-						.flat_map(|quad| {
-							quad.decode_task(QuadDecodeInfo {
-								det_params: &self.params,
-								tag_families: &self.tag_families,
-								im_orig,
-								#[cfg(feature="debug")]
-								im_samples: im_samples.as_ref(),
-							})
-						})
+					#[cfg(feature="debug")]
+					let quad_iter = quads.par_iter_mut();
+					#[cfg(not(feature="debug"))]
+					let quad_iter = quads.into_par_iter();
+
+					quad_iter
+						.flat_map(|mut quad| quad.decode_task(info))
 						.collect::<Vec<_>>()
 				})
 			} else {
-				quads
-					.iter_mut()
-					.flat_map(|quad| {
-						quad.decode_task(QuadDecodeInfo {
-							det_params: &self.params,
-							tag_families: &self.tag_families,
-							im_orig,
-							#[cfg(feature="debug")]
-							im_samples: im_samples.as_ref(),
-						})
-					})
-					.collect::<Vec<_>>()
+				#[cfg(feature="debug")]
+				let quad_iter = quads.iter_mut();
+				#[cfg(not(feature="debug"))]
+				let quad_iter = quads.into_iter();
+				let mut dets = Vec::new();
+
+				for quad in quad_iter {
+					dets.extend(quad.decode_task(info));
+				}
+				dets
 			};
 
 			#[cfg(feature="extra_debug")]
@@ -200,7 +216,7 @@ impl AprilTagDetector {
 			#[cfg(feature="debug")]
 			if let Some(im_samples) = im_samples {
 				let im_samples = im_samples.into_inner().unwrap();
-				im_samples.save_to_pnm("debug_samples.pnm").unwrap();
+				self.params.debug_image("debug_samples.pnm", |mut f| im_samples.write_pnm(&mut f));
 			}
 			detections
 		} else {
@@ -208,10 +224,11 @@ impl AprilTagDetector {
 		};
 
 		#[cfg(feature="debug")]
-        self.params.debug_image("debug_quads_fixed.pnm", |f| debug::debug_quads_fixed(f, ImageY8::clone_like(im_orig), &quads));
-        #[cfg(feature="debug")]
-        self.params.debug_image("debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
-		std::mem::drop(quads);
+		{
+			self.params.debug_image("debug_quads_fixed.pnm", |f| debug::debug_quads_fixed(f, ImageY8::clone_like(im_orig), &quads));
+			self.params.debug_image("debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
+			drop(quads);
+		}
 
 		tp.stamp("decode+refinement");
 
@@ -222,15 +239,30 @@ impl AprilTagDetector {
 		////////////////////////////////////////////////////////////////
 		// Produce final debug output
 		#[cfg(feature="debug")]
-        self.params.debug_image("debug_output.ps", |f| debug::debug_output_ps(f, ImageY8::clone_like(im_orig), &detections));
-        #[cfg(feature="debug")]
-        self.params.debug_image("debug_output.pm,", |f| debug::debug_output_pnm(f, ImageY8::clone_like(im_orig), &detections));
-
+		{
+			self.params.debug_image("debug_output.ps", |f| debug::debug_output_ps(f, ImageY8::clone_like(im_orig), &detections));
+			self.params.debug_image("debug_output.pnm", |f| debug::debug_output_pnm(f, ImageY8::clone_like(im_orig), &detections));
+		}
 		tp.stamp("debug output");
 
-		detections.sort_by(|a, b| Ord::cmp(&a.id, &b.id));
+		detections.sort_unstable_by(|a, b| Ord::cmp(&a.id, &b.id));
 
 		tp.stamp("cleanup");
+
+		#[cfg(feature="compare_reference")]
+		{
+			use crate::sys::{AprilTagDetectorSys, ImageU8Sys, ZArraySys};
+			let (td_sys, fams_sys) = AprilTagDetectorSys::new_with_families(self).unwrap();
+
+			let im_sys = ImageU8Sys::new(im_orig).unwrap();
+			let dets = ZArraySys::<*mut apriltag_sys::apriltag_detection>::wrap(unsafe { apriltag_sys::apriltag_detector_detect(td_sys.as_ptr(), im_sys.as_ptr()) }).unwrap();
+
+			assert_eq!(td_sys.as_ref().nquads, nquads);
+
+			drop(td_sys);
+			println!("sys dets: {dets:?}");
+			drop(fams_sys);
+		}
 
 		Ok(Detections {
 			tp,

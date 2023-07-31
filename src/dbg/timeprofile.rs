@@ -84,14 +84,26 @@ impl Default for TimeProfile {
 }
 
 #[derive(Clone)]
-struct TimeProfileEntry {
+pub(crate) struct TimeProfileEntry {
     /// Entry name
     name: String,
     /// Entry timestamp
     timestamp: Instant,
 }
 
+impl TimeProfileEntry {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+    pub(crate) fn timestamp(&self) -> &Instant {
+        &self.timestamp
+    }
+}
+
 impl TimeProfile {
+    pub(crate) fn start(&self) -> &Instant {
+        &self.now
+    }
     pub fn clear(&mut self) {
         self.stamps.clear();
         self.now = Instant::now();
@@ -119,6 +131,10 @@ impl TimeProfile {
         let last = stamps.last().unwrap();
 
         last.timestamp - first.timestamp
+    }
+
+    pub(crate) fn entries(&self) -> &[TimeProfileEntry] {
+        &self.stamps
     }
 }
 

@@ -20,5 +20,7 @@ Cargo.lock
 /*.egg-info
 *.pnm
 *.ps
-java/.idea
+
+# Java metadata
 java/*.iml
+java/.idea

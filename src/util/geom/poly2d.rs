@@ -1,8 +1,9 @@
+#![allow(unused)]
 use std::ops::{Index, IndexMut};
 
 use crate::util::math::{Vec2, mod2pi, Vec2Builder};
 
-use super::{Point2D, LineSegment2D, Line2D};
+use super::{Point2D, LineSegment2D, Line2D, quad::Quadrilateral};
 
 pub(crate) struct Poly2D(pub Vec<Point2D>);
 
@@ -29,11 +30,17 @@ impl IntoIterator for Poly2D {
     }
 }
 
-impl Poly2D {
-    pub fn new() -> Self {
-        Poly2D(Vec::new())
+impl From<Quadrilateral> for Poly2D {
+    fn from(value: Quadrilateral) -> Self {
+        let mut pts = Vec::with_capacity(4);
+        for i in 0..4 {
+            pts.push(value[i]);
+        }
+        Self(pts)
     }
+}
 
+impl Poly2D {
     pub fn of(pts: &[Point2D]) -> Self {
         Self(pts.to_vec())
     }
@@ -46,6 +53,7 @@ impl Poly2D {
     pub fn zeroes(size: usize) -> Self {
         Self(vec![Point2D::zero(); size])
     }
+
     fn swap(&mut self, i: usize, j: usize) {
         self.0.swap(i, j);
     }
@@ -126,8 +134,7 @@ impl Poly2D {
             .min_by(|p, q| f64::total_cmp(&p.x(), &q.x()))
             .unwrap(); // cannot be None since there must be at least one point.
 
-        let mut hull = Poly2D::new();
-        hull.add(*pleft);
+        let mut hull = Poly2D::of(&[*pleft]);
 
         // step 2. gift wrap. Keep searching for points that make the
         // smallest-angle left-hand turn. This implementation is carefully
