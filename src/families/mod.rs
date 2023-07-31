@@ -18,7 +18,7 @@ pub use tag36h11::tag36h11_create;
 pub(crate) type Code = u64;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rotation {
 	Identity,
 	Deg90,
@@ -83,6 +83,10 @@ impl AprilTagFamily {
         };
         //TODO: cache references
         Some(Arc::new(res))
+    }
+
+    pub fn names() -> impl IntoIterator<Item = &'static str> {
+        vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11"]
     }
 
     pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
