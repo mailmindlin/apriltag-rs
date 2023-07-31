@@ -25,6 +25,7 @@ pub(crate) trait Vec2Builder: Sized {
 
 #[const_trait]
 pub(crate) trait FMA: Sized {
+    /// Compute self + (u * v)
     fn fma(self, u: Self, v: Self) -> Self;
 }
 
