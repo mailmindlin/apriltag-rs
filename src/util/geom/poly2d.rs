@@ -1,8 +1,9 @@
+#![allow(unused)]
 use std::ops::{Index, IndexMut};
 
 use crate::util::math::{Vec2, mod2pi, Vec2Builder};
 
-use super::{Point2D, LineSegment2D, Line2D};
+use super::{Point2D, LineSegment2D, Line2D, quad::Quadrilateral};
 
 pub(crate) struct Poly2D(pub Vec<Point2D>);
 
@@ -26,6 +27,16 @@ impl IntoIterator for Poly2D {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl From<Quadrilateral> for Poly2D {
+    fn from(value: Quadrilateral) -> Self {
+        let mut pts = Vec::with_capacity(4);
+        for i in 0..4 {
+            pts.push(value[i]);
+        }
+        Self(pts)
     }
 }
 
