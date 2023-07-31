@@ -2371,3 +2371,19 @@ pub fn tag36h10_create() -> AprilTagFamily {
 		name: Cow::Borrowed("tag36h10"),
   }
 }
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature="compare_reference")]
+    #[test]
+    fn compare_36h10() {
+        let tag = super::tag36h10_create();
+
+        unsafe {
+            let tag_sys = apriltag_sys::tag36h10_create();
+            let ts = tag_sys.as_ref().unwrap();
+            tag.assert_similar(ts);
+            apriltag_sys::tag36h10_destroy(tag_sys);
+        };
+    }
+}
