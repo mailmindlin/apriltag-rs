@@ -44,6 +44,7 @@ impl Graymodel {
 	}
 }
 
+#[derive(Debug)]
 pub(super) struct SolvedGraymodel {
 	C: [f64; 3]
 }
