@@ -4,13 +4,13 @@ mod sharpening;
 
 use std::sync::{Mutex, Arc};
 
-use crate::{detector::DetectorConfig, util::{geom::Point2D, math::{mat::Mat33, Vec2, Vec2Builder}, homography::homography_project, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
+use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, homography::homography_project, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
 
 use greymodel::Graymodel;
 
 use self::greymodel::SolvedGraymodel;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Quad {
     pub(crate) corners: Quadrilateral,
     pub(crate) reversed_border: bool,
@@ -55,6 +55,7 @@ fn value_for_pixel(im: &ImageY8, p: Point2D) -> Option<f64> {
     Some(v)
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct QuadDecodeInfo<'a> {
     /// Reference to detector parameters
     pub(crate) det_params: &'a DetectorConfig,
@@ -66,6 +67,7 @@ pub(crate) struct QuadDecodeInfo<'a> {
     pub(crate) im_samples: Option<&'a Mutex<ImageY8>>,
 }
 
+#[derive(Clone, Copy, Debug)]
 enum HomographySolveError {
     SingularMatrix,
     InverseH,
@@ -325,18 +327,30 @@ impl Quad {
     }
 
     /// returns the decision margin. Return `None` if the detection should be rejected.
-    fn decode(&self, det_params: &DetectorConfig, qd: &QuickDecode, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> Option<(f32, QuickDecodeResult)> {
+    fn decode(&self, info: &QuadDecodeInfo, qd: &QuickDecode, H: &Mat33) -> Option<(f32, QuickDecodeResult)> {
+        #[cfg(feature="debug")]
+        let im_samples = info.im_samples;
+        #[cfg(not(feature="debug"))]
+        let im_samples = None;
+
         // decode the tag binary contents by sampling the pixel
         // closest to the center of each bit cell.
-        let (whitemodel, blackmodel) = self.sample_threshold(&qd.family, im, im_samples);
+        let (whitemodel, blackmodel) = Self::sample_threshold(H, &qd.family, info.im_orig, im_samples);
+        // println!(" R quad_decode: whitemodel {:.5?}", &whitemodel);
+        // println!(" R quad_decode: blackmodel {:.5?}", &blackmodel);
+        // println!(" R quad_decode: Wi={:.5}, Bi={:.5}", whitemodel.interpolate(Vec2::zero()), blackmodel.interpolate(Vec2::zero()));
 
         // XXX Tunable
         if (whitemodel.interpolate(Vec2::zero()) - blackmodel.interpolate(Vec2::zero()) < 0.) != qd.family.reversed_border {
+            #[cfg(feature="extra_debug")]
+            println!("Quad_decode: bad border");
             return None;
         }
 
-        let (rcode, score) = self.decision_margin(&qd.family, det_params.decode_sharpening, im, whitemodel, blackmodel, im_samples);
+        let (rcode, score) = Self::decision_margin(H, &qd.family, info.det_params.decode_sharpening, info.im_orig, whitemodel, blackmodel, im_samples);
 
+        #[cfg(feature="extra_debug")]
+        println!(" R quad_decode: codeword={rcode}");
         let entry = qd.decode_codeword(rcode)?;
 
         Some((score, entry))
@@ -401,7 +415,6 @@ impl Quad {
                 0., 0., 1.,
             ]);
 
-            let H = self.H.as_ref().unwrap();
             H.matmul(&R)
         };
 
@@ -411,18 +424,17 @@ impl Quad {
         // [-1, 1], [1, 1], [1, -1], [-1, -1], FLIP Y
         // adjust the points in det->p so that they correspond to
         // counter-clockwise around the quad, starting at -1,-1.
-        let mut corners = [Point2D::zero(); 4];
-        for i in 0..4 {
-            let tcx = if i == 1 || i == 2 { 1. } else { -1. };
-            let tcy = if i < 2 { 1. } else { -1. };
-
-            corners[i] = homography_project(&H, tcx, tcy);
-        }
+        let corners = Quadrilateral::from_points([
+            homography_project(&H, -1.,  1.),
+            homography_project(&H,  1.,  1.),
+            homography_project(&H,  1., -1.),
+            homography_project(&H, -1., -1.),
+        ]);
 
         Some(AprilTagDetection {
             family: qd.family.clone(),
-            id: entry.id.into(),
-            hamming: entry.hamming.into(),
+            id: entry.id as _,
+            hamming: entry.hamming as _,
             decision_margin,
             H,
             center,
@@ -438,24 +450,56 @@ impl Quad {
             self.refine_edges(&info.det_params, info.im_orig);
         }
 
-        // make sure the homographies are computed...
-        if self.update_homographies().is_err() {
-            println!("update_homographies error");
-            return vec![];
-        }
+        #[cfg(feature="compare_reference")]
+        let mut quad_sys = apriltag_sys::quad {
+            p: self.corners.as_array_f32(),
+            reversed_border: self.reversed_border,
+            H: std::ptr::null_mut(),
+            Hinv: std::ptr::null_mut(),
+        };
 
-        info.tag_families
-            .iter()
-            .filter(|qd| qd.family.reversed_border == self.reversed_border)
-            .filter_map(|qd| {
-                // since the geometry of tag families can vary, start any
-                // optimization process over with the original quad.
-                self.decode_family(&info, qd)
-            })
-            .collect()
+        // make sure the homographies are computed...
+        let H = match self.update_homographies() {
+            Ok(H) => H,
+            Err(e) => {
+                eprintln!("update_homographies error: {e:?}");
+                return vec![];
+            }
+        };
+        #[cfg(feature="compare_reference")]
+        let H = {
+            use crate::util::math::mat::Mat;
+            use float_cmp::assert_approx_eq;
+
+            assert_eq!(unsafe { apriltag_sys::quad_update_homographies(&mut quad_sys) }, 0);
+            assert!(!quad_sys.H.is_null());
+            assert!(!quad_sys.Hinv.is_null());
+            let H_sys: Mat33 = unsafe {
+                let Href = quad_sys.H.as_ref().unwrap();
+                let len = Href.nrows as usize * Href.ncols as usize;
+                let data = Href.data.as_slice(len);
+                Mat::create(Href.nrows as _, Href.ncols as _, data)
+            }.try_into().unwrap();
+            assert_approx_eq!(Mat33, H, H_sys, epsilon = 0.001);
+            H_sys
+        };
+
+        // We expect to find 0 or 1 decodes
+        let mut result = Vec::with_capacity(1);
+        for qd in info.tag_families.iter() {
+            if qd.family.reversed_border != self.reversed_border {
+                continue;
+            }
+            // since the geometry of tag families can vary, start any
+            // optimization process over with the original quad.
+            if let Some(det) = self.decode_family(&info, qd, &H, #[cfg(feature="compare_reference")] &mut quad_sys) {
+                result.push(det);
+            }
+        }
+        result
     }
 
-    fn update_homographies(&mut self) -> Result<(), HomographySolveError> {
+    fn update_homographies(&mut self) -> Result<Mat33, HomographySolveError> {
         let mut corr_arr = [[0f64; 4]; 4];
         for i in 0..4 {
             corr_arr[i] = [
@@ -470,10 +514,8 @@ impl Quad {
         let H = homography_compute2(corr_arr)?;
         let _Hinv = H.inv()
             .ok_or(HomographySolveError::InverseH)?;
-        self.H = Some(H);
-        // self.Hinv = Some(Hinv);
 
-        Ok(())
+        Ok(H)
     }
 }
 
