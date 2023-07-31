@@ -1,6 +1,6 @@
 use std::alloc::AllocError;
 
-use crate::pose::{self, AprilTagDetectionInfo, AprilTagPose, PoseParams};
+use crate::pose::{self, AprilTagDetectionInfo, AprilTagPose};
 
 use super::{matd_ptr, apriltag_detection_t, FFIConvertError, shim::{InPtr, OutPtr, cffi_wrapper, ReadPtr}};
 
@@ -32,11 +32,11 @@ pub unsafe extern "C" fn estimate_tag_pose_orthogonal_iteration<'a>(
         let result = pose::estimate_tag_pose_orthogonal_iteration(&info, nIters as usize);
 
         // Write back to out-params
-        err1.maybe_write(result.solution1.1);
-        pose1.maybe_try_write(result.solution1.0)?;
-        if let Some((pose2_src, err2_src)) = result.solution2 {
-            err2.maybe_write(err2_src);
-            pose2.maybe_try_write(pose2_src)?;
+        err1.maybe_write(result.solution1.error);
+        pose1.maybe_try_write(result.solution1.pose)?;
+        if let Some(solution2) = result.solution2 {
+            err2.maybe_write(solution2.error);
+            pose2.maybe_try_write(solution2.pose)?;
         } else {
             err2.maybe_write(f64::INFINITY);
         }
@@ -88,8 +88,8 @@ impl TryFrom<*const apriltag_detection_info_t> for AprilTagDetectionInfo {
 #[no_mangle]
 pub unsafe extern "C" fn estimate_tag_pose<'a>(info: InPtr<'a, apriltag_detection_info_t>, pose: OutPtr<'a, apriltag_pose_t>) -> f64 {
     cffi_wrapper(|| {
-        let info = info.try_read("info")?;
-        let solution = pose::estimate_tag_pose(&info.detection, &info.extrinsics);
+        let info: AprilTagDetectionInfo = info.try_read("info")?;
+        let solution = pose::estimate_tag_pose(&info);
         pose.maybe_try_write(solution.pose)?;
         Ok(solution.error)
     })
