@@ -1,4 +1,4 @@
-use std::{collections::BinaryHeap, ops::Index};
+use std::collections::BinaryHeap;
 
 use arrayvec::ArrayVec;
 
@@ -1221,7 +1221,7 @@ impl FitQuadsParams {
 }
 
 
-pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Vec<Vec<Pt>>, im: &ImageY8) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Vec<Vec<Pt>>, im: &ImageY8) -> Vec<Quad> {
 	let fqp = FitQuadsParams::new(td);
 
     #[cfg(feature="compare_reference")]
