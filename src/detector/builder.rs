@@ -135,6 +135,19 @@ impl DetectorBuilder {
 		self.tag_families.clear();
 	}
 
+	/// pre-allocate buffers for compute
+	pub fn static_buffers(mut self, frame_dims: (usize, usize), concurrency: usize) -> Self {
+		let (width, height) = frame_dims;
+		// self.static_buffers = Some((width, height, concurrency));
+		self
+	}
+
+	/// Allow (or not) allocating dynamic buffers
+	pub fn dynamic_buffers(mut self, dynamic_allocation: bool) -> Self {
+		// self.dynamic_buffers = dynamic_allocation;
+		self
+	}
+
 	pub fn remove_family(&mut self, fam: &AprilTagFamily) {
 		if let Some(idx) = self.tag_families.iter().position(|qd| qd.family.deref().eq(fam)) {
 			self.tag_families.remove(idx);
@@ -143,7 +156,7 @@ impl DetectorBuilder {
 
 	/// Build a detector with these options
 	pub fn build(self) -> Result<AprilTagDetector, DetectorBuildError> {
-        AprilTagDetector::new(self.config, self.tag_families)
+        AprilTagDetector::new(self.config, self.tag_families, self.ocl)
 	}
 }
 
