@@ -60,10 +60,20 @@ impl Default for DetectorConfig {
     }
 }
 
-pub(super) enum QuadDecimateMode {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum QuadDecimateMode {
 	None,
 	ThreeHalves,
 	Scaled(f32),
+}
+
+impl QuadDecimateMode {
+	pub const fn is_enabled(&self) -> bool {
+		match self {
+			Self::None => false,
+			_ => true,
+		}
+	}
 }
 
 impl DetectorConfig {
@@ -72,7 +82,7 @@ impl DetectorConfig {
 		self.debug
 	}
 
-	pub(super) fn quad_decimate_mode(&self) -> QuadDecimateMode {
+	pub(crate) fn quad_decimate_mode(&self) -> QuadDecimateMode {
 		if self.quad_decimate > 1. {
 			if self.quad_decimate == 1.5 {
 				QuadDecimateMode::ThreeHalves
@@ -117,8 +127,10 @@ impl DetectorConfig {
 			} else {
 				PathBuf::from(name)
 			};
-			let f = std::fs::File::create(path)
-				.expect("Unable to create debug file");
+			let f = match std::fs::File::create(&path) {
+				Ok(f) => f,
+				Err(e) => panic!("Unable to create debug file {} ({e:?})", path.display()),
+			};
 			callback(f)
 				.expect(&format!("Error writing {name}"));
 		}
