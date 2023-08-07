@@ -24,3 +24,4 @@ Cargo.lock
 # Java metadata
 java/*.iml
 java/.idea
+java/out
