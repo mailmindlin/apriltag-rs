@@ -261,7 +261,7 @@ impl Mat33 {
                 // fast rsqrt function suffices
                 // rsqrt2 (https://code.google.com/p/lppython/source/browse/algorithm/HDcode/newCode/rsqrt.c?r=26)
                 // is even faster but results in too much error
-                let w = rsqrt((ch*ch+sh*sh) as _) as f64;
+                let w = rsqrt((ch*ch+sh*sh) as f32) as f64;
                 if b {
                     (
                         (w * ch),
@@ -615,5 +615,29 @@ impl AddAssign<&Mat33> for Mat33 {
 impl MulAssign<f64> for Mat33 {
     fn mul_assign(&mut self, rhs: f64) {
         self.scale_inplace(rhs);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rand::{thread_rng, Rng};
+
+    use super::Mat33;
+
+    fn random() -> Mat33 {
+        let mut rng = thread_rng();
+        let mut values = [0f64; 9];
+        for v in values.iter_mut() {
+            *v = rng.gen();
+        }
+        Mat33::of(values)
+    }
+
+    #[test]
+    fn matmul_identity() {
+        let I3 = Mat33::identity();
+        let X = random();
+        let Y = X.matmul(&I3);
+        //TODO
     }
 }

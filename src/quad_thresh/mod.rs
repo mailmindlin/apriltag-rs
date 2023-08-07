@@ -2,14 +2,17 @@ mod unionfind;
 mod linefit;
 mod quadfit;
 mod grad_cluster;
-mod threshold;
+pub(super) mod threshold;
 use std::{fs::File, f64::consts as f64c};
 
 use rand::thread_rng;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8, Luma}}, quad_decode::Quad, dbg::TimeProfile};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
 
-use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
+use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::{gradient_clusters, Clusters}, quadfit::fit_quads};
+
+/// Minimum size for blobs
+const MIN_CLUSTER_SIZE: usize = 24;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "cffi", repr(C))]
@@ -88,6 +91,8 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &mut impl UnionFind<(
 
 #[cfg(feature="debug")]
 fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &mut impl UnionFindStatic<(u32, u32)>) -> std::io::Result<()> {
+    use crate::util::image::Luma;
+
     let mut d = ImageBuffer::<Luma<u8>>::zeroed_packed(w, h);
     let mut max_hops = 0;
     for ((x, y), dst) in d.enumerate_pixels_mut() {
@@ -101,14 +106,14 @@ fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &mut impl UnionFin
 }
 
 #[cfg(feature="debug")]
-fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<()> {
+fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &Clusters) -> std::io::Result<()> {
     use crate::util::image::ImageRGB8;
 
     let mut d = ImageRGB8::new(w, h);
     let mut rng = thread_rng();
-    for cluster in clusters.iter() {
+    for cluster in clusters.values() {
         let color = rng.gen_color_rgb(50u8);
-        for p in cluster.iter() {
+        for p in cluster {
             let x = (p.x / 2) as usize;
             let y = (p.y / 2) as usize;
             d.pixels_mut()[(x, y)] = color;
@@ -120,6 +125,8 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std:
 
 #[cfg(feature="debug")]
 fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
+    use crate::util::image::ImageWritePostscript;
+
     let mut ps = PostScriptWriter::new(&mut f)?;
 
     let mut im2 = im.clone();
@@ -132,7 +139,7 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
     ps.translate(0., im2.height() as f32)?;
     ps.scale(1., -1.)?;
 
-    // im.write_postscript(&mut f); //FIXME
+    im.write_postscript(&mut ps)?;
 
     let mut rng = thread_rng();
 
@@ -152,34 +159,27 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
     Ok(())
 }
 
-pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8) -> Vec<Quad> {
-    let clusters = {
-        ////////////////////////////////////////////////////////
-        // step 1. threshold the image, creating the edge image.
+fn clusters_from_image(config: &DetectorConfig, tp: &mut TimeProfile, threshim: ImageY8) -> Clusters {
+    ////////////////////////////////////////////////////////
+    // step 2. find connected components.
 
-        let threshim = threshold::threshold(&td.params.qtp, tp, im);
+    let mut uf = connected_components(config, &threshim);
 
-        #[cfg(feature="debug")]
-        td.params.debug_image("02_debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
+    // make segmentation image.
+    #[cfg(feature="debug")]
+    if config.generate_debug_image() {
+        config.debug_image("03a_debug_segmentation.pnm",   |f| debug_segmentation(f, threshim.width(), threshim.height(), &mut uf, &config.qtp));
+        config.debug_image("03b_debug_uniofind_depth.pnm", |f| debug_unionfind_depth(f, threshim.width(), threshim.height(), &mut uf));
+        tp.stamp("unionfind (output)");
+    }
 
-        ////////////////////////////////////////////////////////
-        // step 2. find connected components.
+    tp.stamp("unionfind");
 
-        let mut uf = connected_components(&td.params, &threshim);
+    gradient_clusters(config, &threshim, uf)
+}
 
-        tp.stamp("unionfind");
-
-        // make segmentation image.
-        #[cfg(feature="debug")]
-        if td.params.generate_debug_image() {
-            td.params.debug_image("03a_debug_segmentation.pnm", |f| debug_segmentation(f, im.width(), im.height(), &mut uf, &td.params.qtp));
-
-            td.params.debug_image("03b_debug_uniofind_depth.pnm", |f| debug_unionfind_depth(f, im.width(), im.height(), &mut uf));
-            tp.stamp("unionfind (output)");
-        }
-
-        gradient_clusters(&td.params, &threshim, uf)
-    };
+pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8, threshim: ImageY8) -> Vec<Quad> {
+    let clusters = clusters_from_image(&td.params, tp, threshim);
 
     #[cfg(feature="extra_debug")]
     println!("{} gradient clusters", clusters.len());

@@ -1,5 +1,5 @@
 mod builder;
-mod config;
+pub(crate) mod config;
 mod debug;
 
 pub use config::DetectorConfig;
@@ -262,8 +262,6 @@ impl AprilTagDetector {
 
 			apriltag_quad_thresh(self, &mut tp, &quad_im, threshim)
 		};
-
-		println!("quads, {quads:?}");
 
 		#[cfg(feature="extra_debug")]
 		println!("Found {} quads", quads.len());
