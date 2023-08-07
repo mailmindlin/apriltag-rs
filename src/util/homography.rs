@@ -1,4 +1,6 @@
-use super::math::mat::{Mat, Mat33};
+use std::ops::Mul;
+
+use super::{math::{mat::{Mat, Mat33, SvdOptions}, Vec3}, geom::Point2D};
 
 /// assuming that the projection matrix is:
 /// [ fx 0  cx 0 ]

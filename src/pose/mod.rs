@@ -95,7 +95,7 @@ fn orthogonal_iteration<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Ve
             
             let M3_svd = M3.svd();
             // Mat::op("M*M'", &[&M3_svd.U, &M3_svd.V]).unwrap()
-            M3_svd.U.matmul_transposed(&M3_svd.V)
+            M3_svd.U.matmul_transpose(&M3_svd.V)
         };
 
         let mut error = 0.;
@@ -314,7 +314,7 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
         let res = R_t
             .transpose_matmul(&R_gamma)
             .matmul(&R_beta)
-            .matmul_transposed(&R_z);
+            .matmul_transpose(&R_z);
         // let res = Mat::op("M'MMM'", &[&R_t, &R_gamma, &R_beta, &R_z]).unwrap();
         Some(res)
     } else if minima.len() > 1  {
@@ -359,7 +359,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
     let scale = params.tagsize/2.0;
 
     let (R, t) = {
-        let (R, mut t) = homography_to_pose(&info.detection.H, -info.fx, info.fy, info.cx, info.cy);
+        let (R, mut t) = homography_to_pose(&detection.H, -params.fx, params.fy, params.cx, params.cy);
         t.0 *= scale;
         t.1 *= -scale;
         t.2 *= -scale;
@@ -382,7 +382,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
         (FIX.matmul(&R), t)
     };
 
-    ApriltagPose { R, t }
+    AprilTagPose { R, t }
 }
 
 pub struct OrthogonalIterationResult {
@@ -403,7 +403,7 @@ pub fn estimate_tag_pose_orthogonal_iteration(detection: &AprilTagDetection, par
             Vec3::of(-scale, -scale, 0.),
         ]
     };
-    let v = info.detection.corners
+    let v = detection.corners
         .as_array()
         .map(|[x, y]| Vec3::of((x - params.cx)/params.fx, (y - params.cy)/params.fy, 1.));
 
