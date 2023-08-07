@@ -5,7 +5,7 @@ mod detector;
 mod zarray;
 mod family;
 mod matd;
-mod extras;
+mod debug;
 mod shim;
 
 use std::{ffi::CString, num::TryFromIntError};
@@ -45,10 +45,8 @@ pub use matd::{
     matd_create_dataf,
     matd_identity,
 };
-pub use zarray::{
-    ZArray,
-};
-pub use extras::{
+pub use zarray::ZArray;
+pub use debug::{
     timeprofile_t,
     timeprofile_display,
     timeprofile_total_utime,
