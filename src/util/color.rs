@@ -35,7 +35,7 @@ impl<R: Rng> RandomColor for R {
             Range<T>: SampleRange<T>,
             T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform {
         // RNG range
-        let range = T::from(0)..(T::from(255) - bias);
-        Luma([bias + self.gen_range(range)])
+        let range = bias..T::from(255);
+        Luma([self.gen_range(range)])
     }
 }
