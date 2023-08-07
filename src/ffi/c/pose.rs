@@ -1,6 +1,6 @@
 use std::alloc::AllocError;
 
-use crate::{pose::{self, AprilTagDetectionInfo, AprilTagPose, PoseParams}, AprilTagDetection};
+use crate::pose::{self, AprilTagDetectionInfo, AprilTagPose, PoseParams};
 
 use super::{matd_ptr, apriltag_detection_t, FFIConvertError, shim::{InPtr, OutPtr, cffi_wrapper, ReadPtr}};
 
@@ -36,8 +36,7 @@ impl TryFrom<*const apriltag_detection_info_t> for AprilTagDetectionInfo {
 #[no_mangle]
 pub unsafe extern "C" fn estimate_pose_for_tag_homography<'a>(info: InPtr<'a, apriltag_detection_info_t>, pose: OutPtr<'a, apriltag_pose_t>) {
     cffi_wrapper(|| {
-        let value = <AprilTagDetectionInfo as TryFrom<*const apriltag_detection_info_t>>::try_from(info.ptr())?;
-        let info: AprilTagDetection = info.try_read("info")?;
+        let value = info.try_read::<AprilTagDetectionInfo>("info")?;
 
         let res = pose::estimate_pose_for_tag_homography(&value.detection, &value.extrinsics);
         drop(info);
