@@ -101,9 +101,12 @@ impl TimeProfileEntry {
 }
 
 impl TimeProfile {
+    /// Get start time
     pub(crate) fn start(&self) -> &Instant {
         &self.now
     }
+
+    /// Clear all records
     pub fn clear(&mut self) {
         self.stamps.clear();
         self.now = Instant::now();
@@ -120,7 +123,7 @@ impl TimeProfile {
         self.stamps.push(entry);
     }
 
-    /// Get total 
+    /// Get duration from [start] to last recorded timestamp
     pub fn total_duration(&self) -> Duration {
         let stamps = &self.stamps;
         if stamps.len() == 0 {

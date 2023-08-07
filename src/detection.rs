@@ -2,19 +2,21 @@ use std::{sync::Arc, cmp::Ordering};
 
 use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::mat::Mat33}, TimeProfile};
 
-/// Represents the detection of a tag. These are returned to the user
-/// and must be individually destroyed by the user.
+/// Represents the detection of a tag.
 #[derive(Debug, Clone)]
 pub struct AprilTagDetection {
-	/// a pointer for convenience. not freed by apriltag_detection_destroy.
+	/// The detected tag's family
 	pub family: Arc<AprilTagFamily>,
 
 	/// The decoded ID of the tag
 	pub id: usize,
 
-	/// How many error bits were corrected? Note: accepting large numbers of
-	/// corrected errors leads to greatly increased false positive rates.
-	/// NOTE: As of this implementation, the detector cannot detect tags with
+	/// How many error bits were corrected?
+	/// 
+	/// Note: accepting large numbers of corrected errors leads to greatly
+	/// increased false positive rates.
+	/// 
+	/// Note: As of this implementation, the detector cannot detect tags with
 	/// a hamming distance greater than 2.
 	pub hamming: u16,
 
@@ -24,7 +26,7 @@ pub struct AprilTagDetection {
 	/// decodes. This is a reasonable measure of detection accuracy
 	/// only for very small tags-- not effective for larger tags (where
 	/// we could have sampled anywhere within a bit cell and still
-	/// gotten a good detection.)
+	/// gotten a good detection).
 	pub decision_margin: f32,
 
 	/// The 3x3 homography matrix describing the projection from an
