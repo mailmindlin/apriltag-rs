@@ -26,7 +26,7 @@ pub type ImageRGB8 = Image<Rgb<u8>, DC<Rgb<u8>>>;
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
 type DC<P> = Box<SubpixelArray<P>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 	dims: ImageDimensions,
 	pub(crate) data: Container,
