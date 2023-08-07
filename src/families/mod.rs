@@ -52,6 +52,7 @@ pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
 
+    /// The bit locations.
     pub bits: Vec<(u32, u32)>,
 
     pub width_at_border: u32,
