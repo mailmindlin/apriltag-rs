@@ -1,4 +1,4 @@
-use std::sync::{atomic::{AtomicU32, Ordering}};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{UnionFind, UnionFindId, UnionFindAtomic, UnionFindStatic};
 
@@ -92,6 +92,30 @@ impl UnionFindStatic<u32> for UnionFindConcurrent {
         let repid = self.get_representative(index);
         let size = self.get(repid).size.load(ORDER_L);
         (repid, size)
+    }
+
+    fn get_set_hops(&self, mut element: u32) -> usize {
+        // chase down the root
+		let mut nhops = 0;
+
+		let mut parent = self.parent(element);
+		nhops += 1;
+
+		while element != parent {
+			let grandparent = self.parent(parent);
+			nhops += 1;
+
+			match self.get(element).parent.compare_exchange(parent, grandparent, ORDER, ORDER_L) {
+				Ok(_) => {
+					element = parent;
+					parent = grandparent;
+				},
+				Err(new_parent) => {
+					parent = new_parent;
+				}
+			}
+		}
+		nhops
     }
 }
 
