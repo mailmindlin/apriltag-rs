@@ -1,8 +1,10 @@
+mod homography;
+
 use std::ops::{Mul, Add, Sub};
 
-use arrayvec::ArrayVec;
+use crate::{util::math::{mat::Mat33, poly::Poly, Vec3}, AprilTagDetection};
 
-use crate::{util::{math::{mat::{Mat, Mat33}, poly::Poly, Vec3}, homography::homography_to_pose}, AprilTagDetection};
+use self::homography::homography_to_pose;
 
 
 /// Calculate projection operator from image points.
@@ -23,31 +25,30 @@ fn calculate_F(v: &Vec3) -> Mat33 {
 /// @return Object-space error after iteration.
 ///
 /// Implementation of Orthogonal Iteration from Lu, 2000.
-fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_steps: usize) -> f64 {
-    let n_points = v.len();
-    assert_eq!(p.len(), n_points);
+fn orthogonal_iteration<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Vec3, R: &mut Mat33, n_steps: usize) -> f64 {
+    let p_res = {
+        let p_mean = {
+            let mut p_mean = Vec3::zero();
+            for p_i in p.iter() {
+                p_mean += p_i;
+            }
+            p_mean / (N as f64)
+        };
 
-    let p_mean = p
-        .iter()
-        .fold(Vec3::zero(), |acc, e| acc.add(e))
-        .scale(1. / (n_points as f64));
-
-    let p_res = p
-        .iter()
-        .map(|p_i| p_i.sub(&p_mean))
-        .collect::<Vec<_>>();
+        p.map(|p_i| p_i - &p_mean)
+    };
 
     // Compute M1_inv.
     let (F, M1_inv) = {
-        let mut F = Vec::with_capacity(n_points);
+        let mut F = Vec::with_capacity(N);
         let mut avg_F = Mat33::zeroes();
         // let mut avg_F = Mat::zeroes(3, 3);
-        for i in 0..n_points {
+        for i in 0..N {
             let F_i = calculate_F(&v[i]);
             avg_F += &F_i;
             F.push(F_i);
         }
-        avg_F *= 1. / (n_points as f64);
+        avg_F *= (N as f64).recip();
         let M1 = Mat33::identity() - &avg_F;
         let M1_inv = M1.inv().unwrap();
         (F, M1_inv)
@@ -60,44 +61,48 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
         *t = {
             let I3 = Mat33::identity();
             let mut M2 = Vec3::zero();
-            for j in 0..n_points {
+            for j in 0..N {
                 let M2_update = F[j].sub(&I3).matmul(R).mul(&p[j]);
                 // let M2_update = Mat::op("(M - M)*M*M", &[&F[j], &I3, R, &p[j]]).unwrap();
                 M2 += &M2_update;
             }
-            M2 *= 1./(n_points as f64);
+            M2 *= (N as f64).recip();
             M1_inv.mul(&M2)
         };
 
         // Calculate rotation.
         *R = {
-            let mut q = Vec::with_capacity(n_points);
-            let mut q_mean = Vec3::zero();
-            for j in 0..n_points {
-                q[j] = F[j].mul(&R.mul(&p[j]).add(&*t));
-                // q[j] = Mat::op("M*(M*M+M)", &[&F[j], R, &p[j], &t]).unwrap();
-                q_mean += &q[j];
-            }
-            q_mean *= 1./(n_points as f64);
-            
-            let mut M3 = Mat33::zeroes();
-            for j in 0..n_points {
-                // let M3_update = Mat::op("(M-M)*M'", &[&q[j], &q_mean, &p_res[j]]).unwrap();
-                let M3_update = (&q[j] - &q_mean).outer(&p_res[j]);
-                M3 += &M3_update;
-            }
+            let M3 = {
+                let mut q = Vec::with_capacity(N);
+                let mut q_mean = Vec3::zero();
+                for j in 0..N {
+                    let q_j = F[j].mul(&R.mul(&p[j]).add(&*t));
+                    // q[j] = Mat::op("M*(M*M+M)", &[&F[j], R, &p[j], &t]).unwrap();
+                    q_mean += q_j;
+                    q.push(q_j);
+                }
+                q_mean *= (N as f64).recip();
+                
+                let mut M3 = Mat33::zeroes();
+                for j in 0..N {
+                    // let M3_update = Mat::op("(M-M)*M'", &[&q[j], &q_mean, &p_res[j]]).unwrap();
+                    let M3_update = (&q[j] - &q_mean).outer(&p_res[j]);
+                    M3 += &M3_update;
+                }
+                M3
+            };
             
             let M3_svd = M3.svd();
             // Mat::op("M*M'", &[&M3_svd.U, &M3_svd.V]).unwrap()
-            M3_svd.U.matmul(&M3_svd.V.transposed())
+            M3_svd.U.matmul_transpose(&M3_svd.V)
         };
 
         let mut error = 0.;
         for i in 0..4 {
             let err_vec = {
-                let a = Mat33::identity().sub(&F[i]);
-                let b = R.mul(&p[i]).add(&*t);
-                a.mul(&b)
+                let a = Mat33::identity() - &F[i];
+                let b = R.mul(&p[i]).add(*t);
+                &a * &b
             };
             // let err_vec = Mat::op("(M-M)(MM+M)", &[&I3, &F[i], R, &p[i], t]).unwrap();
             error += err_vec.dot(&err_vec);
@@ -113,7 +118,7 @@ fn orthogonal_iteration(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &mut Mat33, n_s
 }
 
 /// Given a local minima of the pose error tries to find the other minima.
-fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Option<Mat33> {
+fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Vec3, R: &Mat33) -> Option<Mat33> {
     let I3 = Mat33::identity();
 
     // 1. Find R_t
@@ -141,17 +146,20 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
     // 2. Find R_z
     let R_1_prime = R_t.matmul(R);
     let R_z = {
-        let mut r31 = R_1_prime[(2, 0)];
-        let mut r32 = R_1_prime[(2, 1)];
-        let mut hypotenuse = f64::hypot(r31, r32);
-        if hypotenuse < 1e-100 {
-            r31 = 1.;
-            r32 = 0.;
-            hypotenuse = 1.;
-        }
+        let r31 = R_1_prime[(2, 0)];
+        let r32 = R_1_prime[(2, 1)];
+        let hypotenuse = f64::hypot(r31, r32);
+        let (u, v) = if hypotenuse < 1e-100 {
+            (1., 0.)
+            // r31 = 1.;
+            // r32 = 0.;
+            // hypotenuse = 1.;
+        } else {
+            (r31 / hypotenuse, r32 / hypotenuse)
+        };
         Mat33::of([
-            r31/hypotenuse, -r32/hypotenuse, 0.,
-            r32/hypotenuse, r31/hypotenuse, 0.,
+            u, -v, 0.,
+            v,  u, 0.,
             0., 0., 1.
         ])
     };
@@ -183,12 +191,9 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
         0., 0., -1.]);
 
     let (a0, a1, a2, a3, a4) = {
-        let n_points = v.len();
-        assert_eq!(n_points, p.len());
-
-        let mut Fp_trans = Vec::with_capacity(n_points);
+        let mut Fp_trans = Vec::with_capacity(N);
         let mut avg_F_trans = Mat33::zeroes();
-        for i in 0..n_points {
+        for i in 0..N {
             // let pt_i = Mat::op("M'*M", &[&R_z, &p[i]]).unwrap();
             // let vt_i = Mat::op("M*M", &[&R_t, &v[i]]).unwrap();
             let pt_i = R_z.transposed().mul(&p[i]);
@@ -197,13 +202,13 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
             avg_F_trans += &ft;
             Fp_trans.push((ft, pt_i));
         }
-        avg_F_trans *= 1./(n_points as f64);
+        avg_F_trans *= (N as f64).recip();
 
         // let mut G = Mat::op("(M-M)^-1", &[&I3, &avg_F_trans]).unwrap();
         // G *= 1./(n_points as f64);
         let G = (Mat33::identity() - &avg_F_trans)
             .inv().expect("G inverse")
-            .scale(1. / (n_points as f64));
+            .scale((N as f64).recip());
 
         let (b0_, b1_, b2_) = {
             let mut b0 = Vec3::zero();
@@ -244,11 +249,11 @@ fn fix_pose_ambiguities(v: &[Vec3], p: &[Vec3], t: &mut Vec3, R: &Mat33) -> Opti
             // let c1 = Mat::op("(M-M)(MMM+M)", &[&I3, &F_trans[i], &R_gamma, &M1, &p_trans[i], &b1_]).unwrap();
             // let c2 = Mat::op("(M-M)(MMM+M)", &[&I3, &F_trans[i], &R_gamma, &M2, &p_trans[i], &b2_]).unwrap();
 
-            a0 += c0.dot(&c0);
+            a0 += c0.mag_sq();
             a1 += 2. * c0.dot(&c1);
-            a2 += c1.dot(&c1) + 2. * c0.dot(&c2);
+            a2 += c1.mag_sq() + 2. * c0.dot(&c2);
             a3 += 2.* c1.dot(&c2);
-            a4 += c2.dot(&c2);
+            a4 += c2.mag_sq();
             // a0 += Mat::op("M'M", &[&c0, &c0]).unwrap().as_scalar().unwrap();
             // a1 += Mat::op("2M'M", &[&c0, &c1]).unwrap().as_scalar().unwrap();
             // a2 += Mat::op("M'M+2M'M", &[&c1, &c1, &c0, &c2]).unwrap().as_scalar().unwrap();
@@ -335,30 +340,28 @@ pub struct ApriltagPose {
 pub fn estimate_pose_for_tag_homography(info: &ApriltagDetectionInfo) -> ApriltagPose {
     let scale = info.tagsize/2.0;
 
-    let initial_pose = {
-        let mut M_H = homography_to_pose(&info.detection.H, -info.fx, info.fy, info.cx, info.cy);
-        M_H[(0, 3)] *= scale;
-        M_H[(1, 3)] *= scale;
-        M_H[(2, 3)] *= scale;
+    let (R, t) = {
+        let (R, mut t) = homography_to_pose(&info.detection.H, -info.fx, info.fy, info.cx, info.cy);
+        t.emul_mut(Vec3::of(scale, -scale, -scale));
+        // M_H[(0, 3)] *= scale;
+        // M_H[(1, 3)] *= scale;
+        // M_H[(2, 3)] *= scale;
 
-        let mut fix = Mat::zeroes(4, 4);
-        fix[(0, 0)] =  1.;
-        fix[(1, 1)] = -1.;
-        fix[(2, 2)] = -1.;
-        fix[(3, 3)] =  1.;
+        const FIX: Mat33 = Mat33::of([
+            1.,  0.,  0.,
+            0., -1.,  0.,
+            0.,  0., -1.,
+        ]);
+        // let fix = Mat::create(4, 4, &[
+        //     1.,  0.,  0.,  0.,
+        //     0., -1.,  0.,  0.,
+        //     0.,  0., -1.,  0.,
+        //     0.,  0.,  0.,  1.,
+        // ]);
 
-        fix.matmul(&M_H)
+        (FIX.matmul(&R), t)
     };
 
-    let mut R = Mat33::zeroes();
-    for i in 0..3 {
-        for j in 0..3 {
-            R[(i, j)] = initial_pose[(i, j)];
-        }
-    }
-
-    let t = Vec3::of(initial_pose[(0, 3)], initial_pose[(1, 3)], initial_pose[(2, 3)]);
-    
     ApriltagPose { R, t }
 }
 
@@ -378,13 +381,9 @@ pub fn estimate_tag_pose_orthogonal_iteration(info: &ApriltagDetectionInfo, n_it
         Vec3::of( scale, -scale, 0.),
         Vec3::of(-scale, -scale, 0.),
     ];
-    let v = {
-        let mut v = ArrayVec::<Vec3, 4>::new();
-        for i in 0..4 {
-            v.push(Vec3::of((info.detection.corners[i].x() - info.cx)/info.fx, (info.detection.corners[i].y() - info.cy)/info.fy, 1.));
-        }
-        v.into_inner().unwrap()
-    };
+    let v = info.detection.corners
+        .as_array()
+        .map(|[x, y]| Vec3::of((x - info.cx)/info.fx, (y - info.cy)/info.fy, 1.));
 
     let mut pose1 = estimate_pose_for_tag_homography(info);
     let err1 = orthogonal_iteration(&v, &p, &mut pose1.t, &mut pose1.R, n_iters);
