@@ -5,25 +5,25 @@ pub struct DetectorConfig {
 	/// How many threads should be used?
 	pub nthreads: usize,
 
-	/// detection of quads can be done on a lower-resolution image,
+	/// Detection of quads can be done on a lower-resolution image,
 	/// improving speed at a cost of pose accuracy and a slight
 	/// decrease in detection rate. Decoding the binary payload is
-	/// still done at full resolution. .
+	/// still done at full resolution.
 	pub quad_decimate: f32,
 
-	// What Gaussian blur should be applied to the segmented image
-	// (used for quad detection?)  Parameter is the standard deviation
-	// in pixels.  Very noisy images benefit from non-zero values
-	// (e.g. 0.8).
+	/// What Gaussian blur should be applied to the segmented image
+	/// (used for quad detection?)  Parameter is the standard deviation
+	/// in pixels.  Very noisy images benefit from non-zero values
+	/// (e.g. 0.8).
 	pub quad_sigma: f32,
 
-	// When non-zero, the edges of the each quad are adjusted to "snap
-	// to" strong gradients nearby. This is useful when decimation is
-	// employed, as it can increase the quality of the initial quad
-	// estimate substantially. Generally recommended to be on (1).
-	//
-	// Very computationally inexpensive. Option is ignored if
-	// quad_decimate = 1.
+	/// When non-zero, the edges of the each quad are adjusted to "snap
+	/// to" strong gradients nearby. This is useful when decimation is
+	/// employed, as it can increase the quality of the initial quad
+	/// estimate substantially. Generally recommended to be on (1).
+	///
+	/// Very computationally inexpensive. Option is ignored if
+	/// quad_decimate = 1.
 	pub refine_edges: bool,
 
 	/// How much sharpening should be done to decoded images? This
@@ -33,13 +33,14 @@ pub struct DetectorConfig {
 	/// The default value is 0.25.
 	pub decode_sharpening: f64,
 
-	// When non-zero, write a variety of debugging images to the
-	// current working directory at various stages through the
-	// detection process. (Somewhat slow).
+	/// When non-zero, write a variety of debugging images to the
+	/// current working directory at various stages through the
+	/// detection process. (Somewhat slow).
 	pub debug: bool,
 
 	pub qtp: AprilTagQuadThreshParams,
 
+	/// Path to debug to
 	pub debug_path: Option<String>,
 }
 

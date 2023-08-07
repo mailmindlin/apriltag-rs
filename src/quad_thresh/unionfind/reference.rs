@@ -37,6 +37,16 @@ impl UnionFindStatic<UnionFindId> for UnionFindReference {
 		let size = self.data[repid as usize].size;
 		(repid, size)
     }
+
+    fn get_set_hops(&self, index: UnionFindId) -> usize {
+        let mut root = index;
+		let mut result = 1;
+		while self.data[root as usize].parent != root {
+			result += 1;
+			root = self.data[root as usize].parent;
+		}
+		result
+    }
 }
 
 impl UnionFind<UnionFindId> for UnionFindReference {

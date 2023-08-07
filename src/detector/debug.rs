@@ -8,11 +8,12 @@ use std::{fs::File, io};
 pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> io::Result<()> {
 	im_quads.darken();
 	im_quads.darken();
+	let mut im_quads = im_quads.map(|p| p.to_rgb());
 
 	let mut rng = thread_rng();
 
 	for quad in quads.iter() {
-		let color = rng.gen_color_gray(100).into();
+		let color = rng.gen_color_rgb(128).into();
 
 		im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 		im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);

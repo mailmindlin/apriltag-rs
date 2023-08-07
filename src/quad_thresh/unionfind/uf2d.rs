@@ -38,6 +38,11 @@ impl<U: UnionFindStatic<u32>> UnionFindStatic<(u32, u32)> for UnionFind2D<U> {
 		let id = self.index_to_id(index);
         self.inner.get_set_static(id)
     }
+
+    fn get_set_hops(&self, index: (u32, u32)) -> usize {
+		let id = self.index_to_id(index);
+        self.inner.get_set_hops(id)
+    }
 }
 
 impl<U: UnionFindAtomic<u32>> UnionFindAtomic<(u32, u32)> for UnionFind2D<U> {

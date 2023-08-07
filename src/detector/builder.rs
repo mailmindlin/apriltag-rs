@@ -108,7 +108,7 @@ impl DetectorBuilder {
 	/// Prefer OpenCL, if available
 	/// 
 	/// This function will work even if the feature-flag `opencl` is not provided
-	pub fn prefer_opencl(mut self) -> Self {
+	pub fn prefer_opencl(#[allow(unused_mut)] mut self) -> Self {
 		#[cfg(feature="opencl")]
 		self.use_opencl(OpenClMode::Prefer);
 		self
@@ -123,7 +123,7 @@ impl DetectorBuilder {
 		&OpenClMode::Disabled
 	}
 
-	pub fn use_opencl(&mut self, mode: OpenClMode) {
+	pub fn use_opencl(&mut self, #[allow(unused_variables)] mode: OpenClMode) {
 		#[cfg(feature="opencl")]
 		{
 			self.ocl = mode;

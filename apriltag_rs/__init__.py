@@ -82,16 +82,32 @@ if TYPE_CHECKING:
 		def debug(self, value: bool):
 			...
 
+		@property
+		def debug_path(self) -> Optional[str]:
+			"Whether or not debug mode is enabled"
+			...
+		
+		@debug_path.setter
+		def debug_path(self, value: Optional[str]):
+			...
+
 	class Detection:
 		tag_id: int
-		tag_family: str
+		tag_family: AprilTagFamily
 		hamming: int
 		decision_margin: float
 		center: tuple[float, float]
 		corners: list[tuple[float, float]]
+	
+	class TimeProfile:
+		def total_duration(self) -> float: ...
+		def as_list(self) -> list[tuple[float, str]]: ...
+		def __len__(self) -> int: ...
+		def __getitem__(self, item: int) -> tuple[float, str]: ...
 
 	class Detections:
 		nquads: int
+		tp: TimeProfile
 		detections: list[Detection]
 else:
 	AprilTagFamily = raw.AprilTagFamily

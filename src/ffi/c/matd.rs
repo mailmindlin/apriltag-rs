@@ -2,7 +2,7 @@ use std::{alloc::{alloc_zeroed, AllocError, dealloc, Layout}, ptr::NonNull};
 
 use libc::{c_uint, c_double, c_void, c_int, c_float};
 
-use crate::{util::math::mat::Mat};
+use crate::util::math::mat::Mat;
 
 use super::shim::{IncompleteArrayField, InPtr, cffi_wrapper, param, ReadPtr};
 

@@ -27,6 +27,7 @@ pub(super) trait UnionFind<I> {
 
 pub(super) trait UnionFindStatic<I>: UnionFind<I> {
     fn get_set_static(&self, index: I) -> (UnionFindId, u32);
+    fn get_set_hops(&self, index: I) -> usize;
 }
 
 pub(super) trait UnionFindAtomic<I>: UnionFind<I> + UnionFindStatic<I> {

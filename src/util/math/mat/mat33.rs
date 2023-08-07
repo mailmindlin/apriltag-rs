@@ -5,11 +5,13 @@ use crate::util::math::Vec3;
 use super::{OutOfBoundsError, MatDims, Mat};
 
 
+/// 3x3 matrix
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
 pub struct Mat33(pub [f64; 9]);
 
 
+/// Try to convert to fixed-size matrix
 impl TryFrom<super::Mat> for Mat33 {
     type Error = OutOfBoundsError;
 
@@ -26,6 +28,7 @@ impl TryFrom<super::Mat> for Mat33 {
     }
 }
 
+/// Dynamic-sized matrix with same data
 impl From<Mat33> for Mat {
     fn from(value: Mat33) -> Self {
         Self::create(3, 3, &value.0)
@@ -49,10 +52,12 @@ pub(crate) struct Mat33SVD {
 }
 
 impl Mat33 {
+    /// Create matrix with all zeroes
     pub(crate) const fn zeroes() -> Self {
         Self([0.; 9])
     }
     
+    /// Create from array
     pub(crate) const fn of(v: [f64; 9]) -> Self {
         Self(v)
     }
@@ -61,6 +66,7 @@ impl Mat33 {
         &self.0
     }
 
+    /// Create an identity matrix
     pub(crate) const fn identity() -> Self {
         Self([
             1., 0., 0.,
@@ -92,6 +98,7 @@ impl Mat33 {
         ])
     }
 
+    /// Determinant
     pub(crate) fn det(&self) -> f64 {
 		0.
 			+ self.0[0] * self.0[4] * self.0[8]
@@ -102,6 +109,7 @@ impl Mat33 {
 			- self.0[2] * self.0[4] * self.0[6]
     }
 
+    /// Transpose
     pub(crate) const fn transposed(&self) -> Self {
         Self([
             self.0[0], self.0[3], self.0[6],
@@ -110,6 +118,14 @@ impl Mat33 {
         ])
     }
 
+    /// In-place transpose
+    pub fn transpose_mut(&mut self) {
+        self.0.swap(1, 3); // (2, 1) <-> (1, 2)
+        self.0.swap(2, 6); // (3, 1) <-> (1, 3)
+        self.0.swap(5, 7); // (3, 2) <-> (2, 3)
+    }
+
+    /// Matrix multipliation
     pub(crate) fn matmul(&self, rhs: &Mat33) -> Self {
         Self([
             self.0[0]*rhs.0[0] + self.0[1]*rhs.0[3] + self.0[2]*rhs.0[6], self.0[0]*rhs.0[1] + self.0[1]*rhs.0[4] + self.0[2]*rhs.0[7], self.0[0]*rhs.0[2] + self.0[1]*rhs.0[5] + self.0[2]*rhs.0[8],
@@ -118,6 +134,7 @@ impl Mat33 {
         ])
     }
 
+    /// Matrix multiplication (equivalent to `self.transposed().matmul(rhs)`)
     pub(crate) fn transpose_matmul(&self, rhs: &Mat33) -> Self {
         Self([
             self.0[0]*rhs.0[0] + self.0[3]*rhs.0[3] + self.0[6]*rhs.0[6], self.0[0]*rhs.0[1] + self.0[3]*rhs.0[4] + self.0[6]*rhs.0[7], self.0[0]*rhs.0[2] + self.0[3]*rhs.0[5] + self.0[6]*rhs.0[8],
@@ -126,6 +143,13 @@ impl Mat33 {
         ])
     }
 
+    /// Matrix multiplication (equivalent to `self.matmul(rhs.transposed())`)
+    pub(crate) fn matmul_transpose(&self, rhs: &Mat33) -> Self {
+        //TODO
+        self.matmul(&rhs.transposed())
+    }
+
+    /// QR decomposition
     fn decompose_qr(&self) -> (Mat33, Mat33) {
         fn QRGivensQuaternion(a1: f64, a2: f64) -> (f64, f64) {
             // a1 = pivot point on diagonal
@@ -289,8 +313,7 @@ impl Mat33 {
             s.0[6] = _s31; s.0[7] = _s32; s.0[8] = _s33;
         }
 
-        // finds transformation that diagonalizes a symmetric matrix
-        /// qV is the quaternion representation of V
+        /// finds transformation that diagonalizes a symmetric matrix
         #[inline]
         fn jacobiEigenanlysis(s: &mut Mat33) -> [f64; 4] {
             // follow same indexing convention as GLM
@@ -311,8 +334,11 @@ impl Mat33 {
         let mut ata = self.transpose_matmul(self);
 
         // symmetric eigenalysis
-        let qV = jacobiEigenanlysis(&mut ata);
-        let mut V = Self::from_quaternion(qV);
+        let mut V = {
+            // qV is the quaternion representation of V
+            let qV = jacobiEigenanlysis(&mut ata);
+            Self::from_quaternion(qV)
+        };
 
         let mut b = self.matmul(&V);
 
@@ -364,6 +390,9 @@ impl Mat33 {
         Mat33SVD { U, S, V }
     }
 
+    /// Matrix inverse
+    /// 
+    /// Returns None if this matrix is not invertible
     pub(crate) fn inv(&self) -> Option<Mat33> {
         let det = self.det();
         if det == 0. {
@@ -379,6 +408,7 @@ impl Mat33 {
         res.scale_inplace(1. / det);
         Some(res)
     }
+    
     /// Computes the cholesky factorization of A, putting the lower
     /// triangular matrix into R.
     #[inline]

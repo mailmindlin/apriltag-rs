@@ -154,13 +154,30 @@ fn cffi_catch<R>(callback: impl (FnOnce() -> Result<R, CFFIError>) + UnwindSafe)
     match std::panic::catch_unwind(callback) {
         Ok(result) => result,
         Err(panic_data) => {
-            todo!()
+            let msg = if let Some(msg) = panic_data.downcast_ref::<String>() {
+                msg.clone()
+            } else if let Some(msg) = panic_data.downcast_ref::<&str>() {
+                String::from(*msg)
+            } else {
+                format!("{panic_data:?}")
+            };
+            Err(CFFIError::PanicStr(msg))
         }
     }
 }
 
 fn handle_cffi_error(location: &Location, error: CFFIError) {
-    
+    use errno::Errno;
+
+    let errno = match error {
+        CFFIError::Alloc => Errno(libc::ENOMEM),
+        CFFIError::NullArgument(_) => Errno(libc::EINVAL),
+        CFFIError::BadConversion(_) => Errno(libc::EINVAL),
+        CFFIError::BadInput {..} => Errno(libc::EINVAL),
+        CFFIError::PanicStr(_) => Errno(libc::EFAULT),
+    };
+    eprintln!("Error in {}: {}", location, errno);
+    errno::set_errno(errno);
 }
 
 #[track_caller]

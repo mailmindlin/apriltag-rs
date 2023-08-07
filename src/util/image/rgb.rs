@@ -78,7 +78,7 @@ impl<T: Primitive> ImageBuffer<Rgb<T>> {
     /// Least common multiple of 64 (sandy bridge cache line) and 48 (stride needed
     /// for 16byte-wide RGB processing). (It's possible that 48 would be enough).
     const DEFAULT_ALIGNMENT: usize = 192;
-    pub fn create(width: usize, height: usize) -> Self where T: SafeZero {
+    pub fn new(width: usize, height: usize) -> Self where T: SafeZero {
         Self::zeroed_with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
     }
 }
@@ -90,7 +90,7 @@ impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
         match pnm.format {
             PNMFormat::Binary => todo!("Support binary files"),
             PNMFormat::Gray => {
-                let mut im = Self::create(pnm.width, pnm.height);
+                let mut im = Self::new(pnm.width, pnm.height);
 
                 let mut max_x = 0;
                 let mut max_y = 0;
@@ -103,7 +103,7 @@ impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
                 Ok(im)
             },
             PNMFormat::RGB => {
-                let mut im = Self::create(pnm.width, pnm.height);
+                let mut im = Self::new(pnm.width, pnm.height);
                 let width = pnm.width;
 
                 for ((x, y), dst) in im.enumerate_pixels_mut() {

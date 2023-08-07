@@ -1,7 +1,7 @@
 use core::slice;
 use std::{sync::Arc, alloc::AllocError, ptr, ops::Deref, ffi::CStr};
 
-use crate::{AprilTagFamily, util::mem::try_calloc};
+use crate::AprilTagFamily;
 use super::super::util::{drop_array, AtomicManagedPtr};
 use super::{drop_str, FFIConvertError};
 
@@ -43,12 +43,8 @@ impl apriltag_family_t {
         let ncodes: u32 = base.codes.len().try_into().expect("ncodes overflow");
         let codes = base.codes.deref().as_ptr();
 
-        let mut bit_x = try_calloc(base.bits.len())?;
-        let mut bit_y = try_calloc(base.bits.len())?;
-        for (i, (x, y)) in base.bits.iter().enumerate() {
-            bit_x[i] = *x;
-            bit_y[i] = *y;
-        }
+        let (bit_x, bit_y) = base.split_bits();
+        debug_assert_eq!(bit_x.len(), bit_y.len());
 
         Arc::try_new(apriltag_family_t {
             ncodes,
@@ -58,8 +54,8 @@ impl apriltag_family_t {
             reversed_border: if base.reversed_border { 1 } else { 0 },
 
             nbits: base.bits.len().try_into().expect("nbits overflow"),
-            bit_x: Box::into_raw(bit_x) as *const u32,
-            bit_y: Box::into_raw(bit_y) as *const u32,
+            bit_x: Box::into_raw(bit_x.into_boxed_slice()) as *const u32,
+            bit_y: Box::into_raw(bit_y.into_boxed_slice()) as *const u32,
 
             h: base.min_hamming.try_into().expect("h overflow"),
             // name: base.name.as_ptr() as *const c_char,//TODO: fixme

@@ -25,28 +25,29 @@ default = ["cpython", "jni", "cffi"]
 
 
 [dependencies]
-arrayvec = "0.7.2"
+arrayvec = "0.7.4"
 rand = "0.8.5"
-rayon = "1.6.1"
+rayon = "1.7.0"
 datasize = "0.2.14"
-clap = { version = "4.2.1", features=["derive"] }
+clap = { version = "4.3.19", features=["derive"] }
 parking_lot = "0.12.1"
 raw-parts = "2.0.0"
 hashbrown = { version = "0.14.0", features = ["rayon"] }
 futures = "0.1.31"
+proc-macro2 = "1.0.66"
 
-# Feature: Python FFI
+# Feature: Python FFI (cpython)
 [dependencies.cpython]
 version = "0.7.1"
 optional = true
 features=["extension-module"]
 
-# Feature: Java FFI
+# Feature: Java FFI (jni)
 [dependencies.jni]
 version = "0.21.1"
 optional = true
 
-# Feature: C FFI
+# Feature: C FFI (cffi)
 [dependencies.libc]
 version = "0.2.139"
 optional = true
@@ -54,7 +55,7 @@ optional = true
 version = "0.26.2"
 optional = true
 [dependencies.errno]
-version = "0.3.1"
+version = "0.3.2"
 optional = true
 
 # Feature: compare_reference
@@ -77,6 +78,6 @@ optional = true
 image = "0.24.6"
 
 [dependencies.opencv]
-version = "0.83.0"
+version = "0.84.4"
 features = ["clang-runtime"]
 optional = true
