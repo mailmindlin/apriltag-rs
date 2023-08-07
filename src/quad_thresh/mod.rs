@@ -7,9 +7,9 @@ use std::{fs::File, f64::consts as f64c};
 
 use rand::thread_rng;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8}}, quad_decode::Quad, dbg::TimeProfile};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8, Luma}}, quad_decode::Quad, dbg::TimeProfile};
 
-use self::{unionfind::{connected_components, UnionFind}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
+use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "cffi", repr(C))]
@@ -59,7 +59,7 @@ impl Default for AprilTagQuadThreshParams {
 
 #[cfg(feature="debug")]
 fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &mut impl UnionFind<(u32, u32)>, qtp: &AprilTagQuadThreshParams) -> std::io::Result<()> {
-    let mut d = ImageBuffer::<Rgb<u8>>::create(w, h);
+    let mut d = ImageBuffer::<Rgb<u8>>::new(w, h);
     let mut rng = thread_rng();
 
     let mut colors = calloc::<Option<Rgb<u8>>>(d.len());
@@ -87,10 +87,24 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &mut impl UnionFind<(
 }
 
 #[cfg(feature="debug")]
+fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &mut impl UnionFindStatic<(u32, u32)>) -> std::io::Result<()> {
+    let mut d = ImageBuffer::<Luma<u8>>::zeroed_packed(w, h);
+    let mut max_hops = 0;
+    for ((x, y), dst) in d.enumerate_pixels_mut() {
+        let hops = uf.get_set_hops((x as u32, y as u32));
+        max_hops = std::cmp::max(hops, max_hops);
+        *dst = Luma([(1 << hops).clamp(0, 255) as u8]);
+    }
+    println!("Max hops: {max_hops}");
+
+    d.write_pnm(&mut f)
+}
+
+#[cfg(feature="debug")]
 fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<()> {
     use crate::util::image::ImageRGB8;
 
-    let mut d = ImageRGB8::create(w, h);
+    let mut d = ImageRGB8::new(w, h);
     let mut rng = thread_rng();
     for cluster in clusters.iter() {
         let color = rng.gen_color_rgb(50u8);
@@ -146,18 +160,23 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
         let threshim = threshold::threshold(&td.params.qtp, tp, im);
 
         #[cfg(feature="debug")]
-        td.params.debug_image("debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
+        td.params.debug_image("02_debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
 
         ////////////////////////////////////////////////////////
         // step 2. find connected components.
 
         let mut uf = connected_components(&td.params, &threshim);
 
+        tp.stamp("unionfind");
+
         // make segmentation image.
         #[cfg(feature="debug")]
-        td.params.debug_image("debug_segmentation.pnm", |f| debug_segmentation(f, im.width(), im.height(), &mut uf, &td.params.qtp));
+        if td.params.generate_debug_image() {
+            td.params.debug_image("03a_debug_segmentation.pnm", |f| debug_segmentation(f, im.width(), im.height(), &mut uf, &td.params.qtp));
 
-        tp.stamp("unionfind");
+            td.params.debug_image("03b_debug_uniofind_depth.pnm", |f| debug_unionfind_depth(f, im.width(), im.height(), &mut uf));
+            tp.stamp("unionfind (output)");
+        }
 
         gradient_clusters(&td.params, &threshim, uf)
     };
@@ -166,7 +185,7 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
     println!("{} gradient clusters", clusters.len());
     
     #[cfg(feature="debug")]
-    td.params.debug_image("debug_clusters.pnm", |f| debug_clusters(f, im.width(), im.height(), &clusters));
+    td.params.debug_image("04_debug_clusters.pnm", |f| debug_clusters(f, im.width(), im.height(), &clusters));
     tp.stamp("make clusters");
 
     ////////////////////////////////////////////////////////
@@ -179,7 +198,7 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
     }
 
     #[cfg(feature="debug")]
-    td.params.debug_image("debug_lines.ps", |f| debug_lines(f, im, &quads));
+    td.params.debug_image("05_debug_lines.ps", |f| debug_lines(f, im, &quads));
 
     tp.stamp("fit quads to clusters");
 
