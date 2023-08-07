@@ -76,13 +76,14 @@ impl DefaultAlignment for Luma<u8> {
 impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
-fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
+fn convolve(x: &[u8], y: &mut [u8], k: &[u8], need_copy: bool) {
     assert_eq!(k.len() % 1, 1, "Kernel size must be odd");
     assert_eq!(x.len(), y.len());
 
     // Copy left
-    for i in 0..std::cmp::min(k.len() / 2, x.len()) {
-        y[i] = x[i];
+    if need_copy {
+        let left_end = std::cmp::min(k.len() / 2, x.len());
+        y[..left_end].copy_from_slice(&x[..left_end]);
     }
 
     // Convolve middle
@@ -93,11 +94,11 @@ fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
             acc += k[j] as u32 * x[i + j] as u32;
         }
 
-        y[k.len()/2 + i] = (acc >> 8) as u8;
+        y[k.len()/2 + i] = (acc >> 8).clamp(0, 255) as u8;
     }
 
     // Copy right
-    {
+    if need_copy {
         let right_start = x.len() - k.len() + k.len()/2;
         y[right_start..].copy_from_slice(&x[right_start..])
     }
@@ -178,6 +179,7 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
         Ok(im)
     }
 
+    /// Downsample the image by a factor of exactly 1.5
     pub fn decimate_three_halves(&self) -> Self {
         let swidth = self.width() / 3 * 2;
         let sheight = self.height() / 3 * 2;
@@ -261,7 +263,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
     
             for (_, mut row) in self.rows_mut() {
                 row_buf.copy_from_slice(row.as_slice());
-                convolve(&row_buf, row.as_slice_mut(), kernel);
+                convolve(&row_buf, row.as_slice_mut(), kernel, false);
             }
         }
 
@@ -276,7 +278,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
                     xb[y] = self[(x, y)];
                 }
 
-                convolve(&xb, &mut yb, kernel);
+                convolve(&xb, &mut yb, kernel, true);
 
                 //TODO: we can optimize this loop
                 for y in 0..self.height() {
