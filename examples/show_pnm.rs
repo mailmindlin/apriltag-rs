@@ -52,12 +52,21 @@ fn main() {
         for ((x, y), px2) in img2.enumerate_pixels() {
             let [r1, g1, b1] = img[(x, y)].to_value();
             let [r2, g2, b2] = px2.to_value();
-            let mut rgb = [r1.abs_diff(r2), g1.abs_diff(g2), b1.abs_diff(b2)];
+            let rgb = [r1.abs_diff(r2), g1.abs_diff(g2), b1.abs_diff(b2)];
             different |= rgb != [0,0,0];
-            if rgb != [0,0,0] {
+            let rgb = if rgb != [0,0,0] {
                 println!("Different at {:?}", (x, y));
-                rgb[0] = 255;
-            }
+                // rgb[0] = 255;
+                let s = ((r2 as i16) - (r1 as i16)) + ((g2 as i16) - (g1 as i16)) + ((b2 as i16) - (b1 as i16));
+                if s > 0 {
+                    [r1, 0, 0]
+                } else {
+                    [0, g2, 0]
+                }
+            } else {
+                // [r1, g2, 0]
+                [0,0,0]
+            };
             img[(x, y)] = rgb;
         }
         println!("Different: {different}");
