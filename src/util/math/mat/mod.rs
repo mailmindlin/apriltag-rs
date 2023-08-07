@@ -6,7 +6,7 @@ mod plu;
 /// SVD decomposition
 mod svd;
 /// matd_op
-mod op;
+// mod op;
 /// Matrix dimensions and indices
 mod index;
 mod mat22;
