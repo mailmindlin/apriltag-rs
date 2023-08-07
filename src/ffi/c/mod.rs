@@ -61,7 +61,7 @@ pub enum FFIConvertError {
 }
 
 impl From<TryFromIntError> for FFIConvertError {
-    fn from(value: TryFromIntError) -> Self {
+    fn from(_value: TryFromIntError) -> Self {
         Self::FieldOverflow
     }
 }
