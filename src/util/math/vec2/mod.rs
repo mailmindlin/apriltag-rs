@@ -4,9 +4,6 @@ mod reference;
 #[cfg(any(target_arch="aarch64", target_arch="armv7", target_arch="armv7"))]
 mod arm;
 
-#[cfg(target_arch="x86_64")]
-mod x86;
-
 #[const_trait]
 pub(crate) trait Vec2Builder: Sized {
     /// Create new zero vector
