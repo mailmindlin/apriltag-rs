@@ -74,7 +74,7 @@ impl Vec2 {
     }
 
     pub const fn squish32(&self) -> Self {
-        Self::of(self.x() as f32 as _, self.y() as f32 as _)
+        Self(self.x() as f32 as _, self.y() as f32 as _)
     }
 
     /// Vector magnitude
