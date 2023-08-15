@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, hash_map::{Entry, RandomState}}, hash::{Hash, BuildHasher, Hasher}};
+use std::{collections::{HashMap, hash_map::{Entry, RandomState}}, hash::Hash};
 
 use rayon::prelude::*;
 
