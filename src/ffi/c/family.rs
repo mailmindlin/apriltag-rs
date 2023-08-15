@@ -5,7 +5,7 @@ use crate::AprilTagFamily;
 use super::super::util::{drop_array, AtomicManagedPtr};
 use super::{drop_str, FFIConvertError};
 
-use libc::{c_int, c_void, c_char, boolean_t as c_bool};
+use libc::{c_int, c_void, c_char};
 
 #[repr(C)]
 pub struct apriltag_family_t {
@@ -18,7 +18,7 @@ pub struct apriltag_family_t {
 
     pub width_at_border: c_int,
     pub total_width: c_int,
-    pub reversed_border: c_bool,
+    pub reversed_border: bool,
 
     // The bit locations.
     pub nbits: u32,
@@ -51,7 +51,7 @@ impl apriltag_family_t {
             codes,
             width_at_border: base.width_at_border.try_into().expect("width_at_border overflow"),
             total_width: base.total_width.try_into().expect("total_width overflow"),
-            reversed_border: if base.reversed_border { 1 } else { 0 },
+            reversed_border: base.reversed_border,
 
             nbits: base.bits.len().try_into().expect("nbits overflow"),
             bit_x: Box::into_raw(bit_x.into_boxed_slice()) as *const u32,
@@ -177,7 +177,7 @@ impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
             bits,
             width_at_border: value.width_at_border as u32,
             total_width: value.total_width as u32,
-            reversed_border: value.reversed_border != 0,
+            reversed_border: value.reversed_border,
             min_hamming: value.h.into(),
             name,
         });
