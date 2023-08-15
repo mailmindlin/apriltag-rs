@@ -5,7 +5,7 @@ use rand::thread_rng;
 use crate::{util::{ImageY8, image::{ImageWritePNM, PostScriptWriter, ImageWritePostscript, pixel::PixelConvert}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
 use std::{fs::File, io};
 
-pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> io::Result<()> {
+pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	im_quads.darken();
 	im_quads.darken();
 	let mut im_quads = im_quads.map(|p| p.to_rgb());
@@ -24,7 +24,7 @@ pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) ->
 	im_quads.write_pnm(&mut f)
 }
 
-pub(super) fn debug_quads_fixed(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> io::Result<()> {
+pub(super) fn debug_quads_fixed(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	im_quads.darken();
 	im_quads.darken();
 
