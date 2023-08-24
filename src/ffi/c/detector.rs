@@ -3,7 +3,7 @@ use core::slice;
 use std::{ffi::c_float, sync::Arc, ops::Deref, collections::HashMap};
 use crate::{AprilTagDetector, util::{image::ImageY8, geom::{Point2D, quad::Quadrilateral}, math::mat::Mat33}, detector::{DetectorBuilder, DetectorBuildError}, AprilTagQuadThreshParams, AprilTagFamily, ffi::util::AtomicManagedPtr, AprilTagDetection};
 use errno::{set_errno, Errno};
-use libc::{c_int, c_double, boolean_t as c_bool};
+use libc::{c_int, c_double};
 
 use parking_lot::RwLock;
 use super::{zarray::ZArray, img_u8_t::image_u8_t, family::apriltag_family_t, matd_ptr, timeprofile_t, FFIConvertError};
@@ -107,7 +107,7 @@ pub struct apriltag_detector_t {
     ///
     /// Very computationally inexpensive. Option is ignored if
     /// quad_decimate = 1.
-    pub refine_edges: c_bool,
+    pub refine_edges: bool,
 
     /// How much sharpening should be done to decoded images? This
     /// can help decode small tags but may or may not help in odd
@@ -119,7 +119,7 @@ pub struct apriltag_detector_t {
     /// When true, write a variety of debugging images to the
     /// current working directory at various stages through the
     /// detection process. (Somewhat slow).
-    pub debug: c_bool,
+    pub debug: bool,
 
     pub qtp: AprilTagQuadThreshParams,
 
@@ -140,19 +140,21 @@ impl apriltag_detector_t {
     fn new() -> Self {
         let builder = DetectorBuilder::default();
         Self {
-            nthreads: builder.config.nthreads as _,
+            nthreads:      builder.config.nthreads as _,
             quad_decimate: builder.config.quad_decimate,
-            quad_sigma: builder.config.quad_sigma,
-            refine_edges: builder.config.refine_edges as _,
+            quad_sigma:    builder.config.quad_sigma,
+            refine_edges:  builder.config.refine_edges as _,
             decode_sharpening: builder.config.decode_sharpening,
-            debug: if builder.config.debug { 1 } else { 0 },
-            qtp: builder.config.qtp,
+            debug:         builder.config.debug,
+            qtp:           builder.config.qtp,
             tp: AtomicManagedPtr::null(),
             nedges: 0,
             nsegments: 0,
             nquads: 0,
             wp: ExtraData {
-                detector: RwLock::new(LazyDetector::Building(DetectorBuilder::default())),
+                detector: RwLock::new(
+                    LazyDetector::Building(DetectorBuilder::default())
+                ),
             },
         }
     }
@@ -161,9 +163,9 @@ impl apriltag_detector_t {
             builder.config.nthreads = self.nthreads as _;
             builder.config.quad_decimate = self.quad_decimate;
             builder.config.quad_sigma = self.quad_sigma;
-            builder.config.refine_edges = self.refine_edges != 0;
+            builder.config.refine_edges = self.refine_edges;
             builder.config.decode_sharpening = self.decode_sharpening;
-            builder.config.debug = self.debug != 0;
+            builder.config.debug = self.debug;
             builder.config.qtp = self.qtp;
 
             callback(builder);
@@ -420,7 +422,7 @@ pub unsafe extern "C" fn apriltag_to_image(fam: *const apriltag_family_t, idx: c
 
     let mut im = ImageY8::zeroed(fam.total_width as usize, fam.total_width as usize);
 
-    let white_border_width = fam.width_at_border as usize + (if fam.reversed_border != 0 { 0 } else { 2 });
+    let white_border_width = fam.width_at_border as usize + (if fam.reversed_border { 0 } else { 2 });
     let white_border_start = (fam.total_width as usize - white_border_width)/2;
     // Make 1px white border
     for i in 0..(white_border_width-1) {

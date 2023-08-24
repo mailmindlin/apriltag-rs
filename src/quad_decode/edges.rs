@@ -2,8 +2,9 @@ use std::cmp::max;
 
 use arrayvec::ArrayVec;
 
-
 use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageY8, ImageDimensions}}};
+#[cfg(feature="compare_reference")]
+use crate::geom::quad::Quadrilateral;
 
 use super::Quad;
 
