@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use crate::AprilTagQuadThreshParams;
 
 #[derive(Debug, Clone)]
@@ -60,10 +62,13 @@ impl Default for DetectorConfig {
     }
 }
 
-pub(super) enum QuadDecimateMode {
-	None,
+/// Quad decimate algorithm to use
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum QuadDecimateMode {
+	/// Special case for 3/2 scaling
 	ThreeHalves,
-	Scaled(f32),
+	/// Integer scaling
+	Scaled(NonZeroU32),
 }
 
 impl DetectorConfig {
@@ -72,15 +77,16 @@ impl DetectorConfig {
 		self.debug
 	}
 
-	pub(super) fn quad_decimate_mode(&self) -> QuadDecimateMode {
+	/// Get algorithm to use for quad decimation
+	pub(crate) fn quad_decimate_mode(&self) -> Option<QuadDecimateMode> {
 		if self.quad_decimate > 1. {
 			if self.quad_decimate == 1.5 {
-				QuadDecimateMode::ThreeHalves
+				Some(QuadDecimateMode::ThreeHalves)
 			} else {
-				QuadDecimateMode::Scaled(self.quad_decimate)
+				Some(QuadDecimateMode::Scaled(NonZeroU32::new(self.quad_decimate.round() as u32).unwrap()))
 			}
 		} else {
-			QuadDecimateMode::None
+			None
 		}
 	}
 
