@@ -162,7 +162,7 @@ impl AprilTagDetector {
 				let half = Vec2::dup(0.5);
 				for q in quads.iter_mut() {
 					q.corners -= half;
-					q.corners *= scale as f64;
+					q.corners *= scale.get() as f64;
 					q.corners += half;
 				}
 			}
