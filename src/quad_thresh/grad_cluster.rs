@@ -97,7 +97,7 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
     }
 
     let mut uf_set_a = calloc::<CellData>(width);
-    // let mut uf_set_b = calloc::<CellData>(width);
+    // let mut uf_set_b = calloc:x  :<CellData>(width);
 
     let row = threshim.row(y0);
     uf_set_a[0] = match row[0] {

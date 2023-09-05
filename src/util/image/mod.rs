@@ -306,6 +306,28 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
         RowMut(&mut self.data[row_idxs])
     }
 
+	pub fn rows2_mut(&mut self, y0: usize, y1: usize) -> (RowMut<P>, RowMut<P>) {
+		assert_ne!(y0, y1);
+		let idxs0 = index::row_idxs::<P>(self.dimensions(), y0);
+		let idxs1 = index::row_idxs::<P>(self.dimensions(), y1);
+		if idxs0.end < idxs1.start {
+			// y0 < y1
+			let (left, right) = self.data.split_at_mut(idxs0.end);
+			let idxs1 = (idxs1.start - idxs0.end)..(idxs1.end - idxs0.end);
+			let r0 = RowMut(&mut left[idxs0]);
+			let r1 = RowMut(&mut right[idxs1]);
+			(r0, r1)
+		} else {
+			// y1 < y0
+			debug_assert!(idxs1.end < idxs0.start);
+			let (left, right) = self.data.split_at_mut(idxs1.end);
+			let idxs0 = (idxs0.start - idxs1.end)..(idxs0.end - idxs1.end);
+			let r0 = RowMut(&mut right[idxs0]);
+			let r1 = RowMut(&mut left[idxs1]);
+			(r0, r1)
+		}
+	}
+
 	pub fn rows_mut(&mut self) -> RowsMut<P> {
         RowsMut {
 			dims: &self.dims,

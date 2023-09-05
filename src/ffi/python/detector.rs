@@ -412,8 +412,12 @@ py_class!(pub class Detector |py| {
                 super::PyDetections::create_instance(py, Arc::new(detections)),
             Err(DetectError::AllocError) =>
                 Err(PyErr::new::<exc::MemoryError, _>(py, format!("Unable to allocate buffers"))),
+            Err(DetectError::ImageTooBig) =>
+                Err(PyErr::new::<exc::ValueError, _>(py, format!("Source image too big"))),  
             Err(DetectError::ImageTooSmall) =>
                 Err(PyErr::new::<exc::ValueError, _>(py, format!("Source image too small"))),  
+            Err(DetectError::OpenCLError) =>
+                Err(PyErr::new::<exc::IOError, _>(py, format!("OpenCL error"))),  
         }
     }
 });

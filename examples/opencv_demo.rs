@@ -103,11 +103,11 @@ fn main() {
     cap.set(VideoCaptureProperties::CAP_PROP_FRAME_HEIGHT as i32, 10000.).unwrap();
 
     // Initialize tag detector with options
-    args.opencl = false;
+    // args.opencl = false;
     let detector = build_detector(&args, Some("cpu"));
 
-    args.opencl = true;
-    let detector1 = build_detector(&args, Some("gpu"));
+    // args.opencl = true;
+    // let detector1 = build_detector(&args, Some("gpu"));
 
     meter.stop().unwrap();
     let m = String::from("multiple");
