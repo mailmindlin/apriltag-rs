@@ -14,8 +14,13 @@ use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, Imag
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum DetectError {
+	/// Input image was too small
 	ImageTooSmall,
+	/// Input image was too large
+	ImageTooBig,
+	/// Buffer allocation error
 	AllocError,
+	OpenCLError,
 }
 
 pub struct AprilTagDetector {
