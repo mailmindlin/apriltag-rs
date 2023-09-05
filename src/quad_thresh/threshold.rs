@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-
+use std::fmt::Debug;
 use crate::{util::{Image, mem::{calloc, SafeZero}, image::{ImageBuffer, ImageY8, Pixel}}, dbg::TimeProfile};
 
 use super::AprilTagQuadThreshParams;
@@ -75,77 +75,14 @@ fn tile_minmax<const KW: usize>(im: &ImageY8) -> ImageBuffer<MinMaxPixel> {
     result
 }
 
-#[cfg(test)]
-mod test {
-    use crate::{util::{ImageY8, mem::SafeZero, image::Pixel, ImageBuffer}, Image};
-
-    use super::{tile_minmax, MinMax, blur};
-
-    fn checkit<const KSZ: usize>(width: usize, height: usize) {
-        let mut im = ImageY8::zeroed(width, height);
-        for i in 0..im.width() {
-            for j in 0..im.height() {
-                im[(i, j)] = (i * 4 + j) as u8;
-            }
-        }
-        let res = tile_minmax::<KSZ>(&im);
-        assert_eq!(res.width(), im.width().div_floor(KSZ));
-        assert_eq!(res.height(), im.height().div_floor(KSZ));
-        for i in 0..res.width() {
-            for j in 0..res.height() {
-                let mut v_min = 255;
-                let mut v_max = 0;
-                for i1 in (i*KSZ)..((i+1)*KSZ) {
-                    for j1 in (j*KSZ)..((j+1)*KSZ) {
-                        let v = (i1 * 4 + j1) as u8;
-                        if v < v_min {
-                            v_min = v;
-                        }
-                        if v > v_max {
-                            v_max = v;
-                        }
-                    }
-                }
-                assert_eq!(res[(i, j)], [v_min, v_max]);
-            }
-        }
-    }
-
-    #[test]
-    fn test_tile_minmax_aligned4() {
-        checkit::<4>(16, 16);
-    }
-
-    #[test]
-    fn test_tile_minmax_unaligned4() {
-        checkit::<4>(15, 13);
-    }
-
-    fn check_blur(mut img: Image<[u8; 2]>) {
-        let a = blur(img.clone());
-        let b = img.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
-            let mut acc = <[u8; 2]>::new_accumulator();
-            
-            for v in im.window(x, y, 1, 1).pixels() {
-                acc.update(v);
-            }
-            acc
-        });
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn test_blur() {
-
-    }
-}
-
 /// blur min/max values in a 3x3 grid
-fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffer<M> {
+fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffer<M> where [<M as Pixel>::Subpixel]: Debug, M: Debug {
     // Check that we need to blur (in practice, this branch is kinda useless)
     if im.width() < 3 || im.height() < 3 {
         return im;
     }
+
+    let width = im.width();
 
     let mut buffer_U = calloc::<M>(im.width()); // Buffer of min/max values for y-1 over (x-1..x+1)
     let mut buffer_C = calloc::<M>(im.width()); // Buffer of min/max values for y   over (x-1..x+1)
@@ -159,7 +96,6 @@ fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffe
         let mut v_RC = im[(0, 0)]; // Tracks value (x + 1, y + 0) Right Cener
         let mut v_RD = im[(0, 1)]; // Tracks value (x + 1, y + 1) Right Down
         
-        let width = im.width();
         let (mut row0, row1) = im.rows2_mut(0, 1);
         for x in 0..(width - 1) {
             // Shift Left <- Center
@@ -205,16 +141,16 @@ fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffe
     // Middle (we have up and down)
     for y in 1..(im.height() - 1) {
         // Rotate buffers up one
-        (buffer_D, buffer_C, buffer_U) = (buffer_C, buffer_U, buffer_D);
-        
+        (buffer_U, buffer_C, buffer_D) = (buffer_C, buffer_D, buffer_U);
+
         let mut v_CD = im[(y, 0)]; // Tracks value (x + 0, y + 1) Center Down
         let mut v_RD = im[(y, 1)]; // Tracks value (x + 1, y + 1) Right Down
 
-        for x in 0..im.width() {
+        for x in 0..width {
             let v_LD = v_CD; // Shift Left <- Center
             v_CD = v_RD;        // Shift Center <- Right
             // Load Center Right (or default if right edge)
-            v_RD = if x + 1 < im.width() { im[(x + 1, y + 1)] } else { M::new_accumulator() };
+            v_RD = if x + 1 < width { im[(x + 1, y + 1)] } else { M::new_accumulator() };
 
             // Load up/left values
             let v_U = buffer_U[x];
@@ -237,10 +173,19 @@ fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffe
         }
     }
 
-    let buffer_U = buffer_C;
-    let buffer_C = buffer_D;
-
-    // Bottom row
+    // Bottom row (we have up)
+    {
+        drop(buffer_U);
+        let buffer_U = buffer_C;
+        let buffer_C = buffer_D;
+        let mut row = im.row_mut(im.height() - 1);
+        for x in 0..width {
+            let mut v_C = buffer_C[x];
+            let v_U = buffer_U[x];
+            v_C.update(&v_U);
+            row[x] = v_C;
+        }
+    }
     im
 
 
@@ -251,6 +196,89 @@ fn blur<M: MinMax + Pixel<Value = M> + SafeZero>(mut im: Image<M>) -> ImageBuffe
     //     }
     //     acc
     // })
+}
+
+
+
+#[cfg(test)]
+mod test {
+    use rand::{thread_rng, Rng};
+
+    use crate::{util::{ImageY8, ImageBuffer}, Image};
+
+    use super::{tile_minmax, MinMax, blur};
+
+    fn random_image(width: usize, height: usize) -> ImageY8 {
+        let mut rng = thread_rng();
+        let mut result = ImageY8::zeroed_packed(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                result[(x, y)] = rng.gen();
+            }
+        }
+        result
+    }
+
+    fn check_minmax<const KSZ: usize>(width: usize, height: usize) {
+        let mut im = ImageY8::zeroed(width, height);
+        for i in 0..im.width() {
+            for j in 0..im.height() {
+                im[(i, j)] = (i * 4 + j) as u8;
+            }
+        }
+        let res = tile_minmax::<KSZ>(&im);
+        assert_eq!(res.width(), im.width().div_floor(KSZ));
+        assert_eq!(res.height(), im.height().div_floor(KSZ));
+        for i in 0..res.width() {
+            for j in 0..res.height() {
+                let mut v_min = 255;
+                let mut v_max = 0;
+                for i1 in (i*KSZ)..((i+1)*KSZ) {
+                    for j1 in (j*KSZ)..((j+1)*KSZ) {
+                        let v = (i1 * 4 + j1) as u8;
+                        if v < v_min {
+                            v_min = v;
+                        }
+                        if v > v_max {
+                            v_max = v;
+                        }
+                    }
+                }
+                assert_eq!(res[(i, j)], [v_min, v_max]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tile_minmax_aligned4() {
+        check_minmax::<4>(16, 16);
+    }
+
+    #[test]
+    fn test_tile_minmax_unaligned4() {
+        check_minmax::<4>(15, 13);
+    }
+
+    fn check_blur(img: Image<[u8; 2]>) {
+        let a = blur(img.clone());
+        let b = img.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
+            let mut acc = <[u8; 2]>::new_accumulator();
+            
+            for v in im.window(x, y, 1, 1).pixels() {
+                acc.update(v);
+            }
+            acc
+        });
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_blur() {
+        let img0 = random_image(3, 3);
+        let img_minmax = tile_minmax::<1>(&img0);
+        drop(img0);
+        check_blur(img_minmax);
+    }
 }
 
 fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>, qtp: &AprilTagQuadThreshParams) -> ImageY8 {

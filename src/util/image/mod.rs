@@ -8,7 +8,7 @@ mod rows;
 mod pixels;
 mod svg;
 
-use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData};
+use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, fmt::{Display, Debug}};
 pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
@@ -310,7 +310,7 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 		assert_ne!(y0, y1);
 		let idxs0 = index::row_idxs::<P>(self.dimensions(), y0);
 		let idxs1 = index::row_idxs::<P>(self.dimensions(), y1);
-		if idxs0.end < idxs1.start {
+		if idxs0.end <= idxs1.start {
 			// y0 < y1
 			let (left, right) = self.data.split_at_mut(idxs0.end);
 			let idxs1 = (idxs1.start - idxs0.end)..(idxs1.end - idxs0.end);
@@ -319,7 +319,7 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 			(r0, r1)
 		} else {
 			// y1 < y0
-			debug_assert!(idxs1.end < idxs0.start);
+			debug_assert!(idxs1.end <= idxs0.start);
 			let (left, right) = self.data.split_at_mut(idxs1.end);
 			let idxs0 = (idxs0.start - idxs1.end)..(idxs0.end - idxs1.end);
 			let r0 = RowMut(&mut right[idxs0]);
@@ -412,6 +412,16 @@ impl<P: Pixel> ImageBuffer<MaybeUninit<P>, Box<SubpixelArray<MaybeUninit<P>>>> w
 			pix: PhantomData
 		}
 	}
+}
+
+impl<P: Pixel> Display for ImageBuffer<P> where [<P as Pixel>::Subpixel]: Debug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "ImageBuffer [")?;
+		for (y, row) in self.rows() {
+			writeln!(f, "[{:?}]", row.as_slice())?;
+		}
+		writeln!(f, "]")
+    }
 }
 
 #[cfg(test)]
