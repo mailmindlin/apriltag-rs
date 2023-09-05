@@ -7,7 +7,7 @@ use crate::{util::image::ImageY8, detector::DetectorConfig};
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
-struct ClusterId {
+pub(super) struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
     // value: u64,
@@ -63,7 +63,7 @@ impl ClusterId {
 // }
 type ClusterHasher = RandomState;
 
-fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Cluster, uf: &impl UnionFindStatic<(u32, u32)>) {
+fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32)>) {
     let width = threshim.width();
     for y in y0..y1 {
         for x in 1..(width-1) {
@@ -156,9 +156,9 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
     }
 }
 
-type Cluster = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
+pub(super) type Clusters = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
 
-fn merge_clusters(mut c1: Cluster, c2: Cluster) -> Cluster {
+fn merge_clusters(mut c1: Clusters, c2: Clusters) -> Clusters {
     for (k, v) in c2 {
         match c1.entry(k) {
             Entry::Occupied(mut e) => {
@@ -172,12 +172,12 @@ fn merge_clusters(mut c1: Cluster, c2: Cluster) -> Cluster {
     c1
 }
 
-pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Vec<Vec<Pt>> {
+pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Clusters {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height() - 1;
-    let cluster_entries = if config.single_thread() && false {
-        let mut clustermap = Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
+    if config.single_thread() && false {
+        let mut clustermap = Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
         do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
         clustermap
     } else {
@@ -187,7 +187,7 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
         (0..sz)
             .into_par_iter()
             .step_by(chunksize)
-            .fold(|| Cluster::with_capacity_and_hasher(nclustermap, ClusterHasher::default()), |mut clustermap, i| {
+            .fold(|| Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default()), |mut clustermap, i| {
             // .map(|i| {
                 let y0 = i;
                 let y1 = std::cmp::min(sz, i + chunksize);
@@ -196,13 +196,8 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
                 clustermap
             })
             //TODO: it might be more efficient to reduce adjacent clusters
-            .reduce(|| Cluster::with_hasher(ClusterHasher::default()), merge_clusters)
-    };
-
-    // Convert from ClusterEntry -> Vec<Pt>
-    cluster_entries
-        .into_values()
-        .collect()
+            .reduce(|| Clusters::with_hasher(ClusterHasher::default()), merge_clusters)
+    }
 }
 
 #[cfg(all(test, feature="foo"))]
