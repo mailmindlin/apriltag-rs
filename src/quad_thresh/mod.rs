@@ -7,7 +7,7 @@ use std::{fs::File, f64::consts as f64c};
 
 use rand::thread_rng;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, Luma}}, quad_decode::Quad, dbg::TimeProfile};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, Luma, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile};
 
 use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::gradient_clusters, quadfit::fit_quads};
 
@@ -154,12 +154,12 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
     Ok(())
 }
 
-pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8) -> Vec<Quad> {
+pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: ImageRefY8) -> Vec<Quad> {
     let clusters = {
         ////////////////////////////////////////////////////////
         // step 1. threshold the image, creating the edge image.
 
-        let threshim = threshold::threshold(&td.params.qtp, tp, im);
+        let threshim = threshold::threshold(&td.params.qtp, tp, &im);
 
         #[cfg(feature="debug")]
         td.params.debug_image("02_debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));

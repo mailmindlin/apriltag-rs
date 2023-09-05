@@ -13,7 +13,7 @@ pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
 pub use ps::{PostScriptWriter, ImageWritePostscript};
-pub(crate) use ps::{VectorPathWriter};
+pub(crate) use ps::VectorPathWriter;
 pub use pnm::ImageWritePNM;
 pub use index::ImageDimensions;
 use self::{pnm::PNM, rows::{Row, Rows, RowMut, RowsMut}, pixels::{Pixels, EnumeratePixels, PixelsMut, EnumeratePixelsMut}, pixel::DefaultAlignment};
@@ -26,6 +26,7 @@ pub type Image<P, Container = DC<P>> = ImageBuffer<P, Container>;
 pub type ImageY8 = Image<Luma<u8>, DC<Luma<u8>>>;
 /// Default image with 3x 8-bit RGB pixels
 pub type ImageRGB8 = Image<Rgb<u8>, DC<Rgb<u8>>>;
+pub type ImageRef<'a, P> = Image<P, &'a SubpixelArray<P>>;
 pub type ImageRefY8<'a> = Image<Luma<u8>, &'a SubpixelArray<Luma<u8>>>;
 
 /// Array of subpixel elements for Pixel type `P`
