@@ -110,6 +110,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_nativeCreate<
                         msg: format!("Unable to allocate buffer"),
                     });
                 },
+                #[cfg(feature="opencl")]
                 Err(DetectorBuildError::OpenCLError(e)) => {
                     return Err(JavaError::Custom {
                         class: "OpenCLException",
