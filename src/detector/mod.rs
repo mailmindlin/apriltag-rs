@@ -55,13 +55,13 @@ pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
 	let sigma = f32::abs(quad_sigma);
 
 	let kernel_size = (4. * sigma) as usize; // 2 std devs in each direction
-	let kernel_size = if (kernel_size & 1) == 0 {
+	let kernel_size = if (kernel_size % 2) == 0 {
 		kernel_size + 1
 	} else {
 		kernel_size
 	};
 
-	assert_eq!(kernel_size % 1, 1, "kernel_size must be odd");
+	assert_eq!(kernel_size % 2, 1, "kernel_size must be odd");
 
 	// build the kernel.
 	let mut dk = vec![0f64; kernel_size];
@@ -78,7 +78,7 @@ pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
 	// normalize
 	let acc = dk.iter().sum::<f64>();
 
-	let kernel = dk.iter()
+	let kernel = dk.into_iter()
 		.map(|x| {
 			let x_norm = x / acc;
 			(x_norm * 255.) as u8 //TODO: round?
@@ -129,6 +129,11 @@ fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 			}
 		}
 	}
+}
+
+#[cfg(test)]
+pub fn quad_sigma_cpu(img: &mut ImageY8, quad_sigma_v: f32) {
+	quad_sigma(img, quad_sigma_v)
 }
 
 
