@@ -11,11 +11,12 @@ cpython = ["dep:cpython"]
 jni = ["dep:jni"]
 cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
+debug_ps = ["debug"]
 extra_debug = ["debug"]
-opencl = ["dep:ocl"]
+opencl = ["dep:ocl", "dep:wgpu"]
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 # default = ["cpython", "jni", "debug", "cffi", "dep:opencv", "opencl"]
-default = [ "cffi", "opencl", "debug"]
+default = [ "cffi", "opencl", "debug", "jni"]
 
 [profile.dev]
 default = ["cpython", "jni", "cffi", "debug", "extra_debug"]
@@ -33,8 +34,10 @@ clap = { version = "4.3.19", features=["derive"] }
 parking_lot = "0.12.1"
 raw-parts = "2.0.0"
 hashbrown = { version = "0.14.0", features = ["rayon"] }
-futures = "0.1.31"
+futures = "0.3.28"
 proc-macro2 = "1.0.66"
+bytemuck = "1.13.1"
+concurrent-queue = "2.2.0"
 
 # Feature: Python FFI (cpython)
 [dependencies.cpython]
@@ -73,6 +76,9 @@ optional = true
 # [dependencies.opencl3]
 # version = "0.9.3"
 # optional = true
+[dependencies.wgpu]
+version = "0.17.0"
+optional = true
 
 [dev-dependencies]
 image = "0.24.6"
