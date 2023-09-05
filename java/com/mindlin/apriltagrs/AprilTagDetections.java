@@ -14,9 +14,21 @@ public final class AprilTagDetections extends NativeObject implements List<April
     private static native Matrix33 nativeGetHomography(long ptr, int index);
     private static native TimeProfile nativeGetTimeProfile(long ptr);
 
+    /**
+     * Number of quads
+     */
     private final int numQuads;
+    /**
+     * Number of tags
+     */
     private final int count;
+    /**
+     * TimeProfile cache
+     */
     private WeakReference<Optional<TimeProfile>> tp = null;
+    /**
+     * pointer -> AprilTagFamily lookup
+     */
     private final Map<Long, AprilTagFamily> familyLookup;
 
     /**

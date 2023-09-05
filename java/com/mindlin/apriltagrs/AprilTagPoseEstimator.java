@@ -126,7 +126,12 @@ public class AprilTagPoseEstimator {
         return result;
     }
 
-    public AprilTagPose[] estimatePoses(Collection<AprilTagDetection> detections) {
+    /**
+     * Estimate poses
+     * @param detections Apriltag detections
+     * @return pose estimations
+     */
+    public AprilTagPose[] estimatePoses(Collection<? extends AprilTagDetection> detections) {
         int size = detections.size();
         if (size == 0)
             return new AprilTagPose[0];

@@ -20,7 +20,26 @@ public final class AprilTagDetector extends NativeObject {
     /**
      * Create new detector object
      * 
+     * @param nthreads Number of threads
+     * @param quadDecimate (config) Quad decimate value
+     * @param quadSigma (config) Quad sigma value
+     * @param refineEdges
+     * @param decodeSharpening
+     * @param debugPath
+     * @param minClusterPixels
+     * @param maxNumMaxima
+     * @param cosCriticalRad
+     * @param maxLineFitMSE
+     * @param minWhiteBlackDiff
+     * @param deglitch
+     * @param familyPtrs
+     * @param familyHammings
      * @return Handle to detector
+     * @throws IllegalArgumentException If one of the arguments is bad
+     * @throws AprilTagDetectorBuildException
+     * @throws OpenCLException
+     * @throws OpenCLUnavailableException
+     * @throws ThreadPoolBuildException
      */
     private static native long nativeCreate(
         // Config values
@@ -31,6 +50,9 @@ public final class AprilTagDetector extends NativeObject {
     );
     private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride, Map<Long, AprilTagFamily> familyLookup);
 
+    /**
+     * Builder for {@link AprilTagDetector}.
+     */
     public static class Builder implements Cloneable {
         private Config config;
         private QuadThresholdParameters qtp;
@@ -188,8 +210,8 @@ public final class AprilTagDetector extends NativeObject {
                 long[] familyPtrs = new long[this.families.size()];
                 int[] bitsCorrecteds = new int[this.families.size()];
                 for (var entry : this.families.entrySet()) {
-                    var family = Objects.requireNonNull(entry.getKey());
-                    var bitsCorrected = Objects.requireNonNull(entry.getValue()).intValue();
+                    var family = Objects.requireNonNull(entry.getKey(), "Null AprilTagFamily");
+                    var bitsCorrected = Objects.requireNonNull(entry.getValue(), "Missing AprilTagFamily hamming").intValue();
                     family.validateBitsCorrected(bitsCorrected);
                     var lock = family.ptrLock.readLock();
                     lock.lock();

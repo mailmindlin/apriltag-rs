@@ -40,6 +40,10 @@ abstract class NativeObject implements AutoCloseable {
         }
     }
 
+    /**
+     * Destroy native pointer
+     * @param ptr Native pointer
+     */
     protected abstract void destroy(long ptr);
 
     @Override
