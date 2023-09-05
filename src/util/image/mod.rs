@@ -6,12 +6,14 @@ pub mod pixel;
 mod index;
 mod rows;
 mod pixels;
+mod svg;
 
 use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData};
 pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
 pub use ps::{PostScriptWriter, ImageWritePostscript};
+pub(crate) use ps::{VectorPathWriter};
 pub use pnm::ImageWritePNM;
 pub use index::ImageDimensions;
 use self::{pnm::PNM, rows::{Row, Rows, RowMut, RowsMut}, pixels::{Pixels, EnumeratePixels, PixelsMut, EnumeratePixelsMut}, pixel::DefaultAlignment};
@@ -22,6 +24,7 @@ pub type Image<P, Container = DC<P>> = ImageBuffer<P, Container>;
 
 pub type ImageY8 = Image<Luma<u8>, DC<Luma<u8>>>;
 pub type ImageRGB8 = Image<Rgb<u8>, DC<Rgb<u8>>>;
+pub type ImageRefY8<'a> = Image<Luma<u8>, &'a SubpixelArray<Luma<u8>>>;
 
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
 type DC<P> = Box<SubpixelArray<P>>;
@@ -31,6 +34,30 @@ pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 	dims: ImageDimensions,
 	pub(crate) data: Container,
 	pix: PhantomData<P>,
+}
+
+impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuffer<P, Container> where <P as Pixel>::Subpixel: PartialEq {
+    fn eq(&self, other: &Self) -> bool {
+		if self.dims.width != other.dims.width {
+			return false;
+		}
+		if self.dims.height != other.dims.height {
+			return false;
+		}
+		for (y, row) in self.rows() {
+			let row2 = other.row(y);
+			if row.as_slice() != row2.as_slice() {
+				return false;
+			}
+		}
+		true
+    }
+}
+
+impl<P: Pixel, Container: AsRef<[<P as Pixel>::Subpixel]>> ImageBuffer<P, Container> {
+	pub fn as_ref<'a>(&'a self) -> ImageBuffer<P,&'a [<P as Pixel>::Subpixel]> {
+		ImageBuffer { dims: self.dims, data: self.data.as_ref(), pix: self.pix }
+	}
 }
 
 impl<P: Pixel, Container> ImageBuffer<P, Container> {
