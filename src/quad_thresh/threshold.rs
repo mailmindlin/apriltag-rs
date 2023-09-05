@@ -34,6 +34,11 @@ fn tile_minmax<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
     result
 }
 
+#[cfg(test)]
+pub(crate) fn tile_minmax_cpu<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
+    tile_minmax::<KW>(im)
+}
+
 fn blur(im_minmax: Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
     im_minmax.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
         let mut min = u8::MAX;
