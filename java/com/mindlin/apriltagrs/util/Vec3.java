@@ -1,6 +1,6 @@
 package com.mindlin.apriltagrs.util;
 
-public class Vec3 {
+public final class Vec3 {
     public final double x;
     public final double y;
     public final double z;

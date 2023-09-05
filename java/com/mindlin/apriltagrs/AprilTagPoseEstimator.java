@@ -5,7 +5,7 @@ import com.mindlin.apriltagrs.util.IntArrayList;
 
 import java.util.*;
 
-public class AprilTagPoseEstimator {
+public final class AprilTagPoseEstimator {
     private static Detection fixref(AprilTagDetection detection) {
         //TODO fixme
         try {
