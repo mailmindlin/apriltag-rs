@@ -63,6 +63,10 @@ impl<C: Container, F> ManagedPtr<C, F> where <C as Deref>::Target: Sized {
         let ptr = mem::replace(self.ptr.get_mut(), ptr::null_mut());
         Self::unwrap_ptr(ptr)
     }
+    pub(super) unsafe fn as_ptr(&mut self) -> *mut F {
+        let ptr = *self.ptr.get_mut();
+        ptr as *mut F
+    }
 }
 
 impl<C: Container, F> Drop for ManagedPtr<C, F> where <C as Deref>::Target: Sized {
