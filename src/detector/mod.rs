@@ -144,7 +144,7 @@ impl AprilTagDetector {
 		#[cfg(feature="debug")]
 		self.params.debug_image("01_debug_preprocess.pnm", |mut f| quad_im.write_pnm(&mut f));
 
-		let mut quads = apriltag_quad_thresh(self, &mut tp, &quad_im);
+		let mut quads = apriltag_quad_thresh(self, &mut tp, quad_im.as_ref());
 		drop(quad_im);
 
 		#[cfg(feature="extra_debug")]

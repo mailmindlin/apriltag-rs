@@ -292,8 +292,8 @@ pub unsafe extern "C" fn apriltag_detector_clear_families(td: *mut apriltag_dete
 /// Destroy the april tag detector (but not the underlying
 /// apriltag_family_t used to initialize it.)
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_destroy(mut td: *mut apriltag_detector_t) {
-    drop_boxed_mut(&mut td);
+pub unsafe extern "C" fn apriltag_detector_destroy(mut td: ManagedPtr<Box<apriltag_detector_t>>) {
+    let _ = td.take();
 }
 
 /// Detect tags from an image and return an array of
