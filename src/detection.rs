@@ -106,12 +106,12 @@ fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> 
 		if elements.is_empty() || *idx != elements.len() - 1 {
 			break;
 		}
-		let idx_pop = drop_idxs.pop();
+		let _idx_pop = drop_idxs.pop();
 		#[cfg(debug_assertions)]
-		debug_assert_eq!(idx_pop, Some(elements.len() - 1));
-		let elem_pop = elements.pop();
+		debug_assert_eq!(_idx_pop, Some(elements.len() - 1));
+		let _elem_pop = elements.pop();
 		#[cfg(debug_assertions)]
-		debug_assert!(elem_pop.is_some());
+		debug_assert!(_elem_pop.is_some());
 	}
 
 	assert!(elements.len() >= drop_idxs.len());
