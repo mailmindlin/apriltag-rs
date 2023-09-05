@@ -41,7 +41,7 @@ struct Args {
     input_files: Vec<PathBuf>,
 }
 
-fn build_detector(args: &Args) -> AprilTagDetector {
+fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
@@ -99,7 +99,9 @@ fn main() {
         println!("Arguments:");
         println!(" - threads: {}", args.threads);
     }
-    let detector = build_detector(&args);
+    let detector = build_detector(&args, None);
+    // args.opencl = true;
+    // let detector_gpu = build_detector(&args, Some("gpu"));
 
     let quiet = args.quiet;
     let mut acc = TimeProfileStatistics::default();
@@ -134,7 +136,9 @@ fn main() {
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
             let detections = detector.detect(&im)
-                .expect("Detection error");
+                .expect("Error detecting AprilTags");
+            // let detections_gpu = detector_gpu.detect(&im)
+            //     .expect("Error detecting AprilTags");
 
             println!("Found {} tags", detections.detections.len());
 

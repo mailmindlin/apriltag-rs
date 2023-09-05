@@ -45,9 +45,11 @@ struct Args {
     refine_edges: bool,
     #[arg(long)]
     debug_path: Option<PathBuf>,
+    #[arg(long)]
+    max_frames: Option<usize>,
 }
 
-fn build_detector(args: &Args) -> AprilTagDetector {
+fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
@@ -101,7 +103,11 @@ fn main() {
     cap.set(VideoCaptureProperties::CAP_PROP_FRAME_HEIGHT as i32, 10000.).unwrap();
 
     // Initialize tag detector with options
-    let detector = build_detector(&args);
+    args.opencl = false;
+    let detector = build_detector(&args, Some("cpu"));
+
+    args.opencl = true;
+    let detector1 = build_detector(&args, Some("gpu"));
 
     meter.stop().unwrap();
     let m = String::from("multiple");
@@ -112,7 +118,15 @@ fn main() {
         cap.get(VideoCaptureProperties::CAP_PROP_FPS as i32).unwrap());
     meter.reset().unwrap();
 
+    let mut nframes = 0;
+
     loop {
+        nframes += 1;
+        if let Some(max_frames) = args.max_frames {
+            if nframes >= max_frames {
+                break;
+            }
+        }
         let mut tp = TimeProfile::default();
         let mut frame = Mat::default();
         cap.read(&mut frame).unwrap();
