@@ -189,7 +189,7 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height() - 1;
-    let cluster_entries = if config.single_thread() && false {
+    if config.single_thread() && false {
         let mut clustermap = Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
         do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
         clustermap
@@ -208,8 +208,7 @@ pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut
             })
             //TODO: it might be more efficient to reduce adjacent clusters
             .reduce(|| Clusters::with_hasher(ClusterHasher::default()), merge_clusters)
-    };
-    cluster_entries
+    }
 }
 
 #[cfg(all(test, feature="foo"))]

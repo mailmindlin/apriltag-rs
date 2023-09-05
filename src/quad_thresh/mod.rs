@@ -106,7 +106,7 @@ fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &mut impl UnionFin
 }
 
 #[cfg(feature="debug")]
-fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &Clusters) -> std::io::Result<()> {
+fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &grad_cluster::Clusters) -> std::io::Result<()> {
     use crate::util::image::ImageRGB8;
 
     let mut d = ImageRGB8::new(w, h);
@@ -123,9 +123,9 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &Clusters) -> std::
     d.write_pnm(&mut f)
 }
 
-#[cfg(feature="debug")]
+#[cfg(feature="debug_ps")]
 fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
-    use crate::util::image::ImageWritePostscript;
+    use crate::util::image::{ImageWritePostscript, VectorPathWriter};
 
     let mut ps = PostScriptWriter::new(&mut f)?;
 
@@ -146,12 +146,12 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
     for q in quads.iter() {
         ps.setrgbcolor(&rng.gen_color_rgb(100))?;
         ps.path(|c| {
-            c.moveto(&q.corners[0])?;
-            c.lineto(&q.corners[0])?;
-            c.lineto(&q.corners[1])?;
-            c.lineto(&q.corners[2])?;
-            c.lineto(&q.corners[3])?;
-            c.lineto(&q.corners[0])?;
+            c.move_to(&q.corners[0])?;
+            c.line_to(&q.corners[0])?;
+            c.line_to(&q.corners[1])?;
+            c.line_to(&q.corners[2])?;
+            c.line_to(&q.corners[3])?;
+            c.line_to(&q.corners[0])?;
             c.stroke()
         })?;
     }
@@ -197,7 +197,7 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
         println!("Quad corner: {:?}", quad.corners);
     }
 
-    #[cfg(feature="debug")]
+    #[cfg(feature="debug_ps")]
     td.params.debug_image("05_debug_lines.ps", |f| debug_lines(f, im, &quads));
 
     tp.stamp("fit quads to clusters");

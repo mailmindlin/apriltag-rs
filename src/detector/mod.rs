@@ -16,8 +16,11 @@ use self::config::QuadDecimateMode;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum DetectError {
+	/// Input image was too small
 	ImageTooSmall,
+	/// Input image was too large
 	ImageTooBig,
+	/// Buffer allocation error
 	AllocError,
 	OpenCLError,
 }
@@ -208,17 +211,17 @@ impl AprilTagDetector {
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
 		let mut quad_im = match self.params.quad_decimate_mode() {
-			QuadDecimateMode::None => {
+			None => {
 				//TODO: can we not copy here?
 				im_orig.clone()
 			},
-			QuadDecimateMode::ThreeHalves => {
+			Some(QuadDecimateMode::ThreeHalves) => {
 				let quad_im = im_orig.decimate_three_halves();
 				tp.stamp("decimate");
 				quad_im
 			},
-			QuadDecimateMode::Scaled(quad_decimate) => {
-				let quad_im = im_orig.decimate(quad_decimate);
+			Some(QuadDecimateMode::Scaled(quad_decimate)) => {
+				let quad_im = im_orig.decimate(quad_decimate.get() as _);
 				tp.stamp("decimate");
 				quad_im
 			}
@@ -274,17 +277,17 @@ impl AprilTagDetector {
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
 		match self.params.quad_decimate_mode() {
-			QuadDecimateMode::None => {},
-			QuadDecimateMode::ThreeHalves => {
+			None => {},
+			Some(QuadDecimateMode::ThreeHalves) => {
 				for q in quads.iter_mut() {
 					q.corners *= 1.5;
 				}
 			},
-			QuadDecimateMode::Scaled(scale) => {
+			Some(QuadDecimateMode::Scaled(scale)) => {
 				let half = Vec2::dup(0.5);
 				for q in quads.iter_mut() {
 					q.corners -= half;
-					q.corners *= scale as f64;
+					q.corners *= scale.get() as f64;
 					q.corners += half;
 				}
 			}
@@ -357,10 +360,10 @@ impl AprilTagDetector {
 		#[cfg(feature="debug")]
 		if self.params.generate_debug_image() {
 			self.params.debug_image("09a_debug_quads_fixed.pnm", |f| debug::debug_quads_fixed(f, ImageY8::clone_like(im_orig), &quads));
-			// self.params.debug_image("09b_debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
+			#[cfg(feature="debug_ps")]
+			self.params.debug_image("09b_debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
 			tp.stamp("decode+refinement (output)");
 		}
-		#[cfg(feature="debug")]
 		drop(quads);
 
 		let mut detections = reconcile_detections(detections);
@@ -371,7 +374,8 @@ impl AprilTagDetector {
 		// Produce final debug output
 		#[cfg(feature="debug")]
 		{
-			// self.params.debug_image("10a_debug_output.ps", |f| debug::debug_output_ps(f, ImageY8::clone_like(im_orig), &detections));
+			#[cfg(feature="debug_ps")]
+			self.params.debug_image("10a_debug_output.ps", |f| debug::debug_output_ps(f, ImageY8::clone_like(im_orig), &detections));
 			self.params.debug_image("10b_debug_output.pnm", |f| debug::debug_output_pnm(f, ImageY8::clone_like(im_orig), &detections));
 		}
 		tp.stamp("debug output");

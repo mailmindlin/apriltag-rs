@@ -43,7 +43,8 @@ struct Args {
     opencl: bool,
     input_files: Vec<PathBuf>,
 }
-fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
+
+fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
     if args.opencl {
         builder.use_opencl(apriltag_rs::OpenClMode::Required)
@@ -74,7 +75,7 @@ fn build_detector(args: &Args, dbp: Option<&str>) -> AprilTagDetector {
     builder.config.nthreads = args.threads;
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
-    if let Some(dbp) = dbp {
+    if let Some(dbp) = path_override {
         builder.config.debug_path = Some(format!("./debug/{dbp}"));
     } else if let Some(path) = &args.debug_path {
         builder.config.debug_path = Some(path.to_str().unwrap().to_owned());

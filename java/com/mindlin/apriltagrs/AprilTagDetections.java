@@ -1,22 +1,51 @@
 package com.mindlin.apriltagrs;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Array;
 import java.util.*;
 
 import com.mindlin.apriltagrs.debug.TimeProfile;
 import com.mindlin.apriltagrs.util.Matrix33;
+import com.mindlin.apriltagrs.util.Point2d;
 
+/**
+ * The result of {@link AprilTagDetector#detect(byte[][])}.
+ */
 public final class AprilTagDetections extends NativeObject implements List<AprilTagDetection>, RandomAccess {
     private static native long nativeGetFamilyPointer(long ptr, int index) throws NullPointerException;
     private static native int nativeGetTagId(long ptr, int index);
     private static native int nativeGetHammingDistance(long ptr, int index);
+    private static native double[] nativeGetCenter(long ptr, int index);
+    private static native double[] nativeGetCorners(long ptr, int index);
     private static native float nativeGetDecisionMargin(long ptr, int index);
     private static native Matrix33 nativeGetHomography(long ptr, int index);
     private static native TimeProfile nativeGetTimeProfile(long ptr);
 
+    static void subListRangeCheck(int fromIndex, int toIndex, int size) {
+        if (fromIndex < 0)
+            throw new IndexOutOfBoundsException("fromIndex = " + fromIndex);
+        if (toIndex > size)
+            throw new IndexOutOfBoundsException("toIndex = " + toIndex);
+        if (fromIndex > toIndex)
+            throw new IllegalArgumentException("fromIndex(" + fromIndex +
+                                               ") > toIndex(" + toIndex + ")");
+    }
+
+    /**
+     * Number of quads
+     */
     private final int numQuads;
+    /**
+     * Number of tags
+     */
     private final int count;
+    /**
+     * TimeProfile cache
+     */
     private WeakReference<Optional<TimeProfile>> tp = null;
+    /**
+     * pointer -> AprilTagFamily lookup
+     */
     private final Map<Long, AprilTagFamily> familyLookup;
 
     /**
@@ -66,6 +95,23 @@ public final class AprilTagDetections extends NativeObject implements List<April
         return this.nativeRead(ptr -> nativeGetHomography(ptr, index));
     }
 
+    Point2d getDetectionCenter(int index) {
+        this.assertValidIndex(index);
+        var buffer = this.nativeRead(ptr -> nativeGetCenter(ptr, index));
+        return new Point2d(buffer[0], buffer[1]);
+    }
+
+    Point2d[] getDetectionCorners(int index) {
+        this.assertValidIndex(index);
+        var buffer = this.nativeRead(ptr -> nativeGetCorners(ptr, index));
+        return new Point2d[] {
+            new Point2d(buffer[0], buffer[1]),
+            new Point2d(buffer[2], buffer[3]),
+            new Point2d(buffer[4], buffer[5]),
+            new Point2d(buffer[6], buffer[7]),
+        };
+    }
+
     public int getNumQuads() {
         return this.numQuads;
     }
@@ -97,31 +143,6 @@ public final class AprilTagDetections extends NativeObject implements List<April
     }
 
     @Override
-    public boolean addAll(Collection<? extends AprilTagDetection> c) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
-    public boolean addAll(int index, Collection<? extends AprilTagDetection> c) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
-    public boolean removeAll(Collection<?> c) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
-    public boolean retainAll(Collection<?> c) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
-    public void clear() {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
     public boolean isEmpty() {
         return this.count == 0;
     }
@@ -142,20 +163,18 @@ public final class AprilTagDetections extends NativeObject implements List<April
 
     @Override
     public <T> T[] toArray(T[] a) {
-        var result = Arrays.copyOf(a, this.size());
-        for (int i = 0; i < this.size(); i++)
-            result[i] = (T) new Detection(i);
+        @SuppressWarnings("unchecked")
+        var result = (a.length >= this.size())
+            ? a
+            // We prevent an arraycopy here compared with Arrays.copyOf()
+            : (T[]) Array.newInstance(a.getClass().componentType(), this.size());
+
+        for (int i = 0; i < this.size(); i++) {
+            @SuppressWarnings("unchecked")
+            T value = (T) new Detection(i);
+            result[i] = value;
+        }
         return result;
-    }
-
-    @Override
-    public boolean add(AprilTagDetection aprilTagDetection) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
-    }
-
-    @Override
-    public boolean remove(Object o) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
     }
 
     @Override
@@ -167,18 +186,57 @@ public final class AprilTagDetections extends NativeObject implements List<April
     }
 
     @Override
+    public boolean addAll(Collection<? extends AprilTagDetection> c) {
+        throw this.immutableException();
+    }
+
+    @Override
+    public boolean addAll(int index, Collection<? extends AprilTagDetection> c) {
+        throw this.immutableException();
+    }
+
+    @Override
+    public boolean removeAll(Collection<?> c) {
+        throw this.immutableException();
+    }
+
+    @Override
+    public boolean retainAll(Collection<?> c) {
+        throw this.immutableException();
+    }
+
+    @Override
+    public void clear() {
+        throw this.immutableException();
+    }
+
+    @Override
+    public boolean add(AprilTagDetection aprilTagDetection) {
+        throw this.immutableException();
+    }
+
+    @Override
+    public boolean remove(Object o) {
+        throw this.immutableException();
+    }
+
+    @Override
     public AprilTagDetection set(int index, AprilTagDetection element) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+        throw this.immutableException();
     }
 
     @Override
     public void add(int index, AprilTagDetection element) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+        throw this.immutableException();
     }
 
     @Override
     public AprilTagDetection remove(int index) {
-        throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+        throw this.immutableException();
+    }
+
+    private RuntimeException immutableException() {
+        return new UnsupportedOperationException("AprilTagDetections is not mutable");
     }
 
     @Override
@@ -221,35 +279,126 @@ public final class AprilTagDetections extends NativeObject implements List<April
 
     @Override
     public List<AprilTagDetection> subList(int fromIndex, int toIndex) {
-        //TODO
-        return null;
+        subListRangeCheck(fromIndex, toIndex, size());
+        return new SubList(fromIndex, toIndex);
     }
 
     @Override
     protected native void destroy(long ptr);
 
+    /**
+     * Sublist of AprilTagDetections
+     */
+    final class SubList extends AbstractList<AprilTagDetection> implements RandomAccess {
+        private final int offset;
+        protected int size;
+
+        /**
+         * Constructs a sublist of an arbitrary AbstractList, which is
+         * not a SubList itself.
+         */
+        private SubList(int fromIndex, int toIndex) {
+            this.offset = fromIndex;
+            this.size = toIndex - fromIndex;
+        }
+
+        /**
+         * Constructs a sublist of another SubList.
+         */
+        protected SubList(SubList parent, int fromIndex, int toIndex) {
+            assert parent.getDetections() == AprilTagDetections.this;
+
+            this.offset = parent.offset + fromIndex;
+            this.size = toIndex - fromIndex;
+        }
+
+        private AprilTagDetections getDetections() {
+            return AprilTagDetections.this;
+        }
+
+        @Override
+        public AprilTagDetection get(int index) {
+            Objects.checkIndex(index, size);
+            return AprilTagDetections.this.get(offset + index);
+        }
+
+        @Override
+        public int size() {
+            return size;
+        }
+
+        @Override
+        public void add(int index, AprilTagDetection element) {
+            throw immutableException();
+        }
+
+        @Override
+        public AprilTagDetection set(int index, AprilTagDetection element) {
+            throw immutableException();
+        }
+
+        @Override
+        public AprilTagDetection remove(int index) {
+            throw immutableException();
+        }
+
+        @Override
+        public boolean addAll(Collection<? extends AprilTagDetection> c) {
+            throw immutableException();
+        }
+
+        @Override
+        public boolean addAll(int index, Collection<? extends AprilTagDetection> c) {
+            throw immutableException();
+        }
+
+        @Override
+        public Iterator<AprilTagDetection> iterator() {
+            return listIterator();
+        }
+
+        @Override
+        public ListIterator<AprilTagDetection> listIterator(int index) {
+            return new DetectionsIterator(this.offset, this.size, index);
+        }
+
+        @Override
+        public List<AprilTagDetection> subList(int fromIndex, int toIndex) {
+            subListRangeCheck(fromIndex, toIndex, size);
+            return new SubList(this, fromIndex, toIndex);
+        }
+    }
+
     private class DetectionsIterator implements ListIterator<AprilTagDetection> {
+        private final int offset;
+        private final int size;
         int cursor;
 
         DetectionsIterator(int index) {
+            this(0, AprilTagDetections.this.size(), index);
+        }
+
+        DetectionsIterator(int offset, int size, int index) {
+            Objects.checkFromIndexSize(offset, size, index);
+            this.offset = offset;
+            this.size = size;
             this.cursor = index;
         }
 
         @Override
         public boolean hasNext() {
-            return AprilTagDetections.this.validIndex(this.cursor);
+            return (this.cursor < this.size);
         }
 
         @Override
         public AprilTagDetection next() {
+            if (!this.hasNext())
+                throw new NoSuchElementException();
+            
             int i = this.cursor;
-            try {
-                AprilTagDetection result = AprilTagDetections.this.get(i);
-                this.cursor = i + 1;
-                return result;
-            } catch (IndexOutOfBoundsException e) {
-                throw new NoSuchElementException(e);
-            }
+            var result = AprilTagDetections.this.get(i + this.offset);
+            this.cursor = i + 1;
+            return result;
         }
 
         @Override
@@ -259,12 +408,13 @@ public final class AprilTagDetections extends NativeObject implements List<April
 
         @Override
         public AprilTagDetection previous() {
+            if (!hasPrevious())
+                throw new NoSuchElementException();
+            
             int i = this.cursor - 1;
-            try {
-                return AprilTagDetections.this.get(i);
-            } catch (IndexOutOfBoundsException e) {
-                throw new NoSuchElementException(e);
-            }
+            var result = AprilTagDetections.this.get(i + this.offset);
+            this.cursor = i;
+            return result;
         }
 
         @Override
@@ -279,17 +429,17 @@ public final class AprilTagDetections extends NativeObject implements List<April
 
         @Override
         public void remove() {
-            throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+            throw immutableException();
         }
 
         @Override
         public void set(AprilTagDetection aprilTagDetection) {
-            throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+            throw immutableException();
         }
 
         @Override
         public void add(AprilTagDetection aprilTagDetection) {
-            throw new UnsupportedOperationException("AprilTagDetections is not mutable");
+            throw immutableException();
         }
     }
 
@@ -328,6 +478,16 @@ public final class AprilTagDetections extends NativeObject implements List<April
         @Override
         public Matrix33 getHomography() {
             return AprilTagDetections.this.getDetectionHomography(this.index);
+        }
+
+        @Override
+        public Point2d getCenter() {
+            return AprilTagDetections.this.getDetectionCenter(this.index);
+        }
+
+        @Override
+        public Point2d[] getCorners() {
+            return AprilTagDetections.this.getDetectionCorners(this.index);
         }
     }
 }

@@ -7,9 +7,6 @@ use apriltag_rs::util::image::Pixel;
 use clap::Parser;
 use clap::command;
 use image::Rgb;
-use opencv::prelude::*;
-use opencv::core::*;
-use opencv::highgui::{imshow, wait_key};
 use image::{io::Reader as ImageReader, ImageBuffer as IImageBuffer};
 use apriltag_rs::util::ImageRGB8;
 
@@ -35,6 +32,25 @@ fn load_image(path: &Path) -> io::Result<ImageRGB8> {
         result[(x as usize, y as usize)] = value.0;
     }
     Ok(result)
+}
+
+#[cfg(feature="dep:opencv")]
+fn show_opencv(img: ImageRGB8) {
+    use opencv::prelude::*;
+    use opencv::core::*;
+    use opencv::highgui::{imshow, wait_key};
+    let mut mat = Mat::zeros(img.height() as i32, img.width() as i32, CV_8UC3 as i32).unwrap()
+    .to_mat()
+    .unwrap();
+
+    for ((x, y), value) in img.enumerate_pixels() {
+        let dst = mat.at_2d_mut::<Vec3b>(y as i32, x as i32).unwrap();
+        dst.0 = value.to_value().into();
+    }
+
+
+    imshow(&args.input_file.display().to_string(), &mat).unwrap();
+    wait_key(0).unwrap();
 }
 
 fn main() {
@@ -85,16 +101,6 @@ fn main() {
         }
     }
 
-    let mut mat = Mat::zeros(img.height() as i32, img.width() as i32, CV_8UC3 as i32).unwrap()
-        .to_mat()
-        .unwrap();
-
-    for ((x, y), value) in img.enumerate_pixels() {
-        let dst = mat.at_2d_mut::<Vec3b>(y as i32, x as i32).unwrap();
-        dst.0 = value.to_value().into();
-    }
-    
-
-    imshow(&args.input_file.display().to_string(), &mat).unwrap();
-    wait_key(0).unwrap();
+    #[cfg(feature="dep:opencv")]
+    show_opencv(img);
 }

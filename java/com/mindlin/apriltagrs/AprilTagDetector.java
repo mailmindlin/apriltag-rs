@@ -11,6 +11,10 @@ import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 
+import com.mindlin.apriltagrs.errors.AprilTagDetectorBuildException;
+import com.mindlin.apriltagrs.errors.OpenCLException;
+import com.mindlin.apriltagrs.errors.OpenCLUnavailableException;
+import com.mindlin.apriltagrs.errors.ThreadPoolBuildException;
 import com.mindlin.apriltagrs.util.Image2D;
 
 /**
@@ -20,7 +24,27 @@ public final class AprilTagDetector extends NativeObject {
     /**
      * Create new detector object
      * 
+     * @param nthreads Number of threads
+     * @param quadDecimate (config) Quad decimate value
+     * @param quadSigma (config) Quad sigma value
+     * @param refineEdges
+     * @param decodeSharpening
+     * @param debugPath
+     * @param minClusterPixels
+     * @param maxNumMaxima
+     * @param cosCriticalRad
+     * @param maxLineFitMSE
+     * @param minWhiteBlackDiff
+     * @param deglitch
+     * @param familyPtrs
+     * @param familyHammings
      * @return Handle to detector
+     * @throws AssertionError
+     * @throws IllegalArgumentException If one of the arguments is bad
+     * @throws AprilTagDetectorBuildException
+     * @throws OpenCLException
+     * @throws OpenCLUnavailableException
+     * @throws ThreadPoolBuildException
      */
     private static native long nativeCreate(
         // Config values
@@ -28,9 +52,12 @@ public final class AprilTagDetector extends NativeObject {
         // QTP values
         int minClusterPixels, int maxNumMaxima, float cosCriticalRad, float maxLineFitMSE, int minWhiteBlackDiff, boolean deglitch,
         long[] familyPtrs, int[] familyHammings
-    );
+    ) throws AssertionError, IllegalArgumentException, AprilTagDetectorBuildException, OpenCLException, OpenCLUnavailableException, ThreadPoolBuildException;
     private static native AprilTagDetections nativeDetect(long ptr, ByteBuffer buf, int width, int height, int stride, Map<Long, AprilTagFamily> familyLookup);
 
+    /**
+     * Builder for {@link AprilTagDetector}.
+     */
     public static class Builder implements Cloneable {
         private Config config;
         private QuadThresholdParameters qtp;
@@ -188,8 +215,8 @@ public final class AprilTagDetector extends NativeObject {
                 long[] familyPtrs = new long[this.families.size()];
                 int[] bitsCorrecteds = new int[this.families.size()];
                 for (var entry : this.families.entrySet()) {
-                    var family = Objects.requireNonNull(entry.getKey());
-                    var bitsCorrected = Objects.requireNonNull(entry.getValue()).intValue();
+                    var family = Objects.requireNonNull(entry.getKey(), "Null AprilTagFamily");
+                    var bitsCorrected = Objects.requireNonNull(entry.getValue(), "Missing AprilTagFamily hamming").intValue();
                     family.validateBitsCorrected(bitsCorrected);
                     var lock = family.ptrLock.readLock();
                     lock.lock();
@@ -209,22 +236,29 @@ public final class AprilTagDetector extends NativeObject {
                 }
                 assert i == familyPtrs.length;
 
-                long ptr = AprilTagDetector.nativeCreate(
-                    config.numThreads,
-                    config.quadDecimate,
-                    config.quadSigma,
-                    config.refineEdges,
-                    config.decodeSharpening,
-                    config.debug.toAbsolutePath().toString(),
-                    qtp.minClusterPixels,
-                    qtp.maxNumMaxima,
-                    qtp.cosCriticalRad,
-                    qtp.maxLineFitMSE,
-                    qtp.minWhiteBlackDiff,
-                    qtp.deglitch,
-                    familyPtrs,
-                    bitsCorrecteds
-                );
+                var debugPath = config.debug == null ? null : config.debug.toAbsolutePath().toString();
+
+                long ptr;
+                try {
+                    ptr = AprilTagDetector.nativeCreate(
+                        config.numThreads,
+                        config.quadDecimate,
+                        config.quadSigma,
+                        config.refineEdges,
+                        config.decodeSharpening,
+                        debugPath,
+                        qtp.minClusterPixels,
+                        qtp.maxNumMaxima,
+                        qtp.cosCriticalRad,
+                        qtp.maxLineFitMSE,
+                        qtp.minWhiteBlackDiff,
+                        qtp.deglitch,
+                        familyPtrs,
+                        bitsCorrecteds
+                    );
+                } catch (IllegalArgumentException | AssertionError e) {
+                    throw new AprilTagDetectorBuildException(e);
+                }
 
                 return new AprilTagDetector(ptr, config, qtp, families, familyPointerLookup);
             } finally {

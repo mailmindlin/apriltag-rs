@@ -15,11 +15,18 @@ Genarate java bindings
 ### `debug`
 Allow generating debug information (this is still behind a runtime flag)
 
+### `debug_ps`
+Generate PostScript debug files (may be slow)
+
+### `debug_svg`
+
 ### `extra_debug`
 
 ### `approx_eq`
 Derive approximate equality traits (requires )
+
 ### `compare_reference`
+Compare output to native libapriltag
 
 ## Debug images
 

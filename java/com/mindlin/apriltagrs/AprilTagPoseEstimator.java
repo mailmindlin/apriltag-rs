@@ -5,7 +5,7 @@ import com.mindlin.apriltagrs.util.IntArrayList;
 
 import java.util.*;
 
-public class AprilTagPoseEstimator {
+public final class AprilTagPoseEstimator {
     private static Detection fixref(AprilTagDetection detection) {
         //TODO fixme
         try {
@@ -39,6 +39,15 @@ public class AprilTagPoseEstimator {
         this.cy = cy;
     }
 
+    public AprilTagPoseEstimator(Config config) {
+        Objects.requireNonNull(config, "config");
+        this.tagSize = config.tagsize;
+        this.fx = config.fx;
+        this.fy = config.fy;
+        this.cx = config.cx;
+        this.cy = config.cy;
+    }
+
     private AprilTagPose[] estimatePoses(AprilTagDetections detections, int[] indices) {
         int len = (indices == null) ? detections.size() : indices.length;
         if (len == 0)
@@ -67,7 +76,15 @@ public class AprilTagPoseEstimator {
         return result[0];
     }
 
-    private AprilTagPose[] upgradeBuckets(AprilTagDetections dets, IntArrayList idxs0, Detection first, Iterator<AprilTagDetection> iter) {
+    /**
+     * 
+     * @param dets
+     * @param idxs0
+     * @param first
+     * @param iter
+     * @return detections
+     */
+    private AprilTagPose[] upgradeBuckets(AprilTagDetections dets, IntArrayList idxs0, Detection first, Iterator<? extends AprilTagDetection> iter) {
         class Bucket {
             final IntArrayList detsIdxs;
             final IntArrayList resultIdxs;
@@ -126,7 +143,12 @@ public class AprilTagPoseEstimator {
         return result;
     }
 
-    public AprilTagPose[] estimatePoses(Collection<AprilTagDetection> detections) {
+    /**
+     * Estimate poses
+     * @param detections Apriltag detections
+     * @return pose estimations
+     */
+    public AprilTagPose[] estimatePoses(Collection<? extends AprilTagDetection> detections) {
         int size = detections.size();
         if (size == 0)
             return new AprilTagPose[0];
@@ -161,5 +183,20 @@ public class AprilTagPoseEstimator {
         assert detsIdxs.size() == size;
 
         return this.estimatePoses(dets, detsIdxs.toIntArray());
+    }
+
+    public static final class Config {
+        public final double tagsize;
+        public final double fx;
+        public final double fy;
+        public final double cx;
+        public final double cy;
+        public Config(double tagsize, double fx, double fy, double cx, double cy) {
+            this.tagsize = tagsize;
+            this.fx = fx;
+            this.fy = fy;
+            this.cx = cx;
+            this.cy = cy;
+        }
     }
 }

@@ -76,6 +76,11 @@ public final class AprilTagFamily extends NativeObject {
         return this.nativeRead(AprilTagFamily::nativeGetMinHamming);
     }
 
+    /**
+     * Check that bitsCorrected is a valid hamming distance
+     * @param bitsCorrected
+     * @throws IllegalArgumentException
+     */
     void validateBitsCorrected(int bitsCorrected) throws IllegalArgumentException {
         if (bitsCorrected < 0)
             throw new IllegalArgumentException("maxHamming negative for family " + this.getName());

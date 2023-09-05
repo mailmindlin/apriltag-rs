@@ -10,6 +10,8 @@ use self::jptr::{JPtrMut, RawPtr};
 pub(super) use self::jptr::{PointerNullError, JPtr, JPtrManaged};
 
 pub(super) enum JavaError {
+    /// Java AssertionError
+    AssertionError(String),
     GenericException(String),
     // Exception(String, String),
     ConcurrentModificationException,
@@ -18,11 +20,17 @@ pub(super) enum JavaError {
     IllegalStateException(String),
     Internal(jni::errors::Error),
     OutOfMemoryError(String),
+    Custom {
+        class: &'static str,
+        msg: String,
+    }
 }
 
 impl JavaError {
     fn throw(&self, env: &mut JNIEnv) {
         match self {
+            JavaError::AssertionError(msg) => env.throw_new("java/lang/AssertionError", msg),
+            JavaError::Custom { class, msg } => env.throw_new(format!("com/mindlin/apriltagrs/errors/{class}"), msg),
             JavaError::GenericException(msg) => env.throw_new("java/lang/Exception", msg),
             // JavaError::Exception(class, msg) => env.throw_new(class, msg),
             Self::NullPointerException(msg) => env.throw_new("java/lang/NullPointerException", msg),

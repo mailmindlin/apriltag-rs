@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 
 use arrayvec::ArrayVec;
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::*;
 
 use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
 
@@ -1261,6 +1261,7 @@ pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Clusters, im: &Imag
             return None;
         }
         if cluster.len() > max_cluster_pixels {
+            #[cfg(feature="extra_debug")]
             println!("\tIgnored (max size) {}", cluster.len());
             return None;
         }

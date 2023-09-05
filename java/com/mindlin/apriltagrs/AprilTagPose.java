@@ -5,7 +5,7 @@ import java.util.Objects;
 import com.mindlin.apriltagrs.util.Matrix33;
 import com.mindlin.apriltagrs.util.Vec3;
 
-public class AprilTagPose {
+public final class AprilTagPose {
     public final Matrix33 R;
     public final Vec3 t;
     public final double error;

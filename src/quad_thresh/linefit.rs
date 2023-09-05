@@ -48,10 +48,9 @@ impl From<apriltag_sys::pt> for Pt {
 }
 
 #[inline]
+#[cfg(feature="compare_reference")]
 fn ptsort_inner(pts: &mut [Pt]) {
     //TODO: speed test
-    pts.sort_unstable_by(Pt::compare_angle);
-    return;
     #[inline(always)]
     fn MAYBE_SWAP(arr: &mut [Pt], apos: usize, bpos: usize) {
         if Pt::compare_angle(&arr[apos], &arr[bpos]).is_le() {
@@ -64,41 +63,41 @@ fn ptsort_inner(pts: &mut [Pt]) {
             // Already sorted
             return;
         },
-        // 2 => {
-        //     MAYBE_SWAP(pts, 0, 1);
-        // },
-        // // NB: Using less-branch-intensive sorting networks here on the
-        // // hunch that it's better for performance.
-        // 3 => {
-        //     // 3 element bubble sort is optimal
-        //     MAYBE_SWAP(pts, 0, 1);
-        //     MAYBE_SWAP(pts, 1, 2);
-        //     MAYBE_SWAP(pts, 0, 1);
-        //     return;
-        // }
-        // 4 => {
-        //     // 4 element optimal sorting network.
-        //     MAYBE_SWAP(pts, 0, 1); // sort each half, like a merge sort
-        //     MAYBE_SWAP(pts, 2, 3);
-        //     MAYBE_SWAP(pts, 0, 2); // minimum value is now at 0.
-        //     MAYBE_SWAP(pts, 1, 3); // maximum value is now at end.
-        //     MAYBE_SWAP(pts, 1, 2); // that only leaves the middle two.
-        //     return;
-        // }
-        // 5 => {
-        //     // this 9-step swap is optimal for a sorting network, but two
-        //     // steps slower than a generic sort.
-        //     MAYBE_SWAP(pts, 0, 1); // sort each half (3+2), like a merge sort
-        //     MAYBE_SWAP(pts, 3, 4);
-        //     MAYBE_SWAP(pts, 1, 2);
-        //     MAYBE_SWAP(pts, 0, 1);
-        //     MAYBE_SWAP(pts, 0, 3); // minimum element now at 0
-        //     MAYBE_SWAP(pts, 2, 4); // maximum element now at end
-        //     MAYBE_SWAP(pts, 1, 2); // now resort the three elements 1-3.
-        //     MAYBE_SWAP(pts, 2, 3);
-        //     MAYBE_SWAP(pts, 1, 2);
-        //     return;
-        // },
+        2 => {
+            MAYBE_SWAP(pts, 0, 1);
+        },
+        // NB: Using less-branch-intensive sorting networks here on the
+        // hunch that it's better for performance.
+        3 => {
+            // 3 element bubble sort is optimal
+            MAYBE_SWAP(pts, 0, 1);
+            MAYBE_SWAP(pts, 1, 2);
+            MAYBE_SWAP(pts, 0, 1);
+            return;
+        },
+        4 => {
+            // 4 element optimal sorting network.
+            MAYBE_SWAP(pts, 0, 1); // sort each half, like a merge sort
+            MAYBE_SWAP(pts, 2, 3);
+            MAYBE_SWAP(pts, 0, 2); // minimum value is now at 0.
+            MAYBE_SWAP(pts, 1, 3); // maximum value is now at end.
+            MAYBE_SWAP(pts, 1, 2); // that only leaves the middle two.
+            return;
+        },
+        5 => {
+            // this 9-step swap is optimal for a sorting network, but two
+            // steps slower than a generic sort.
+            MAYBE_SWAP(pts, 0, 1); // sort each half (3+2), like a merge sort
+            MAYBE_SWAP(pts, 3, 4);
+            MAYBE_SWAP(pts, 1, 2);
+            MAYBE_SWAP(pts, 0, 1);
+            MAYBE_SWAP(pts, 0, 3); // minimum element now at 0
+            MAYBE_SWAP(pts, 2, 4); // maximum element now at end
+            MAYBE_SWAP(pts, 1, 2); // now resort the three elements 1-3.
+            MAYBE_SWAP(pts, 2, 3);
+            MAYBE_SWAP(pts, 1, 2);
+            return;
+        },
         _ => {
             // Fall back to merge sort
             // pts.sort_unstable_by(Pt::compare_angle);
@@ -107,12 +106,6 @@ fn ptsort_inner(pts: &mut [Pt]) {
             let (A, B) = tmp.split_at_mut(pts.len() / 2);
             ptsort_inner(A);
             ptsort_inner(B);
-
-            // #define MERGE(apos,bpos)                        \
-            // if (pt_compare_angle(&(as[apos]), &(bs[bpos])) < 0)        \
-            //     pts[outpos++] = as[apos++];             \
-            // else                                        \
-            //     pts[outpos++] = bs[bpos++];
 
             let mut Apos = 0;
             let mut Bpos = 0;
@@ -158,7 +151,7 @@ fn ptsort_inner(pts: &mut [Pt]) {
 #[cfg(not(feature="compare_reference"))]
 #[inline]
 pub(super) fn ptsort(pts: &mut [Pt]) {
-    ptsort_inner(pts)
+    pts.sort_unstable_by(Pt::compare_angle);
 }
 
 #[cfg(feature="compare_reference")]
