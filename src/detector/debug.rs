@@ -2,8 +2,10 @@
 
 use rand::thread_rng;
 
-use crate::{util::{ImageY8, image::{ImageWritePNM, PostScriptWriter, ImageWritePostscript, pixel::PixelConvert}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
-use std::{fs::File, io};
+use crate::{util::{ImageY8, image::{ImageWritePNM, pixel::PixelConvert}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
+use std::fs::File;
+#[cfg(feature="debug_ps")]
+use crate::util::image::{PostScriptWriter, ImageWritePostscript, VectorPathWriter};
 
 pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	im_quads.darken();
@@ -43,6 +45,7 @@ pub(super) fn debug_quads_fixed(mut f: File, mut im_quads: ImageY8, quads: &[Qua
 	im_quads.write_pnm(&mut f)
 }
 
+#[cfg(feature="debug_ps")]
 pub(super) fn debug_output_ps(mut f: File, mut img: ImageY8, detections: &[AprilTagDetection]) -> std::io::Result<()> {
 	// assume letter, which is 612x792 points.
 	let mut f = PostScriptWriter::new(&mut f)?;
@@ -64,11 +67,11 @@ pub(super) fn debug_output_ps(mut f: File, mut img: ImageY8, detections: &[April
 
 		f.setrgbcolor(&rgb)?;
 		f.path(|c| {
-			c.moveto(&det.corners[0])?;
-			c.lineto(&det.corners[1])?;
-			c.lineto(&det.corners[2])?;
-			c.lineto(&det.corners[3])?;
-			c.lineto(&det.corners[0])?;
+			c.move_to(&det.corners[0])?;
+			c.line_to(&det.corners[1])?;
+			c.line_to(&det.corners[2])?;
+			c.line_to(&det.corners[3])?;
+			c.line_to(&det.corners[0])?;
 			c.stroke()
 		})?;
 	}
@@ -99,9 +102,12 @@ pub(super) fn debug_output_pnm(mut f: File, mut img: ImageY8, detections: &[Apri
 	out.write_pnm(&mut f)
 }
 
+#[cfg(feature="debug_ps")]
 pub(super) fn debug_quads_ps(mut f: File, mut img: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	let mut f = PostScriptWriter::new(&mut f)?;
 	let mut rng = thread_rng();
+
+	println!("Img dims = {:?}", img.dimensions());
 
 	{
 		img.darken();
@@ -121,11 +127,11 @@ pub(super) fn debug_quads_ps(mut f: File, mut img: ImageY8, quads: &[Quad]) -> s
 
 		f.setrgbcolor(&rgb)?;
 		f.path(|c| {
-			c.moveto(&q.corners[0])?;
-			c.lineto(&q.corners[1])?;
-			c.lineto(&q.corners[2])?;
-			c.lineto(&q.corners[3])?;
-			c.lineto(&q.corners[0])?;
+			c.move_to(&q.corners[0])?;
+			c.line_to(&q.corners[1])?;
+			c.line_to(&q.corners[2])?;
+			c.line_to(&q.corners[3])?;
+			c.line_to(&q.corners[0])?;
 			c.stroke()
 		})?;
 	}
