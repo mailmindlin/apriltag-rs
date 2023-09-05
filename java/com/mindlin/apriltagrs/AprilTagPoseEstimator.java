@@ -76,6 +76,14 @@ public final class AprilTagPoseEstimator {
         return result[0];
     }
 
+    /**
+     * 
+     * @param dets
+     * @param idxs0
+     * @param first
+     * @param iter
+     * @return detections
+     */
     private AprilTagPose[] upgradeBuckets(AprilTagDetections dets, IntArrayList idxs0, Detection first, Iterator<? extends AprilTagDetection> iter) {
         class Bucket {
             final IntArrayList detsIdxs;

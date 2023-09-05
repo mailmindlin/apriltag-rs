@@ -64,7 +64,7 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_nativeCreate<
     jni_wrap_simple(env, |env| {
         if size_of::<jlong>() < size_of::<*mut AprilTagDetector>() {
             //Throw exception
-            return Err(JavaError::GenericException("Invalid pointer size".to_owned()));
+            return Err(JavaError::AssertionError("Invalid pointer size".to_owned()));
         }
 
         let detector = {
@@ -99,10 +99,34 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_nativeCreate<
             match builder.build() {
                 Ok(det) => Box::new(det),
                 Err(DetectorBuildError::Threadpool(e)) => {
-                    return Err(JavaError::GenericException(format!("Unable to create threadpool: {e:?}")));
+                    return Err(JavaError::Custom {
+                        class: "ThreadPoolBuildException",
+                        msg: format!("Unable to create threadpool: {e:?}"),
+                    });
                 },
+                Err(DetectorBuildError::BufferAllocationFailure) => {
+                    return Err(JavaError::Custom {
+                        class: "AprilTagDetectorBuildException",
+                        msg: format!("Unable to allocate buffer"),
+                    });
+                },
+                Err(DetectorBuildError::OpenCLError(e)) => {
+                    return Err(JavaError::Custom {
+                        class: "OpenCLException",
+                        msg: format!("Error initializing OpenCL: {e:?}",
+                    )});
+                },
+                Err(DetectorBuildError::OpenCLNotAvailable) => {
+                    return Err(JavaError::Custom {
+                        class: "OpenCLUnavailableException",
+                        msg: "OpenCL not available".to_string()
+                    });
+                }
                 Err(e) => {
-                    return Err(JavaError::GenericException(format!("{e:?}")));
+                    return Err(JavaError::Custom {
+                        class: "AprilTagDetectorBuildException",
+                        msg: format!("{e:?}"),
+                    });
                 }
             }
         };
@@ -145,9 +169,13 @@ pub extern "system" fn Java_com_mindlin_apriltags_AprilTagDetector_nativeDetect<
                 Ok(res)
             },
             Err(DetectError::AllocError)
-                => Err(JavaError::GenericException("Unable to allocate buffer(s)".into())),
+                => Err(JavaError::OutOfMemoryError("Unable to allocate buffer(s)".into())),
             Err(DetectError::ImageTooSmall)
                 => Err(JavaError::IllegalArgumentException("Image was too small".into())),
+            Err(DetectError::ImageTooBig)
+                => Err(JavaError::IllegalArgumentException("Image was too big".into())),
+            Err(DetectError::OpenCLError)
+                => Err(JavaError::IllegalArgumentException("OpenCL error".into())),
         }
     })
 }
