@@ -58,17 +58,24 @@ impl<'a, W: io::Write> PostScriptWriter<'a, W> {
     }
 }
 
+pub(crate) trait VectorPathWriter {
+    fn move_to(&mut self, point: &Point2D) -> Result<()>;
+    fn line_to(&mut self, point: &Point2D) -> Result<()>;
+}
+
 pub (crate) struct PSCommandWriter<'a, W: Write>(&'a mut W);
 
-impl<'a, W: Write> PSCommandWriter<'a, W> {
-    pub fn moveto(&mut self, point: &Point2D) -> Result<()> {
+impl<'a, W: Write> VectorPathWriter for PSCommandWriter<'a, W> {
+    fn move_to(&mut self, point: &Point2D) -> Result<()> {
         write!(self.0, "{} {} moveto ", point.x(), point.y())
     }
 
-    pub fn lineto(&mut self, point: &Point2D) -> Result<()> {
+    fn line_to(&mut self, point: &Point2D) -> Result<()> {
         write!(self.0, "{} {} lineto ", point.x(), point.y())
     }
+}
 
+impl<'a, W: Write> PSCommandWriter<'a, W> {
     pub fn stroke(&mut self) -> Result<()> {
         write!(self.0, "stroke ")
     }
