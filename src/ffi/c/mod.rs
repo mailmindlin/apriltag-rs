@@ -74,3 +74,29 @@ fn drop_str(ptr: &mut *const c_char) {
     let str = unsafe { CString::from_raw(ptr) };
     drop(str);
 }
+
+#[cfg(test)]
+mod test {
+    use crate::ffi::c::*;
+
+    #[test]
+    fn test_construct_tag() {
+        let atf = unsafe { tag16h5_create() };
+        assert!(!atf.is_null());
+        
+        unsafe {
+            let a = atf.as_ref().unwrap();
+            assert_eq!(a.h, 5);
+            tag16h5_destroy(atf);
+        }
+    }
+
+    #[test]
+    fn test_construct_detector() {
+        let mut det = unsafe { apriltag_detector_create() };
+        unsafe {
+            let det_ptr = det.as_ptr().as_mut().unwrap();
+        }
+        unsafe { apriltag_detector_destroy(det); }
+    }
+}
