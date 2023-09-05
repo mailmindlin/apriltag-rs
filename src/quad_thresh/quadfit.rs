@@ -1,10 +1,11 @@
 use std::collections::BinaryHeap;
 
 use arrayvec::ArrayVec;
+use rayon::prelude::*;
 
 use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::linefit::fit_line_error};
 
-use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams};
+use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams, grad_cluster::{Clusters, ClusterId}};
 
 /// 1. Identify A) white points near a black point and B) black points near a white point.
 ///
@@ -1221,7 +1222,7 @@ impl FitQuadsParams {
 }
 
 
-pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Vec<Vec<Pt>>, im: &ImageY8) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Clusters, im: &ImageY8) -> Vec<Quad> {
 	let fqp = FitQuadsParams::new(td);
 
     #[cfg(feature="compare_reference")]
@@ -1259,12 +1260,32 @@ pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Vec<Vec<Pt>>, im: &Imag
         ZArraySys::new(inner).unwrap()
     };
 
-    let result = clusters
-        .into_iter()
-        .filter(|cluster|
-            min_cluster_pixels <= cluster.len() && cluster.len() <= max_cluster_pixels)
-        .filter_map(|cluster| fit_quad(td, im, cluster, &fqp))
-        .collect::<Vec<_>>();
+    let filter_fit_quad = |(_id, cluster): (ClusterId, Vec<Pt>)| {
+        if cluster.len() < min_cluster_pixels {
+            // Synchronize with later check.
+            #[cfg(feature="extra_debug")]
+            println!("\tIgnored (min size) {}", cluster.len());
+            return None;
+        }
+        if cluster.len() > max_cluster_pixels {
+            #[cfg(feature="extra_debug")]
+            println!("\tIgnored (max size) {}", cluster.len());
+            return None;
+        }
+        fit_quad(td, im, cluster, &fqp)
+    };
+
+    let result = if td.params.single_thread() || true {
+        clusters
+            .into_iter()
+            .filter_map(filter_fit_quad)
+            .collect()
+    } else {
+        clusters
+            .into_par_iter()
+            .filter_map(filter_fit_quad)
+            .collect()
+    };
 
     #[cfg(feature="compare_reference")]
     {

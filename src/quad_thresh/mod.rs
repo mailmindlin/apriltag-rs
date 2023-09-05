@@ -7,9 +7,9 @@ use std::{fs::File, f64::consts as f64c};
 
 use rand::thread_rng;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, PostScriptWriter, ImageY8, Luma}}, quad_decode::Quad, dbg::TimeProfile};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, Luma}}, quad_decode::Quad, dbg::TimeProfile};
 
-use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::gradient_clusters, quadfit::fit_quads, linefit::Pt};
+use self::{unionfind::{connected_components, UnionFind, UnionFindStatic}, grad_cluster::gradient_clusters, quadfit::fit_quads};
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "cffi", repr(C))]
@@ -101,12 +101,12 @@ fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &mut impl UnionFin
 }
 
 #[cfg(feature="debug")]
-fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std::io::Result<()> {
+fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &grad_cluster::Clusters) -> std::io::Result<()> {
     use crate::util::image::ImageRGB8;
 
     let mut d = ImageRGB8::new(w, h);
     let mut rng = thread_rng();
-    for cluster in clusters.iter() {
+    for cluster in clusters.values() {
         let color = rng.gen_color_rgb(50u8);
         for p in cluster.iter() {
             let x = (p.x / 2) as usize;
@@ -118,8 +118,10 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &[Vec<Pt>]) -> std:
     d.write_pnm(&mut f)
 }
 
-#[cfg(feature="debug")]
+#[cfg(feature="debug_ps")]
 fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
+    use crate::util::image::{ImageWritePostscript, VectorPathWriter};
+
     let mut ps = PostScriptWriter::new(&mut f)?;
 
     let mut im2 = im.clone();
@@ -132,19 +134,19 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
     ps.translate(0., im2.height() as f32)?;
     ps.scale(1., -1.)?;
 
-    // im.write_postscript(&mut f); //FIXME
+    im.write_postscript(&mut f); //FIXME
 
     let mut rng = thread_rng();
 
     for q in quads.iter() {
         ps.setrgbcolor(&rng.gen_color_rgb(100))?;
         ps.path(|c| {
-            c.moveto(&q.corners[0])?;
-            c.lineto(&q.corners[0])?;
-            c.lineto(&q.corners[1])?;
-            c.lineto(&q.corners[2])?;
-            c.lineto(&q.corners[3])?;
-            c.lineto(&q.corners[0])?;
+            c.move_to(&q.corners[0])?;
+            c.line_to(&q.corners[0])?;
+            c.line_to(&q.corners[1])?;
+            c.line_to(&q.corners[2])?;
+            c.line_to(&q.corners[3])?;
+            c.line_to(&q.corners[0])?;
             c.stroke()
         })?;
     }
@@ -197,7 +199,7 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
         println!("Quad corner: {:?}", quad.corners);
     }
 
-    #[cfg(feature="debug")]
+    #[cfg(feature="debug_ps")]
     td.params.debug_image("05_debug_lines.ps", |f| debug_lines(f, im, &quads));
 
     tp.stamp("fit quads to clusters");
