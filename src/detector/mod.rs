@@ -1,5 +1,6 @@
 mod builder;
 mod config;
+#[cfg(feature="debug")]
 mod debug;
 
 pub use config::DetectorConfig;
