@@ -76,9 +76,10 @@ impl DefaultAlignment for Luma<u8> {
 impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
-fn convolve(x: &[u8], y: &mut [u8], k: &[u8]) {
-    assert_eq!(k.len() % 1, 1, "Kernel size must be odd");
+fn convolve(x: &[u8], y: &mut [u8], k: &[u8], need_copy: bool) {
+    debug_assert_eq!(k.len() % 2, 1, "Kernel size must be odd");
     assert_eq!(x.len(), y.len());
+    debug_assert!(x.len() >= k.len(), "x len {} must be greater than k len {}", x.len(), k.len());
 
     // Copy left
     for i in 0..std::cmp::min(k.len() / 2, x.len()) {
@@ -191,22 +192,22 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
                 // a b c
                 // d e f
                 // g h i
-                let a = self[(x+0, y+0)];
-                let b = self[(x+1, y+0)];
-                let c = self[(x+2, y+0)];
+                let a = self[(x+0, y+0)] as u16;
+                let b = self[(x+1, y+0)] as u16;
+                let c = self[(x+2, y+0)] as u16;
 
-                let d = self[(x+0, y+1)];
-                let e = self[(x+1, y+1)];
-                let f = self[(x+2, y+1)];
+                let d = self[(x+0, y+1)] as u16;
+                let e = self[(x+1, y+1)] as u16;
+                let f = self[(x+2, y+1)] as u16;
 
-                let g = self[(x+0, y+2)];
-                let h = self[(x+1, y+2)];
-                let i = self[(x+2, y+2)];
+                let g = self[(x+0, y+2)] as u16;
+                let h = self[(x+1, y+2)] as u16;
+                let i = self[(x+2, y+2)] as u16;
 
-                dst[(sx+0, sy+0)] = (4*a+2*b+2*d+e)/9;
-                dst[(sx+1, sy+0)] = (4*c+2*b+2*f+e)/9;
-                dst[(sx+0, sy+1)] = (4*g+2*d+2*h+e)/9;
-                dst[(sx+1, sy+1)] = (4*i+2*f+2*h+e)/9;
+                dst[(sx+0, sy+0)] = ((4*a+2*b+2*d+e)/9).clamp(0, 255) as u8;
+                dst[(sx+1, sy+0)] = ((4*c+2*b+2*f+e)/9).clamp(0, 255) as u8;
+                dst[(sx+0, sy+1)] = ((4*g+2*d+2*h+e)/9).clamp(0, 255) as u8;
+                dst[(sx+1, sy+1)] = ((4*i+2*f+2*h+e)/9).clamp(0, 255) as u8;
                     
                 x += 3;
             }
@@ -252,7 +253,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
     }
 
     pub fn convolve2d_mut(&mut self, kernel: &[u8]) {
-        assert_eq!(kernel.len() % 1, 1, "Kernel size must be odd");
+        assert_eq!(kernel.len() % 2, 1, "Kernel size must be odd");
 
         // Convolve horizontally
         {
@@ -261,7 +262,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
     
             for (_, mut row) in self.rows_mut() {
                 row_buf.copy_from_slice(row.as_slice());
-                convolve(&row_buf, row.as_slice_mut(), kernel);
+                convolve(&row_buf, row.as_slice_mut(), kernel, false);
             }
         }
 
@@ -276,7 +277,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
                     xb[y] = self[(x, y)];
                 }
 
-                convolve(&xb, &mut yb, kernel);
+                convolve(&xb, &mut yb, kernel, true);
 
                 //TODO: we can optimize this loop
                 for y in 0..self.height() {
@@ -291,10 +292,11 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
             return;
         }
 
-        assert_eq!(kernel_size % 1, 1, "kernel_size must be odd");
+        assert_eq!(kernel_size % 2, 1, "kernel_size must be odd");
 
         // build the kernel.
         let kernel = {
+            
             let mut dk = vec![0f64; kernel_size];
 
             // for kernel of length 5:
@@ -309,7 +311,7 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
             // normalize
             let acc = dk.iter().sum::<f64>();
 
-            dk.iter()
+            dk.into_iter()
                 .map(|x| {
                     let x_norm = x / acc;
                     (x_norm * 255.) as u8 //TODO: round?
