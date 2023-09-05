@@ -62,7 +62,7 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &mut impl UnionFind<(
     let mut d = ImageBuffer::<Rgb<u8>>::new(w, h);
     let mut rng = thread_rng();
 
-    let mut colors = calloc::<Option<Rgb<u8>>>(d.len());
+    let mut colors = calloc::<Option<Rgb<u8>>>(d.pixel_count());
     for ((x, y), dst) in d.enumerate_pixels_mut() {
         let (v, v_size) = uf.get_set((x as _, y as _));
 

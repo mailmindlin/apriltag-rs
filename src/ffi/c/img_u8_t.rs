@@ -43,7 +43,7 @@ impl From<ImageBuffer<Luma<u8>>> for image_u8_t {
 impl image_u8_t {
     pub(super) fn pretend_ref<'a>(&'a self) -> FakeImageGuard<'a> {
         let mut pretend = ManuallyDrop::new(ImageY8::zeroed(self.width as usize, self.height as usize));
-        let buf_ptr = unsafe { slice::from_raw_parts_mut(self.buf, pretend.len()) };
+        let buf_ptr = unsafe { slice::from_raw_parts_mut(self.buf, pretend.pixel_count()) };
         pretend.data = unsafe { Box::from_raw(buf_ptr as *mut _) };
         FakeImageGuard {
             raw: self,

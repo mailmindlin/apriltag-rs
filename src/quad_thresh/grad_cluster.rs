@@ -2,7 +2,7 @@ use std::{collections::{HashMap, hash_map::{Entry, RandomState}}, hash::Hash};
 
 use rayon::prelude::*;
 
-use crate::{util::image::ImageY8, detector::DetectorConfig};
+use crate::{util::{image::ImageY8, mem::{calloc, SafeZero}}, detector::DetectorConfig};
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
@@ -63,8 +63,71 @@ impl ClusterId {
 // }
 type ClusterHasher = RandomState;
 
+const CLUSTER_SIZE: u32 = 24;
+
 fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32)>) {
     let width = threshim.width();
+    debug_assert!(width > 2);
+    debug_assert!(y1 + 1 < threshim.height());
+
+    struct CellData {
+        group: u32,
+        value: u8,
+    }
+    impl SafeZero for CellData {}
+
+    impl CellData {
+        const fn new_ignore() -> Self {
+            Self {
+                group: u32::MAX,
+                value: 127,
+            }
+        }
+
+        const fn new_group(group: u32, value: u8) -> Self {
+            Self {
+                group,
+                value,
+            }
+        }
+
+        fn ignore(&self) -> bool {
+            self.value == 127
+        }
+    }
+
+    let mut uf_set_a = calloc::<CellData>(width);
+    // let mut uf_set_b = calloc::<CellData>(width);
+
+    let row = threshim.row(y0);
+    uf_set_a[0] = match row[0] {
+        127 => CellData::new_ignore(),
+        v0 => {
+            let (rep0, size0) = uf.get_set_static((0, y0 as _));
+            if size0 <= CLUSTER_SIZE {
+                CellData::new_ignore()
+            } else {
+                CellData::new_group(rep0, v0)
+            }
+        }
+    };
+    for x in 1..(width-1) {
+        let v0 = row[x];
+        if v0 == 127 {
+            uf_set_a[x] = CellData::new_ignore();
+            continue;
+        }
+
+        // XXX don't query this until we know we need it?
+        let (rep0, size0) = uf.get_set_static((x as _, y0 as _));
+        if size0 <= CLUSTER_SIZE {
+            uf_set_a[x] = CellData::new_ignore();
+            continue;
+        }
+
+
+    }
+
     for y in y0..y1 {
         for x in 1..(width-1) {
             let v0 = threshim[(x, y)];
@@ -74,7 +137,7 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
 
             // XXX don't query this until we know we need it?
             let (rep0, size0) = uf.get_set_static((x as _, y as _));
-            if size0 < 25 {
+            if size0 <= CLUSTER_SIZE {
                 continue;
             }
 
@@ -108,13 +171,16 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
                 (1,1)
             ];
             for (dx, dy) in offsets {
-                let off_x = (x as isize + dx) as usize;
-                let off_y = y + dy;
+                // Arguments must be [-1, 1] or we'll overflow .gx, .gy
+                debug_assert!(-1 <= dx && dx <= 1);
+                debug_assert!(dy <= 1);
+                let x1 = (x as isize + dx) as usize;
+                let y1 = y + dy;
 
-                let v1 = threshim[(off_x, off_y)];
+                let v1 = threshim[(x1, y1)];
                 if v0 != v1 {
-                    let (rep1, size1) = uf.get_set_static((off_x as _, off_y as _));
-                    if size1 > 24 {
+                    let (rep1, size1) = uf.get_set_static((x1 as _, y1 as _));
+                    if size1 > CLUSTER_SIZE {
                         let key = ClusterId::new(rep0, rep1);
                         let value: Pt = {
                             let dv = (v1 as i16) - (v0 as i16);
@@ -122,9 +188,9 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
                             let x = Pt {
                                 x: (2 * x as isize + dx).try_into().unwrap(),
                                 y: (2 * y + dy).try_into().unwrap(),
-                                gx: (dx as i16 * dv),
-                                gy: (dy as i16 * dv),
-                                slope: 0.,//TODO?
+                                gx: (dx as i16).checked_mul(dv).unwrap(),
+                                gy: (dy as i16).checked_mul(dv).unwrap(),
+                                slope: 0., // We don't need slope yet
                             };
 
                             #[cfg(not(debug_assertions))]
@@ -133,7 +199,7 @@ fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &m
                                 y: (2 * y + dy) as _,
                                 gx: (dx as i16 * dv),
                                 gy: (dy as i16 * dv),
-                                slope: 0.,//TODO?
+                                slope: 0.,
                             };
 
                             x
@@ -173,7 +239,7 @@ fn merge_clusters(mut c1: Clusters, c2: Clusters) -> Clusters {
 }
 
 pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Clusters {
-    let nclustermap = (0.2*(threshim.len() as f64)) as usize;
+    let nclustermap = (0.2*(threshim.pixel_count() as f64)) as usize;
 
     let sz = threshim.height() - 1;
     if config.single_thread() && false {

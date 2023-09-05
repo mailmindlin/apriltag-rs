@@ -22,17 +22,23 @@ use super::{mem::{SafeZero, calloc}, geom::Point2D, dims::Dimensions2D};
 
 pub type Image<P, Container = DC<P>> = ImageBuffer<P, Container>;
 
+/// Default image with 8-bit greyscale pixels
 pub type ImageY8 = Image<Luma<u8>, DC<Luma<u8>>>;
+/// Default image with 3x 8-bit RGB pixels
 pub type ImageRGB8 = Image<Rgb<u8>, DC<Rgb<u8>>>;
 pub type ImageRefY8<'a> = Image<Luma<u8>, &'a SubpixelArray<Luma<u8>>>;
 
+/// Array of subpixel elements for Pixel type `P`
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
+
+/// Default container for Pixel type `P`
 type DC<P> = Box<SubpixelArray<P>>;
 
+/// Buffer for 2D image
 #[derive(Debug, Clone)]
 pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
-	dims: ImageDimensions,
 	pub(crate) data: Container,
+	dims: ImageDimensions,
 	pix: PhantomData<P>,
 }
 
@@ -61,24 +67,29 @@ impl<P: Pixel, Container: AsRef<[<P as Pixel>::Subpixel]>> ImageBuffer<P, Contai
 }
 
 impl<P: Pixel, Container> ImageBuffer<P, Container> {
+	/// Extract raw data
 	pub fn into_raw(self) -> Container {
 		self.data
 	}
 
+	/// Get raw data container
 	pub fn as_raw(&self) -> &Container {
 		&self.data
 	}
 
+	/// Get image dimensions
 	#[inline(always)]
     pub const fn dimensions(&self) -> &ImageDimensions {
         &self.dims
     }
 
+	/// Get image width (in pixels)
 	#[inline]
 	pub fn width(&self) -> usize {
 		self.dimensions().width()
 	}
 
+	/// Get image height (in pixels)
 	#[inline]
 	pub fn height(&self) -> usize {
 		self.dimensions().height()
@@ -94,8 +105,9 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 		self.width() == self.stride()
 	}
 
+	/// Get number of pixels
 	#[inline]
-	pub fn len(&self) -> usize {
+	pub fn pixel_count(&self) -> usize {
 		self.width() * self.height()
 	}
 
