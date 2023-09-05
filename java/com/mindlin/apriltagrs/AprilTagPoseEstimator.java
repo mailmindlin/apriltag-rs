@@ -39,6 +39,15 @@ public final class AprilTagPoseEstimator {
         this.cy = cy;
     }
 
+    public AprilTagPoseEstimator(Config config) {
+        Objects.requireNonNull(config, "config");
+        this.tagSize = config.tagsize;
+        this.fx = config.fx;
+        this.fy = config.fy;
+        this.cx = config.cx;
+        this.cy = config.cy;
+    }
+
     private AprilTagPose[] estimatePoses(AprilTagDetections detections, int[] indices) {
         int len = (indices == null) ? detections.size() : indices.length;
         if (len == 0)
@@ -67,7 +76,7 @@ public final class AprilTagPoseEstimator {
         return result[0];
     }
 
-    private AprilTagPose[] upgradeBuckets(AprilTagDetections dets, IntArrayList idxs0, Detection first, Iterator<AprilTagDetection> iter) {
+    private AprilTagPose[] upgradeBuckets(AprilTagDetections dets, IntArrayList idxs0, Detection first, Iterator<? extends AprilTagDetection> iter) {
         class Bucket {
             final IntArrayList detsIdxs;
             final IntArrayList resultIdxs;
@@ -166,5 +175,20 @@ public final class AprilTagPoseEstimator {
         assert detsIdxs.size() == size;
 
         return this.estimatePoses(dets, detsIdxs.toIntArray());
+    }
+
+    public static final class Config {
+        public final double tagsize;
+        public final double fx;
+        public final double fy;
+        public final double cx;
+        public final double cy;
+        public Config(double tagsize, double fx, double fy, double cx, double cy) {
+            this.tagsize = tagsize;
+            this.fx = fx;
+            this.fy = fy;
+            this.cx = cx;
+            this.cy = cy;
+        }
     }
 }
