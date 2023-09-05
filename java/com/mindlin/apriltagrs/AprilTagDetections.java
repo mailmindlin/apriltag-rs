@@ -1,6 +1,7 @@
 package com.mindlin.apriltagrs;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Array;
 import java.util.*;
 
 import com.mindlin.apriltagrs.debug.TimeProfile;
@@ -187,9 +188,17 @@ public final class AprilTagDetections extends NativeObject implements List<April
 
     @Override
     public <T> T[] toArray(T[] a) {
-        var result = Arrays.copyOf(a, this.size());
-        for (int i = 0; i < this.size(); i++)
-            result[i] = (T) new Detection(i);
+        @SuppressWarnings("unchecked")
+        var result = (a.length >= this.size())
+            ? a
+            // We prevent an arraycopy here compared with Arrays.copyOf()
+            : (T[]) Array.newInstance(a.getClass().componentType(), this.size());
+
+        for (int i = 0; i < this.size(); i++) {
+            @SuppressWarnings("unchecked")
+            T value = (T) new Detection(i);
+            result[i] = value;
+        }
         return result;
     }
 
