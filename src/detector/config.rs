@@ -90,6 +90,7 @@ impl DetectorConfig {
 		}
 	}
 
+	/// Should quad_sigma be applied
 	pub(crate) fn do_quad_sigma(&self) -> bool {
 		self.quad_sigma != 1.
 	}
@@ -99,17 +100,20 @@ impl DetectorConfig {
 		false
 	}
 
+	/// Should debug images be generated
 	#[cfg(feature="debug")]
 	pub(crate) const fn generate_debug_image(&self) -> bool {
 		self.debug
 	}
 
+	/// Should debug images be generated (always false if feature disabled)
 	#[cfg(not(feature="debug"))]
 	#[inline(always)]
 	pub(crate) const fn generate_debug_image(&self) -> bool {
 		false
 	}
 
+	/// Generate a debug image with the given name.
 	#[cfg(feature="debug")]
 	#[inline]
 	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(std::fs::File) -> std::io::Result<()>) {
@@ -136,6 +140,7 @@ impl DetectorConfig {
 		
 	}
 
+	/// Should the algorithm be run on a single thread?
 	pub(crate) const fn single_thread(&self) -> bool {
 		self.nthreads <= 1
 	}
