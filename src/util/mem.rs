@@ -17,6 +17,7 @@ impl<T: SafeZero, const N: usize> SafeZero for [T; N] {}
 impl<T: SafeZero> SafeZero for Option<T> {}
 impl<T> SafeZero for MaybeUninit<T> {}
 
+/// Safely allocate a zeroed slice
 pub(crate) fn calloc<T: SafeZero>(size: usize) -> Box<[T]> {
     let res = Box::new_zeroed_slice(size);
     unsafe { res.assume_init() }
