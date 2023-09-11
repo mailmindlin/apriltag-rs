@@ -1,7 +1,8 @@
-use std::{path::{PathBuf, Path}, time::Duration, io};
+use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all};
 
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8, image::Pixel}, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
+use rayon::prelude::*;
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -76,9 +77,15 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
     if let Some(dbp) = path_override {
-        builder.config.debug_path = Some(format!("./debug/{dbp}"));
+        builder.config.debug_path = Some(PathBuf::from(format!("./debug/{dbp}")));
     } else if let Some(path) = &args.debug_path {
-        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+        builder.config.debug_path = Some(path.to_owned());
+    }
+
+    if let Some(path) = builder.config.debug_path.as_ref() {
+        if !path.exists() {
+            create_dir_all(path).unwrap();
+        }
     }
     
 
@@ -105,12 +112,20 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
     Ok(result)
 }
 
+fn detect_with(detector: &AprilTagDetector, image: &ImageY8) -> Detections {
+    let detections = detector.detect(&image)
+        .expect("Error detecting AprilTags");
+    println!("Found {} tags", detections.detections.len());
+    detections
+}
+
 fn main() {
     let mut args = Args::parse();
     if args.debug {
         println!("Arguments:");
         println!(" - threads: {}", args.threads);
     }
+    args.opencl = false;
     let detector = build_detector(&args, Some("cpu"));
     args.opencl = true;
     let detector_gpu = build_detector(&args, Some("gpu"));
@@ -147,12 +162,16 @@ fn main() {
 
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
-            let detections = detector.detect(&im)
-                .expect("Error detecting AprilTags");
-            let detections_gpu = detector_gpu.detect(&im)
-                .expect("Error detecting AprilTags");
+            println!("==== GPU ====");
+            let detections_gpu = detect_with(&detector_gpu, &im);
+            if !quiet {
+                print!("{}", detections_gpu.tp);
+            }
 
-            println!("Found {} tags", detections.detections.len());
+            println!("==== CPU ====");
+            let detections = detect_with(&detector, &im);
+
+            
 
             for (i, det) in detections.detections.iter().enumerate() {
                 if !quiet {
@@ -209,15 +228,15 @@ fn main() {
         acc.display();
     }
 
-    if args.debug {
-        let path = args.debug_path.unwrap_or(PathBuf::from("."));
-        for path in std::fs::read_dir(path).unwrap() {
+    for det in [&detector, &detector_gpu] {
+        let dbp = if let Some(dbp) = det.params.debug_path.as_ref() { dbp } else { continue; };
+        std::fs::read_dir(dbp).unwrap().par_bridge().for_each(|path| {
             let path = path.unwrap();
             if !path.file_type().unwrap().is_file() {
-                continue;
+                return;;
             }
             if !path.file_name().to_str().unwrap().ends_with(".pnm") {
-                continue;
+                return;;
             }
             let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
             let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
@@ -226,6 +245,69 @@ fn main() {
             }
             buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
                 .unwrap();
-        }
+        });
+    }
+
+    if let Some(path_cpu) = detector.params.debug_path.as_ref() {
+        let path_gpu = detector_gpu.params.debug_path.unwrap();
+        std::fs::read_dir(path_cpu).unwrap().par_bridge().for_each(|entry_cpu| {
+            let entry_cpu = entry_cpu.unwrap();
+            if !entry_cpu.file_type().unwrap().is_file() {
+                return;
+            }
+            if !entry_cpu.file_name().to_str().unwrap().ends_with(".pnm") {
+                return;
+            }
+            let entry_cpu = entry_cpu.path();
+            let entry_name = entry_cpu.file_name().unwrap();
+            let mut entry_gpu = path_gpu.clone();
+            entry_gpu.push(entry_name);
+            if !entry_gpu.exists() {
+                return;
+            }
+
+            let img_cpu = ImageRGB8::create_from_pnm(&entry_cpu).unwrap();
+            let img_gpu = ImageRGB8::create_from_pnm(&entry_gpu).unwrap();
+            if img_cpu.width() != img_gpu.width() || img_cpu.height() != img_gpu.height() {
+                println!("Debug image {} has different dimensions (cpu={:?}, gpu={:?})", entry_name.to_string_lossy(), img_cpu.dimensions(), img_gpu.dimensions());
+                return;
+            }
+            let mut delta = ImageRGB8::zeroed_packed(img_cpu.width(), img_cpu.height());
+            let mut different = false;
+            for ((x, y), px2) in img_gpu.enumerate_pixels() {
+                let [r1, g1, b1] = img_cpu[(x, y)].to_value();
+                let [r2, g2, b2] = px2.to_value();
+                let rgb = [r1.abs_diff(r2), g1.abs_diff(g2), b1.abs_diff(b2)];
+                different |= rgb != [0,0,0];
+                let rgb = if rgb != [0,0,0] {
+                    // rgb[0] = 255;
+                    let s = ((r2 as i16) - (r1 as i16)) + ((g2 as i16) - (g1 as i16)) + ((b2 as i16) - (b1 as i16));
+                    if s > 0 {
+                        [r1.abs_diff(r2).max(127), 0, 0]
+                    } else {
+                        [0, g2.abs_diff(g2).max(127), 0]
+                    }
+                } else {
+                    // [r1, g2, 0]
+                    [0,0,0]
+                };
+                delta[(x, y)] = rgb;
+            }
+            println!("{} {}", if different { "Different" } else { "     Same" }, entry_name.to_string_lossy());
+            let h = delta.height() as u32;
+            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(delta.width() as u32, h * 3);
+            for ((x, y), value) in img_cpu.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
+            }
+            for ((x, y), value) in delta.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32 + h) = Rgb(value.0);
+            }
+            for ((x, y), value) in img_gpu.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32 + 2 * h) = Rgb(value.0);
+            }
+            let dst =PathBuf::from(format!("./debug/{}", entry_name.to_string_lossy()));
+            let dst = dst.with_extension("png");
+            buf.save_with_format(dst, image::ImageFormat::Png).unwrap();
+        });
     }
 }
