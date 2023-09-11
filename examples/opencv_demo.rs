@@ -83,9 +83,9 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
     if let Some(path) = path_override {
-        builder.config.debug_path = Some(format!("./debug/{path}"));
+        builder.config.debug_path = Some(format!("./debug/{path}").into());
     } else if let Some(path) = &args.debug_path {
-        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+        builder.config.debug_path = Some(path.clone());
     }
 
     builder.build()
