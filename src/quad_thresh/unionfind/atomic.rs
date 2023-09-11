@@ -34,6 +34,7 @@ impl Entry {
 
 
 impl UnionFind<UnionFindId> for UnionFindConcurrent {
+	type Id = u32;
     #[inline(always)]
     fn get_set(&mut self, element: UnionFindId) -> (UnionFindId, u32) {
         let repid = self.get_representative_mut(element);
@@ -174,7 +175,7 @@ impl UnionFindConcurrent {
 		result
 	}
 
-    // Get UnionFind group for id
+    /// Get UnionFind group for id
 	fn get_representative(&self, mut element: UnionFindId) -> UnionFindId {
 		// chase down the root
 		let mut parent = self.parent(element);

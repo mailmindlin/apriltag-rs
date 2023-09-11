@@ -50,6 +50,7 @@ impl UnionFindStatic<UnionFindId> for UnionFindReference {
 }
 
 impl UnionFind<UnionFindId> for UnionFindReference {
+	type Id = u32;
     fn get_set(&mut self, index: UnionFindId) -> (UnionFindId, u32) {
         let repid = self.get_representative(index);
 		let size = self.data[repid as usize].size;

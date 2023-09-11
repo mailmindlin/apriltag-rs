@@ -1,8 +1,7 @@
 use crate::{util::ImageY8, detector::DetectorConfig};
 use rayon::prelude::*;
 
-use self::uf2d::UnionFind2D;
-
+pub(crate) use self::uf2d::UnionFind2D;
 
 mod uf2d;
 mod atomic;
@@ -10,11 +9,13 @@ mod reference;
 
 pub(super) type UnionFindId = u32;
 
-pub(super) trait UnionFind<I> {
-    /// Get set representative and cardinality
-    fn get_set(&mut self, index: I) -> (UnionFindId, u32);
+pub(crate) trait UnionFind<I> {
+    type Id;
 
-    fn index_to_id(&self, idx: I) -> UnionFindId;
+    /// Get set representative and cardinality
+    fn get_set(&mut self, index: I) -> (Self::Id, u32);
+
+    fn index_to_id(&self, idx: I) -> Self::Id;
 
     fn connect(&mut self, a: I, b: I) -> bool {
         let id_a = self.index_to_id(a);
@@ -22,11 +23,11 @@ pub(super) trait UnionFind<I> {
         self.connect_ids(id_a, id_b)
     }
 
-    fn connect_ids(&mut self, a: UnionFindId, b: UnionFindId) -> bool;
+    fn connect_ids(&mut self, a: Self::Id, b: Self::Id) -> bool;
 }
 
-pub(super) trait UnionFindStatic<I>: UnionFind<I> {
-    fn get_set_static(&self, index: I) -> (UnionFindId, u32);
+pub(crate) trait UnionFindStatic<I>: UnionFind<I> {
+    fn get_set_static(&self, index: I) -> (Self::Id, u32);
     fn get_set_hops(&self, index: I) -> usize;
 }
 
@@ -37,10 +38,10 @@ pub(super) trait UnionFindAtomic<I>: UnionFind<I> + UnionFindStatic<I> {
         self.connect_ids_atomic(id_a, id_b)
     }
 
-    fn connect_ids_atomic(&self, a: UnionFindId, b: UnionFindId) -> bool;
+    fn connect_ids_atomic(&self, a: Self::Id, b: Self::Id) -> bool;
 }
 
-fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -97,7 +98,7 @@ fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32)>, im: &ImageY8, y: us
     }
 }
 
-fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -154,7 +155,7 @@ fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usi
     }
 }
 
-fn do_unionfind_line2c(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2c(uf: &mut impl UnionFind<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -224,7 +225,7 @@ fn do_unionfind_first_line(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8) {
 	}
 }
 
-pub(super) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(u32, u32)> {
+pub(crate) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(u32, u32), Id = u32> {
     if config.single_thread() {
         let mut uf = UnionFind2D::new(threshim.width(), threshim.height());
 	    do_unionfind_first_line(&mut uf, threshim);
