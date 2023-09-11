@@ -9,7 +9,7 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::apriltag_quad_thresh, dbg::TimeProfile, Detections, detection::reconcile_detections, ocl::OpenCLDetector};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageAllocError, ImageRefY8}}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections, ocl::OpenCLDetector};
 
 use self::config::QuadDecimateMode;
 
@@ -21,8 +21,15 @@ pub enum DetectError {
 	/// Input image was too large
 	ImageTooBig,
 	/// Buffer allocation error
-	AllocError,
+	BufferAlloc,
+	ImageAlloc(ImageAllocError),
 	OpenCLError,
+}
+
+impl From<ImageAllocError> for DetectError {
+    fn from(value: ImageAllocError) -> Self {
+        Self::ImageAlloc(value)
+    }
 }
 
 pub struct AprilTagDetector {
@@ -140,7 +147,6 @@ pub fn quad_sigma_cpu(img: &mut ImageY8, quad_sigma_v: f32) {
 }
 
 
-
 impl AprilTagDetector {
 	/// Create a new builder
 	pub fn builder() -> DetectorBuilder {
@@ -189,31 +195,14 @@ impl AprilTagDetector {
 		})
 	}
 
-	fn preprocess_image(&self, tp: &mut TimeProfile, im_orig: &ImageY8) -> Result<(ImageY8, ImageY8), DetectError> {
-		#[cfg(feature="opencl")]
-		if let Some(ocl) = &self.ocl {
-			match ocl.preprocess(&self.params, tp, im_orig) {
-				Ok(res) => {
-					return Ok(res);
-				},
-				Err(e) => {
-					if ocl.mode.is_required() {
-						return Err(e);
-					} else {
-						// Swallow
-						eprintln!("OpenCL error: {e:?}");
-					}
-				}
-			}
-		}
-
+	fn preprocess_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, ImageY8), DetectError> {
 		///////////////////////////////////////////////////////////
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
 		let mut quad_im = match self.params.quad_decimate_mode() {
 			None => {
 				//TODO: can we not copy here?
-				im_orig.clone()
+				ImageY8::clone_like(&im_orig)
 			},
 			Some(QuadDecimateMode::ThreeHalves) => {
 				let quad_im = im_orig.decimate_three_halves();
@@ -236,12 +225,43 @@ impl AprilTagDetector {
 
 		////////////////////////////////////////////////////////
 		// step 1. threshold the image, creating the edge image.
-		let threshim = super::quad_thresh::threshold::threshold(&self.params.qtp, tp, &quad_im);
+		let threshim = super::quad_thresh::threshold::threshold(&self.params.qtp, &self.params, tp, quad_im.as_ref())?;
 
 		#[cfg(feature="debug")]
-        self.params.debug_image("debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
+        self.params.debug_image("02_debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
 
 		Ok((quad_im, threshim))
+	}
+
+	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
+		#[cfg(feature="opencl")]
+		if let Some(ocl) = &self.ocl {
+			match ocl.cluster(&self.params, tp, im_orig) {
+				Ok(res) => {
+					return Ok(res);
+				},
+				Err(e) => {
+					if ocl.mode.is_required() {
+						return Err(e);
+					} else {
+						// Swallow
+						eprintln!("OpenCL error: {e:?}");
+					}
+				}
+			}
+		}
+
+		let (quad_im, threshim) = self.preprocess_image(tp, im_orig)?;
+		let mut uf = connected_components(&self.params, &threshim);
+		tp.stamp("unionfind");
+
+		// make segmentation image.
+		#[cfg(feature="debug")]
+		debug_unionfind(&self.params, tp, threshim.dimensions(), &mut uf);
+
+		let clusters = gradient_clusters(&self.params, &threshim.as_ref(), uf);
+
+		Ok((quad_im, clusters))
 	}
 
 	/// Detect AprilTags
@@ -266,9 +286,9 @@ impl AprilTagDetector {
 		tp.stamp("init");
 
 		let mut quads = {
-			let (quad_im, threshim) = self.preprocess_image(&mut tp, im_orig)?;
+			let (quad_im, clusters) = self.segment_image(&mut tp, im_orig.as_ref())?;
 
-			apriltag_quad_thresh(self, &mut tp, &quad_im, threshim)
+			quads_from_clusters(self, &mut tp, quad_im.as_ref(), clusters)
 		};
 
 		#[cfg(feature="extra_debug")]
