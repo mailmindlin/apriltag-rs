@@ -2,7 +2,7 @@ use std::{io::{self, Write}, path::Path, ops::{DerefMut, Deref}};
 
 use crate::util::mem::{calloc, SafeZero};
 
-use super::{ImageBuffer, pnm::PNM, pixel::{Primitive, Pixel, PixelConvert, DefaultAlignment}, Rgb, ImageWritePNM, ImageWritePostscript, SubpixelArray};
+use super::{ImageBuffer, pnm::PNM, pixel::{Primitive, Pixel, PixelConvert, DefaultAlignment}, Rgb, ImageWritePNM, ImageWritePostscript, SubpixelArray, ImageY8};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(transparent)]
@@ -179,13 +179,16 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
         }
         Ok(im)
     }
+}
+
+impl<Container> ImageBuffer<Luma<u8>, Container> where Container: Deref<Target = [<Luma<u8> as Pixel>::Subpixel]> {
 
     /// Downsample the image by a factor of exactly 1.5
-    pub fn decimate_three_halves(&self) -> Self {
+    pub fn decimate_three_halves(&self) -> ImageY8 {
         let swidth = self.width() / 3 * 2;
         let sheight = self.height() / 3 * 2;
 
-        let mut dst = Self::zeroed(swidth, sheight);
+        let mut dst = ImageY8::zeroed(swidth, sheight);
 
         let mut y = 0;
         for sy in (0..sheight).step_by(2) {
@@ -218,20 +221,15 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
         dst
     }
 
-    pub fn decimate(&self, ffactor: f32) -> Self {
-        if ffactor == 1.5 {
-            return self.decimate_three_halves();
-        }
-
+    /// Integer decimation
+    pub fn decimate(&self, factor: usize) -> ImageY8 {
         let width = self.width();
         let height = self.height();
         
-        let factor = ffactor.round() as usize;
-
         let swidth = 1 + (width - 1) / factor;
         let sheight = 1 + (height - 1) / factor;
 
-        let mut decim = Self::zeroed(swidth, sheight);
+        let mut decim = ImageY8::zeroed(swidth, sheight);
         let mut dy = 0;
         for y in (0..height).step_by(factor) {
             let mut dr = decim.row_mut(dy);

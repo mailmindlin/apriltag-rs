@@ -26,7 +26,9 @@ pub trait Pixel: Copy {
 
     type Value;
 
+    /// Number of subpixels per pixel
     const CHANNEL_COUNT: usize;
+
     fn channels(&self) -> &[Self::Subpixel];
     fn channels_mut(&mut self) -> &mut [Self::Subpixel];
 

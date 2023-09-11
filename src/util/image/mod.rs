@@ -8,32 +8,37 @@ mod rows;
 mod pixels;
 mod svg;
 
-use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData};
+use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, alloc::AllocError};
 pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
 pub use ps::{PostScriptWriter, ImageWritePostscript};
-pub(crate) use ps::{VectorPathWriter};
+pub(crate) use ps::VectorPathWriter;
 pub use pnm::ImageWritePNM;
 pub use index::ImageDimensions;
 use self::{pnm::PNM, rows::{Row, Rows, RowMut, RowsMut}, pixels::{Pixels, EnumeratePixels, PixelsMut, EnumeratePixelsMut}, pixel::DefaultAlignment};
 
-use super::{mem::{SafeZero, calloc}, geom::Point2D, dims::Dimensions2D};
+use super::{mem::{SafeZero, calloc, try_calloc}, geom::Point2D};
 
 pub type Image<P, Container = DC<P>> = ImageBuffer<P, Container>;
 
 pub type ImageY8 = Image<Luma<u8>, DC<Luma<u8>>>;
 pub type ImageRGB8 = Image<Rgb<u8>, DC<Rgb<u8>>>;
-pub type ImageRefY8<'a> = Image<Luma<u8>, &'a SubpixelArray<Luma<u8>>>;
+pub type ImageRef<'a, P> = Image<P, &'a SubpixelArray<P>>;
+pub type ImageRefY8<'a> = ImageRef<'a, Luma<u8>>;
 
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
 type DC<P> = Box<SubpixelArray<P>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 	dims: ImageDimensions,
 	pub(crate) data: Container,
 	pix: PhantomData<P>,
+}
+
+/// Make [ImageRef] [Copy]
+impl<'a, P: Pixel> Copy for ImageBuffer<P, &'a SubpixelArray<P>> where P: Copy {
 }
 
 impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuffer<P, Container> where <P as Pixel>::Subpixel: PartialEq {
@@ -65,7 +70,7 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 		self.data
 	}
 
-	pub fn as_raw(&self) -> &Container {
+	pub fn container(&self) -> &Container {
 		&self.data
 	}
 
@@ -74,18 +79,21 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
         &self.dims
     }
 
+	/// Image width (in pixels)
 	#[inline]
-	pub fn width(&self) -> usize {
-		self.dimensions().width()
+	pub const fn width(&self) -> usize {
+		self.dimensions().width
 	}
 
+	/// Image height (in pixels)
 	#[inline]
-	pub fn height(&self) -> usize {
-		self.dimensions().height()
+	pub const fn height(&self) -> usize {
+		self.dimensions().height
 	}
 
+	/// Image stride (in bytes)
 	#[inline]
-	pub fn stride(&self) -> usize {
+	pub const fn stride(&self) -> usize {
 		self.dimensions().stride
 	}
 
@@ -120,6 +128,17 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImageAllocError {
+	Alloc(AllocError),
+}
+
+impl From<AllocError> for ImageAllocError {
+    fn from(value: AllocError) -> Self {
+        Self::Alloc(value)
+    }
+}
+
 
 /// calloc-based constructors
 impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: SafeZero {
@@ -131,25 +150,53 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 		Self::zeroed_with_stride(width, height, width)
 	}
 
+	/// Create new zeroed image with given alignment (in bytes)
 	pub fn zeroed_with_alignment(width: usize, height: usize, alignment: usize) -> Self {
 		let stride = width.next_multiple_of(alignment);
 
 		Self::zeroed_with_stride(width, height, stride)
 	}
 
+	/// Create new zeroed image with given stride
 	pub fn zeroed_with_stride(width: usize, height: usize, stride: usize) -> Self {
-		assert!(stride >= width);
-		let data = calloc::<P::Subpixel>(height*stride*<P as Pixel>::CHANNEL_COUNT);
+		let dims = ImageDimensions {
+			width,
+			height,
+			stride,
+		};
+		Self::zeroed_dims(dims)
+	}
+
+	/// New zeroed image with dimensions
+	pub fn zeroed_dims(dims: ImageDimensions) -> Self {
+		let data = calloc::<P::Subpixel>(dims.height*dims.stride*<P as Pixel>::CHANNEL_COUNT);
 
 		Self {
-			dims: ImageDimensions { width, height, stride },
+			dims,
 			data,
 			pix: PhantomData,
 		}
 	}
 
+	pub fn try_zeroed(width: usize, height: usize) -> Result<Self, ImageAllocError> where P: DefaultAlignment {
+		let stride = width.next_multiple_of(<P as DefaultAlignment>::DEFAULT_ALIGNMENT);
+		Self::try_zeroed_dims(ImageDimensions { width, height, stride })
+	}
+
+	/// Try new zeroed image with dimensions. Returns error over panicking
+	pub fn try_zeroed_dims(dims: ImageDimensions) -> Result<Self, ImageAllocError> {
+		let data = try_calloc::<P::Subpixel>(dims.height*dims.stride*<P as Pixel>::CHANNEL_COUNT)?;
+
+		Ok(Self {
+			dims,
+			data,
+			pix: PhantomData,
+		})
+	}
+
+	/// Clone image data
 	pub fn clone_like<C: Deref<Target = [<P as Pixel>::Subpixel]>>(src: &ImageBuffer<P, C>) -> Self {
-		if src.stride() == src.width() {
+		if src.is_packed() {
 			let data = src.data.deref().to_vec().into_boxed_slice();
 			Self {
 				dims: src.dims,

@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use arrayvec::ArrayVec;
 use rayon::prelude::*;
 
-use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
+use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::{ImageY8, ImageRefY8}}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams, grad_cluster::{Clusters, ClusterId}};
 
@@ -342,7 +342,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 
 /// Compute statistics that allow line fit queries to be
 /// efficiently computed for any contiguous range of indices.
-fn compute_lfps(cluster: &[Pt], im: &ImageY8) -> Vec<LineFitPoint> {
+fn compute_lfps(cluster: &[Pt], im: &ImageRefY8) -> Vec<LineFitPoint> {
     let mut lfps = Vec::with_capacity(cluster.len());
 
     let mut prev = LineFitPoint::default();
@@ -439,7 +439,7 @@ fn compute_lfps(cluster: &[Pt], im: &ImageY8) -> Vec<LineFitPoint> {
 }
 
 /// Return the quad if it's ok
-fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &ImageY8, fqp: &FitQuadsParams) -> Option<Quad> {
+fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &ImageRefY8, fqp: &FitQuadsParams) -> Option<Quad> {
     if cluster.len() < MIN_CLUSTER_SIZE {
         #[cfg(feature="extra_debug")]
         println!(" R fit_quad: \tIgnored (size1)");
@@ -1103,7 +1103,7 @@ fn fit_quad(td: &ApriltagDetector, im: &Image, cluster: &mut [pt], tag_width: us
 }
 */
 
-fn fit_quad(td: &AprilTagDetector, im: &ImageY8, cluster: Vec<Pt>, fqp: &FitQuadsParams) -> Option<Quad> {
+fn fit_quad(td: &AprilTagDetector, im: &ImageRefY8, cluster: Vec<Pt>, fqp: &FitQuadsParams) -> Option<Quad> {
     // println!("\n=== Start fit_quad ===");
     #[cfg(feature="compare_reference")]
     let cluster_sys = {
@@ -1214,7 +1214,7 @@ impl FitQuadsParams {
 }
 
 
-pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Clusters, im: &ImageY8) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Clusters, im: &ImageRefY8) -> Vec<Quad> {
 	let fqp = FitQuadsParams::new(td);
 
     // Deterministic

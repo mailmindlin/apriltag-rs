@@ -63,7 +63,7 @@ impl ClusterId {
 // }
 type ClusterHasher = RandomState;
 
-fn do_gradient_clusters(threshim: &ImageY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32)>) {
+fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32), Id = u32>) {
     let width = threshim.width();
     for y in y0..y1 {
         for x in 1..(width-1) {
@@ -185,7 +185,7 @@ fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
     c1
 }
 
-pub(super) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32)>)) -> Clusters {
+pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32), Id = u32>)) -> Clusters {
     let nclustermap = (0.2*(threshim.len() as f64)) as usize;
 
     let sz = threshim.height() - 1;
