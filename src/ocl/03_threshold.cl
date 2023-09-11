@@ -16,16 +16,15 @@ __kernel void k03_tile_minmax(
     uchar v_max = 0;
     uchar v_min = 255;
     for(size_t dy = 0; dy < TILESZ; dy++) {
-        size_t row_src = base_src + (dy * src_stride);
+        // size_t row_src = base_src + (dy * src_stride);
         for (size_t dx = 0; dx < TILESZ; dx++) {
-            uchar v = src[row_src + dx];
+            uchar v = src[(ty * TILESZ + dy) * src_stride + (tx * TILESZ + dx)];
             v_min = min(v_min, v);
             v_max = max(v_max, v);
         }
     }
 
     dst[(ty * dst_stride) + tx] = (uchar2)(v_min, v_max);
-    // dst[(ty * dst_stride) + tx + 1] = v_max;
 }
 
 __kernel void k03_tile_blur(
@@ -36,21 +35,21 @@ __kernel void k03_tile_blur(
     __global uchar2 *im_dst,
     __private const uint stride_dst
 ) {
-    size_t tx = get_global_id(0);
-    size_t ty = get_global_id(1);
+    size_t x = get_global_id(0);
+    size_t y = get_global_id(1);
 
-    uchar v_min = 0;
-    uchar v_max = 255;
-    for (size_t i = sub_sat(ty, (size_t) 1); i < min(ty + 1, (size_t) height_src); i++) {
-        size_t row = i * stride_src + tx;
-        for (size_t j = sub_sat(tx, (size_t) 1); j < min(tx + 1, (size_t) width_src); j++) {
+    uchar v_min = 255;
+    uchar v_max = 0;
+    for (size_t i = sub_sat(y, (size_t) 1); i < min(y + 1, (size_t) height_src); i++) {
+        size_t row = i * stride_src;
+        for (size_t j = sub_sat(x, (size_t) 1); j < min(x + 1, (size_t) width_src); j++) {
             uchar2 v = im_src[row + j];
             v_min = min(v_min, v.s0);
             v_max = max(v_max, v.s1);
         }
     }
     
-    im_dst[ty * stride_dst + tx] = (uchar2) (v_min, v_max);
+    im_dst[y * stride_dst + x] = (uchar2) (v_min, v_max);
 }
 
 /**
@@ -78,35 +77,37 @@ __kernel void k03_build_threshim(
     size_t tx = get_global_id(0);
     size_t ty = get_global_id(1);
 
-    uchar2 v_minmax = im_minmax[(ty * stride_minmax) + tx];
-    uchar v_min = v_minmax.s0;
-    uchar v_max = v_minmax.s1;
+    const size_t tw = ((size_t) width_src) / TILESZ;
+    const size_t th = ((size_t) height_src) / TILESZ;
+    uchar2 v_minmax = im_minmax[(min(ty, th - 1) * stride_minmax) + min(tx, tw - 1)];
+    const bool bottom_edge = (ty >= th) || (tx >= tw);
+    const uchar v_min = v_minmax.s0;
+    const uchar v_max = v_minmax.s1;
 
-    uchar delta = v_max - v_min;
-    uchar thresh = v_min + (delta / 2);
+    const uchar delta = sub_sat(v_max, v_min);
+    const uchar thresh = add_sat(v_min, (uchar) (delta / 2));
     for (size_t dy = 0; dy < TILESZ; dy++) {
         size_t y = (ty * TILESZ) + dy;
         if (y > height_src)
             continue;
+        
         for (size_t dx = 0; dx < TILESZ; dx++) {
             size_t x = (tx * TILESZ) + dx;
             if (x > width_src)
                 continue;
-
-            size_t idx_sd = (y * stride_dst) + x;
+            
             uchar value;
-            if (delta < min_white_black_diff) {
-                // low contrast region? (no edges)
-                value = 127;
-            } else {
+            if (bottom_edge || delta >= min_white_black_diff) {
                 // otherwise, actually threshold this tile.
-
                 // argument for biasing towards dark; specular highlights
                 // can be substantially brighter than white tag parts
-                uchar v = im_src[idx_sd];
-                value = v > thresh ? 255 : 0;
+                uchar v = im_src[y * stride_src + x];
+                value = (v > thresh) ? 255 : 0;
+            } else {
+                // low contrast region? (no edges)
+                value = 127;
             }
-            im_dst[idx_sd] = value;
+            im_dst[y * stride_dst + x] = value;
         }
     }
 }
