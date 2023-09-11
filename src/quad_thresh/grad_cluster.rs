@@ -3,12 +3,12 @@ use hashbrown::{HashMap, hash_map::Entry};
 
 use rayon::prelude::*;
 
-use crate::{util::image::ImageY8, detector::DetectorConfig};
+use crate::{util::image::ImageRefY8, detector::DetectorConfig};
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
-pub(super) struct ClusterId {
+pub(crate) struct ClusterId {
     rep0: UnionFindId,
     rep1: UnionFindId,
 }
@@ -156,7 +156,7 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
     }
 }
 
-pub(super) type Clusters = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
+pub(crate) type Clusters = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
 
 fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
     // Ensure c1 > c2 (fewer operations in next loop)

@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::util::mem::SafeZero;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) struct Pt {
+pub(crate) struct Pt {
     // Note: these represent 2*actual value.
     pub x: u16,
     pub y: u16,
