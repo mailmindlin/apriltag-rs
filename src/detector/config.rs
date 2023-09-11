@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, path::PathBuf};
 
 use crate::AprilTagQuadThreshParams;
 
@@ -43,7 +43,7 @@ pub struct DetectorConfig {
 	pub qtp: AprilTagQuadThreshParams,
 
 	/// Path to debug to
-	pub debug_path: Option<String>,
+	pub debug_path: Option<PathBuf>,
 }
 
 
@@ -69,15 +69,6 @@ pub(crate) enum QuadDecimateMode {
 	ThreeHalves,
 	/// Integer scaling
 	Scaled(NonZeroU32),
-}
-
-impl QuadDecimateMode {
-	pub const fn is_enabled(&self) -> bool {
-		match self {
-			Self::None => false,
-			_ => true,
-		}
-	}
 }
 
 impl DetectorConfig {
@@ -126,8 +117,6 @@ impl DetectorConfig {
 	#[cfg(feature="debug")]
 	#[inline]
 	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(std::fs::File) -> std::io::Result<()>) {
-    use std::path::PathBuf;
-
 		if self.debug {
 			let path = if let Some(pfx) = &self.debug_path {
 				let mut path = PathBuf::from(pfx);
