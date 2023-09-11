@@ -106,6 +106,10 @@ impl TimeProfile {
         &self.now
     }
 
+    pub(crate) fn set_start(&mut self, value: Instant) {
+        self.now = value;
+    }
+
     /// Clear all records
     pub fn clear(&mut self) {
         self.stamps.clear();
@@ -118,6 +122,15 @@ impl TimeProfile {
         let entry = TimeProfileEntry {
             name: String::from(name),
             timestamp: Instant::now(),
+        };
+
+        self.stamps.push(entry);
+    }
+
+    pub fn stamp_at(&mut self, name: &str, timestamp: Instant) {
+        let entry = TimeProfileEntry {
+            name: String::from(name),
+            timestamp,
         };
 
         self.stamps.push(entry);
