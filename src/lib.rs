@@ -24,7 +24,6 @@ pub(crate) mod quad_decode;
 mod pose;
 mod dbg;
 mod detection;
-mod sys;
 mod ocl;
 
 pub use util::Image;
