@@ -2,7 +2,6 @@ mod edges;
 mod greymodel;
 mod homography;
 mod sharpening;
-mod homography;
 
 use std::sync::{Mutex, Arc};
 
@@ -12,7 +11,6 @@ use greymodel::Graymodel;
 use homography::homography_project;
 
 use self::greymodel::SolvedGraymodel;
-use homography::homography_project;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Quad {
