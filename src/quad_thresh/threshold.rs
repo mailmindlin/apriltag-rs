@@ -1,10 +1,10 @@
 use arrayvec::ArrayVec;
 
-use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel}}, dbg::TimeProfile};
+use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::TimeProfile, DetectorConfig, DetectError};
 
 use super::AprilTagQuadThreshParams;
 
-fn tile_minmax<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
+fn tile_minmax<const KW: usize>(im: ImageRefY8) -> ImageBuffer<[u8; 2]> {
     // the last (possibly partial) tiles along each row and column will
     // just use the min/max value from the last full tile.
     let tw = im.width().div_floor(KW);
@@ -35,28 +35,53 @@ fn tile_minmax<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
 }
 
 #[cfg(test)]
-pub(crate) fn tile_minmax_cpu<const KW: usize>(im: &ImageY8) -> ImageBuffer<[u8; 2]> {
+pub(crate) fn tile_minmax_cpu<const KW: usize>(im: ImageRefY8) -> ImageBuffer<[u8; 2]> {
     tile_minmax::<KW>(im)
 }
 
 fn blur(im_minmax: Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
-    im_minmax.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
-        let mut min = u8::MAX;
-        let mut max = u8::MIN;
-        for &[v_min, v_max] in im.window(x, y, 1, 1).pixels() {
-            if v_min < min {
-                min = v_min;
+    let mut result = ImageBuffer::clone_like(&im_minmax);
+    for y in 0..im_minmax.height() {
+        for x in 0..im_minmax.width() {
+            let mut min = u8::MAX;
+            let mut max = u8::MIN;
+            for dy in y.saturating_sub(1)..std::cmp::min(y+1, im_minmax.height()) {
+                for dx in x.saturating_sub(1)..std::cmp::min(x+1, im_minmax.width()) {
+                    let [v_min, v_max] = im_minmax[(dx, dy)];
+                    if v_min < min {
+                        min = v_min;
+                    }
+                    if v_max > max {
+                        max = v_max;
+                    }
+                }
             }
-            if v_max > max {
-                max = v_max;
-            }
+            result[(x, y)] = [min, max];
         }
-        [min, max]
-    })
+    }
+    result
+    // im_minmax.map_indexed(|im: &ImageBuffer<[u8; 2], Box<[u8]>>, x, y| {
+    //     let mut min = u8::MAX;
+    //     let mut max = u8::MIN;
+    //     for &[v_min, v_max] in im.window(x, y, 1, 1).pixels() {
+    //         if v_min < min {
+    //             min = v_min;
+    //         }
+    //         if v_max > max {
+    //             max = v_max;
+    //         }
+    //     }
+    //     [min, max]
+    // })
 }
 
-fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>, qtp: &AprilTagQuadThreshParams) -> ImageY8 {
-    let mut threshim = ImageY8::zeroed(im.width(), im.height());
+#[cfg(test)]
+pub(crate) fn tile_blur_cpu(im: Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
+    blur(im)
+}
+
+fn build_threshim<const TILESZ: usize>(im: ImageRefY8, im_minmax: &Image<[u8; 2]>, qtp: &AprilTagQuadThreshParams) -> Result<ImageY8, DetectError> {
+    let mut threshim = ImageY8::try_zeroed_dims(*im.dimensions())?;
     for ((tx, ty), [min, max]) in im_minmax.enumerate_pixels() {
         // low contrast region? (no edges)
         if max - min < qtp.min_white_black_diff {
@@ -119,7 +144,40 @@ fn build_threshim<const TILESZ: usize>(im: &ImageY8, im_minmax: &Image<[u8; 2]>,
         }
     }
 
-    threshim
+    Ok(threshim)
+}
+
+fn deglitch(threshim: &mut ImageY8) {
+    let mut tmp = ImageY8::zeroed(threshim.width(), threshim.height());
+
+    for y in 1..(threshim.height() - 1) {
+        for x in 1..(threshim.width() - 1) {
+            let mut max = u8::MIN;
+            let slice = threshim.window(x, y, 1, 1);
+            for v in slice.pixels() {
+                let v = v.to_value();
+                if v > max {
+                    max = v;
+                }
+            }
+            tmp[(x, y)] = max;
+        }
+    }
+
+    for y in 0..(threshim.height() - 2) {
+        for x in 0..(threshim.width() - 2) {
+            let mut min = u8::MAX;
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    let v = tmp[(x + dx - 1, y + dy - 1)];
+                    if v < min {
+                        min = v;
+                    }
+                }
+            }
+            threshim[(x + 1, y + 1)] = min;
+        }
+    }
 }
 /// XXX Tunable. Generally, small tile sizee -- so long as they're
 /// large enough to span a single tag edge -- seem to be a winner.
@@ -145,15 +203,33 @@ pub(crate) const TILESZ: usize = 4;
 /// The important thing is that the windows be large enough to
 /// capture edge transitions; the tag does not need to fit into
 /// a tile.
-pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im: &ImageY8) -> ImageBuffer<Luma<u8>> {
+pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, config: &DetectorConfig, tp: &mut TimeProfile, im: ImageRefY8) -> Result<ImageBuffer<Luma<u8>>, DetectError> {
     let w = im.width();
     let h = im.height();
     assert!(w < 32768);
     assert!(h < 32768);
 
-    // first, collect min/max statistics for each tile
+    fn split_image(src: ImageRef<[u8; 2]>) -> (ImageY8, ImageY8) {
+        let mut img_min = ImageY8::zeroed_packed(src.width(), src.height());
+        let mut img_max = ImageY8::zeroed_packed(src.width(), src.height());
+        for y in 0..src.height() {
+            for x in 0..src.width() {
+                let elem = src[(x, y)];
+                img_min[(x, y)] = elem[0];
+                img_max[(x, y)] = elem[1];
+            }
+        }
+        (img_min, img_max)
+    }
 
+    // first, collect min/max statistics for each tile
     let im_minmax = tile_minmax::<TILESZ>(im);
+    #[cfg(feature="debug")]
+    if config.generate_debug_image() {
+        let (img_min, img_max) = split_image(im_minmax.as_ref());
+        config.debug_image("02a_tile_minmax_min.pnm", |mut f| img_min.write_pnm(&mut f));
+        config.debug_image("02b_tile_minmax_max.pnm", |mut f| img_max.write_pnm(&mut f));
+    }
     tp.stamp("tile_minmax");
 
     // second, apply 3x3 max/min convolution to "blur" these values
@@ -164,64 +240,27 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, tp: &mut TimeProfile, im
     } else {
         im_minmax
     };
+    #[cfg(feature="debug")]
+    if config.generate_debug_image() {
+        let (img_min, img_max) = split_image(im_minmax.as_ref());
+        config.debug_image("02c_tile_minmax_blur_min.pnm", |mut f| img_min.write_pnm(&mut f));
+        config.debug_image("02d_tile_minmax_blur_max.pnm", |mut f| img_max.write_pnm(&mut f));
+    }
     tp.stamp("blur");
 
-    #[cfg(feature="extra_debug")]
-    {
-        use crate::util::image::ImageWritePNM;
-        im_minmax
-            .map(|v| Luma([v[0]]))
-            .save_to_pnm("debug_threshim_min.pnm")
-            .unwrap();
-        im_minmax
-            .map(|v| Luma([v[1]]))
-            .save_to_pnm("debug_threshim_max.pnm")
-            .unwrap();
-    }
-
-    let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp);
+    let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp)?;
     drop(im_minmax);
-    tp.stamp("build_threshim");
 
     // this is a dilate/erode deglitching scheme that does not improve
     // anything as far as I can tell.
     if qtp.deglitch {
         tp.stamp("build_threshim");
-        let mut tmp = ImageY8::zeroed_packed(w, h);
-
-        for y in 1..(h - 1) {
-            for x in 1..(w - 1) {
-                let mut max = u8::MIN;
-                let slice = threshim.window(x, y, 1, 1);
-                for v in slice.pixels() {
-                    let v = v.to_value();
-                    if v > max {
-                        max = v;
-                    }
-                }
-                tmp[(x, y)] = max;
-            }
-        }
-
-        for y in 0..(h - 2) {
-            for x in 0..(w - 2) {
-                let mut min = u8::MAX;
-                for dy in 0..2 {
-                    for dx in 0..2 {
-                        let v = tmp[(x + dx - 1, y + dy - 1)];
-                        if v < min {
-                            min = v;
-                        }
-                    }
-                }
-                threshim[(x + 1, y + 1)] = min;
-            }
-        }
+        deglitch(&mut threshim);
     }
 
     tp.stamp("threshold");
 
-    threshim
+    Ok(threshim)
 }
 
 // basically the same as threshold(), but assumes the input image is a
