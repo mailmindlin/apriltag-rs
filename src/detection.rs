@@ -3,7 +3,7 @@ use std::{sync::Arc, cmp::Ordering};
 use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::mat::Mat33}, TimeProfile};
 
 /// Represents the detection of a tag.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AprilTagDetection {
 	/// The detected tag's family
 	pub family: Arc<AprilTagFamily>,
@@ -41,6 +41,40 @@ pub struct AprilTagDetection {
 	/// The corners of the tag in image pixel coordinates. These always
 	/// wrap counter-clock wise around the tag.
 	pub corners: Quadrilateral,
+}
+
+impl PartialOrd for AprilTagDetection {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.family.partial_cmp(&other.family) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.id.partial_cmp(&other.id) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.hamming.partial_cmp(&other.hamming) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.decision_margin.partial_cmp(&other.decision_margin) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+		match self.center.x().partial_cmp(&other.center.x()) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+		match self.center.y().partial_cmp(&other.center.y()) {
+            Some(core::cmp::Ordering::Equal) => None,
+            ord => return ord,
+        }
+        // match self.H.partial_cmp(&other.H) {
+        //     Some(core::cmp::Ordering::Equal) => {}
+        //     ord => return ord,
+        // }
+        // self.corners.partial_cmp(&other.corners)
+    }
 }
 
 impl AprilTagDetection {
