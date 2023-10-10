@@ -3,7 +3,7 @@ use hashbrown::{HashMap, hash_map::Entry};
 
 use rayon::prelude::*;
 
-use crate::{util::image::ImageRefY8, detector::DetectorConfig};
+use crate::{util::image::ImageRefY8, detector::DetectorConfig, quad_thresh::MIN_CLUSTER_SIZE};
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
@@ -74,7 +74,7 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 
             // XXX don't query this until we know we need it?
             let (rep0, size0) = uf.get_set_static((x as _, y as _));
-            if size0 < 25 {
+            if size0 <= (MIN_CLUSTER_SIZE as u32) {
                 continue;
             }
 
@@ -102,10 +102,10 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
             const offsets: [(isize, usize); 4] = [
                 // do 4 connectivity. NB: Arguments must be [-1, 1] or we'll overflow .gx, .gy
                 (1, 0),
-                (0,1),
+                (0, 1),
                 // do 8 connectivity
                 (-1,1),
-                (1,1)
+                (1, 1),
             ];
             for (dx, dy) in offsets {
                 let off_x = (x as isize + dx) as usize;
@@ -114,7 +114,7 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
                 let v1 = threshim[(off_x, off_y)];
                 if v0 != v1 {
                     let (rep1, size1) = uf.get_set_static((off_x as _, off_y as _));
-                    if size1 > 24 {
+                    if size1 > (MIN_CLUSTER_SIZE as u32) {
                         let key = ClusterId::new(rep0, rep1);
                         let value: Pt = {
                             let dv = (v1 as i16) - (v0 as i16);
@@ -186,7 +186,7 @@ fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
 }
 
 pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32), Id = u32>)) -> Clusters {
-    let nclustermap = (0.2*(threshim.len() as f64)) as usize;
+    let nclustermap = (0.2*(threshim.num_pixels() as f64)) as usize;
 
     let sz = threshim.height() - 1;
     if config.single_thread() && false {
