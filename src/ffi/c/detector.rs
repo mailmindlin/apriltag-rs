@@ -311,7 +311,7 @@ pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, 
         None => return ManagedPtr::null(),
     };
 
-    let detections = match td.wp.detector(|detector| detector.detect(&im_orig.pretend_ref())) {
+    let detections = match td.wp.detector(|detector| detector.detect(&im_orig.as_ref())) {
         Ok(Ok(detections)) => detections,
         Ok(Err(e)) => {
             #[cfg(feature="debug")]
