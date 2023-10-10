@@ -1,6 +1,9 @@
+
+/// Downsample 3/2
 static uchar downsample_32(uchar a, uchar b, uchar c, uchar d) {
-	return (4 * a + 2 * b + 2 * c + d) / 9;
+	return (4 * ((ushort) a) + 2 * ((ushort) b) + 2 * ((ushort) c) + ((ushort) d)) / 9;
 }
+
 // quad_decimate but for ffactor == 1.5
 __kernel void k01_filter_quad_decimate_32(
     __global const uchar *src,
