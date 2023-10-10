@@ -8,7 +8,7 @@ mod rows;
 mod pixels;
 mod svg;
 
-use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, alloc::AllocError};
+use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, alloc::AllocError, fmt::{Display, LowerHex, Debug}};
 pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
@@ -35,6 +35,30 @@ pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 	dims: ImageDimensions,
 	pub(crate) data: Container,
 	pix: PhantomData<P>,
+}
+
+impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> Debug for ImageBuffer<P, Container> where P::Subpixel: LowerHex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("ImageBuffer")
+			.field("dims", &self.dims)
+			.field("pix", &self.pix)
+			.finish()?;
+
+		if P::CHANNEL_COUNT == 1 {
+			writeln!(f)?;
+			for chunk in self.data.chunks(self.stride()) {
+				write!(f, "[")?;
+				for spx in &chunk[0..self.width()] {
+					write!(f, "{spx:02x} ")?;
+				}
+				for spx in &chunk[self.width()..] {
+					write!(f, "{spx:02x}_")?;
+				}
+				writeln!(f, "]")?;
+			}
+		}
+		Ok(())
+    }
 }
 
 /// Make [ImageRef] [Copy]
