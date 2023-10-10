@@ -11,8 +11,13 @@ pub(super) struct OclCore {
 	pub(super) device: Device,
 	pub(super) context: Context,
 	pub(super) program: Program,
+	/// Queue for uploading the image
 	pub(super) queue_write: Queue,
+	/// Queue for executing kernels
 	pub(super) queue_kernel: Queue,
+	/// Queue for initializing data
+	pub(super) queue_init: Queue,
+	/// Queue for reading images back for debugging
 	pub(super) queue_read_debug: Queue,
 }
 
@@ -265,16 +270,16 @@ impl<E: OclPrm> OclBufferState<E> {
 			event: Some(event),
 		}
 	}
-	pub(super) fn width(&self) -> usize {
+	pub(super) const fn width(&self) -> usize {
 		self.dims.width
 	}
-	pub(super) fn height(&self) -> usize {
+	pub(super) const fn height(&self) -> usize {
 		self.dims.height
 	}
-	pub(super) fn stride(&self) -> usize {
+	pub(super) const fn stride(&self) -> usize {
 		self.dims.stride
 	}
-	pub(super) fn buf(&self) -> &OclBuffer<E> {
+	pub(super) const fn buf(&self) -> &OclBuffer<E> {
 		&self.buf
 	}
 }
