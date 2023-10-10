@@ -25,11 +25,12 @@ mod pose;
 mod dbg;
 mod detection;
 mod ocl;
+mod wgpu;
 
 pub use util::Image;
 pub use quickdecode::AddFamilyError;
 pub use families::AprilTagFamily;
-pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig, OpenClMode};
+pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig, GpuAccelRequest};
 pub use detection::{AprilTagDetection, Detections};
 pub use quad_thresh::AprilTagQuadThreshParams;
 pub use dbg::{TimeProfile, TimeProfileStatistics};
