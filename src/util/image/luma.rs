@@ -188,7 +188,7 @@ impl<Container> ImageBuffer<Luma<u8>, Container> where Container: Deref<Target =
         let swidth = self.width() / 3 * 2;
         let sheight = self.height() / 3 * 2;
 
-        let mut dst = ImageY8::zeroed(swidth, sheight);
+        let mut dst = ImageY8::zeroed_packed(swidth, sheight);
 
         let mut y = 0;
         for sy in (0..sheight).step_by(2) {
@@ -229,7 +229,7 @@ impl<Container> ImageBuffer<Luma<u8>, Container> where Container: Deref<Target =
         let swidth = 1 + (width - 1) / factor;
         let sheight = 1 + (height - 1) / factor;
 
-        let mut decim = ImageY8::zeroed(swidth, sheight);
+        let mut decim = ImageY8::zeroed_packed(swidth, sheight);
         let mut dy = 0;
         for y in (0..height).step_by(factor) {
             let mut dr = decim.row_mut(dy);
@@ -243,6 +243,51 @@ impl<Container> ImageBuffer<Luma<u8>, Container> where Container: Deref<Target =
         }
         decim
     }
+}
+
+pub(crate) fn quad_sigma_kernel(quad_sigma: f64, kernel_size: usize) -> Option<Vec<u8>> {
+	if quad_sigma == 0. {
+		return None;
+	}
+
+    assert_eq!(kernel_size % 2, 1, "kernel_size must be odd");
+
+	// compute a reasonable kernel width by figuring that the
+	// kernel should go out 2 std devs.
+	//
+	// max sigma          ksz
+	// 0.499              1  (disabled)
+	// 0.999              3
+	// 1.499              5
+	// 1.999              7
+
+    let sigma = quad_sigma.abs();
+
+	assert_eq!(kernel_size % 2, 1, "kernel_size must be odd");
+
+	// build the kernel.
+	let mut dk = vec![0f64; kernel_size];
+
+	// for kernel of length 5:
+	// dk[0] = f(-2), dk[1] = f(-1), dk[2] = f(0), dk[3] = f(1), dk[4] = f(2)
+	for i in 0..kernel_size {
+		let x = i as isize - (kernel_size as isize / 2);
+		let x_sig = x as f64 / sigma;
+		let v = f64::exp(-0.5*(x_sig * x_sig));
+		dk[i] = v;
+	}
+
+	// normalize
+	let acc = dk.iter().sum::<f64>();
+
+	let kernel = dk.into_iter()
+		.map(|x| {
+			let x_norm = x / acc;
+			(x_norm * 255.) as u8 //TODO: round?
+		})
+		.collect::<Vec<_>>();
+    // kernel.fill(1u8);
+	Some(kernel)
 }
 
 impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, Container> {
@@ -288,43 +333,16 @@ impl<Container: DerefMut<Target=SubpixelArray<Luma<u8>>>> ImageBuffer<Luma<u8>, 
     }
 
     pub fn gaussian_blur(&mut self, sigma: f64, kernel_size: usize) {
-        if sigma == 0. {
-            return;
+        // build the kernel.
+        if let Some(kernel) = quad_sigma_kernel(sigma, kernel_size) {
+            /*if false {
+                for (int i = 0; i < ksz; i++)
+                    printf("%d %15f %5d\n", i, dk[i], k[i]);
+            } */
+    
+            self.convolve2d_mut(&kernel);
         }
 
-        assert_eq!(kernel_size % 2, 1, "kernel_size must be odd");
-
-        // build the kernel.
-        let kernel = {
-            
-            let mut dk = vec![0f64; kernel_size];
-
-            // for kernel of length 5:
-            // dk[0] = f(-2), dk[1] = f(-1), dk[2] = f(0), dk[3] = f(1), dk[4] = f(2)
-            for i in 0..kernel_size {
-                let x = i as isize - (kernel_size as isize / 2);
-                let x_sig = x as f64 / sigma;
-                let v = f64::exp(-0.5*(x_sig * x_sig));
-                dk[i] = v;
-            }
-
-            // normalize
-            let acc = dk.iter().sum::<f64>();
-
-            dk.into_iter()
-                .map(|x| {
-                    let x_norm = x / acc;
-                    (x_norm * 255.) as u8 //TODO: round?
-                })
-                .collect::<Vec<_>>()
-        };
-
-        /*if false {
-            for (int i = 0; i < ksz; i++)
-                printf("%d %15f %5d\n", i, dk[i], k[i]);
-        } */
-
-        self.convolve2d_mut(&kernel);
     }
 }
 
@@ -336,6 +354,7 @@ impl<C: Deref<Target=[u8]>> ImageWritePNM for ImageBuffer<Luma<u8>, C> {
         writeln!(f, "{} {}", dims.width, dims.height)?;
         writeln!(f, "255")?;
         for (_, row) in self.rows() {
+            debug_assert_eq!(row.as_slice().len(), self.width());
             f.write_all(row.as_slice())?;
         }
 

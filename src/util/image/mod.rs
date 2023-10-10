@@ -30,7 +30,7 @@ pub type ImageRefY8<'a> = ImageRef<'a, Luma<u8>>;
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
 type DC<P> = Box<SubpixelArray<P>>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 	dims: ImageDimensions,
 	pub(crate) data: Container,
@@ -85,13 +85,18 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 		self.dimensions().width
 	}
 
+	/// Image width (in subpixels)
+	pub const fn width_spx(&self) -> usize {
+		self.dimensions().width_subpixels::<P>()
+	}
+
 	/// Image height (in pixels)
 	#[inline]
 	pub const fn height(&self) -> usize {
 		self.dimensions().height
 	}
 
-	/// Image stride (in bytes)
+	/// Image stride (in subpixels)
 	#[inline]
 	pub const fn stride(&self) -> usize {
 		self.dimensions().stride
@@ -99,11 +104,11 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 
 	#[inline]
 	pub fn is_packed(&self) -> bool {
-		self.width() == self.stride()
+		self.width_spx() == self.stride()
 	}
 
 	#[inline]
-	pub fn len(&self) -> usize {
+	pub fn num_pixels(&self) -> usize {
 		self.width() * self.height()
 	}
 
@@ -147,14 +152,18 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 	}
 
 	pub fn zeroed_packed(width: usize, height: usize) -> Self {
-		Self::zeroed_with_stride(width, height, width)
+		Self::zeroed_with_stride(width, height, width * <P as Pixel>::CHANNEL_COUNT)
 	}
 
 	/// Create new zeroed image with given alignment (in bytes)
 	pub fn zeroed_with_alignment(width: usize, height: usize, alignment: usize) -> Self {
-		let stride = width.next_multiple_of(alignment);
+		let spx_size = std::mem::size_of::<P::Subpixel>();
+		let num_channels = <P as Pixel>::CHANNEL_COUNT;
+		let stride_bytes = (width * num_channels * spx_size).next_multiple_of(alignment);
+		debug_assert_eq!(stride_bytes % spx_size, 0);
+		let stride_spx = stride_bytes / spx_size;
 
-		Self::zeroed_with_stride(width, height, stride)
+		Self::zeroed_with_stride(width, height, stride_spx)
 	}
 
 	/// Create new zeroed image with given stride
@@ -169,7 +178,9 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 
 	/// New zeroed image with dimensions
 	pub fn zeroed_dims(dims: ImageDimensions) -> Self {
-		let data = calloc::<P::Subpixel>(dims.height*dims.stride*<P as Pixel>::CHANNEL_COUNT);
+		debug_assert!(dims.stride >= dims.width * P::CHANNEL_COUNT);
+
+		let data = calloc::<P::Subpixel>(dims.height*dims.stride);
 
 		Self {
 			dims,
@@ -179,13 +190,13 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 	}
 
 	pub fn try_zeroed(width: usize, height: usize) -> Result<Self, ImageAllocError> where P: DefaultAlignment {
-		let stride = width.next_multiple_of(<P as DefaultAlignment>::DEFAULT_ALIGNMENT);
-		Self::try_zeroed_dims(ImageDimensions { width, height, stride })
+		let stride_spx = (width * P::CHANNEL_COUNT).next_multiple_of(<P as DefaultAlignment>::DEFAULT_ALIGNMENT);
+		Self::try_zeroed_dims(ImageDimensions { width, height, stride: stride_spx })
 	}
 
 	/// Try new zeroed image with dimensions. Returns error over panicking
 	pub fn try_zeroed_dims(dims: ImageDimensions) -> Result<Self, ImageAllocError> {
-		let data = try_calloc::<P::Subpixel>(dims.height*dims.stride*<P as Pixel>::CHANNEL_COUNT)?;
+		let data = try_calloc::<P::Subpixel>(dims.height*dims.stride)?;
 
 		Ok(Self {
 			dims,
@@ -195,7 +206,7 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 	}
 
 	/// Clone image data
-	pub fn clone_like<C: Deref<Target = [<P as Pixel>::Subpixel]>>(src: &ImageBuffer<P, C>) -> Self {
+	pub fn clone_packed<C: Deref<Target = [<P as Pixel>::Subpixel]>>(src: &ImageBuffer<P, C>) -> Self {
 		if src.is_packed() {
 			let data = src.data.deref().to_vec().into_boxed_slice();
 			Self {
@@ -204,7 +215,7 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 				pix: PhantomData,
 			}
 		} else {
-			let mut res = Self::zeroed_with_stride(src.width(), src.height(), src.stride());
+			let mut res = Self::zeroed_packed(src.width(), src.height());
 			for ((_, mut dst), (_, src)) in res.rows_mut().into_iter().zip(src.rows().into_iter()) {
 				dst.as_slice_mut().copy_from_slice(src.as_slice());
 			}
@@ -214,9 +225,11 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 }
 
 impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Container> {
-	pub(crate) fn wrap(data: Container, width: usize, height: usize, stride: usize) -> Self {
+	pub(crate) fn wrap(data: Container, width: usize, height: usize, stride_spx: usize) -> Self {
+		debug_assert!(stride_spx >= width * P::CHANNEL_COUNT, "Width is less than stride");
+		assert!(data.len() >= height * stride_spx, "Not enough data");
 		Self {
-			dims: ImageDimensions { width, height, stride },
+			dims: ImageDimensions { width, height, stride: stride_spx },
 			data,
 			pix: PhantomData,
 		}
@@ -290,9 +303,16 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 		EnumeratePixels::new(&self.data, &self.dims)
 	}
 
-	pub fn map<Pr: Pixel>(&self, update: impl Fn(&P) -> Pr) -> ImageBuffer<Pr, Box<[Pr::Subpixel]>> where Pr::Subpixel: SafeZero {
-		let mut result = ImageBuffer::<MaybeUninit<Pr>, Box<SubpixelArray<MaybeUninit<Pr>>>>::zeroed_with_stride(self.dims.width, self.dims.height, self.dims.stride);
-		if self.is_packed() {
+	pub fn map<Pr: Pixel + DefaultAlignment>(&self, update: impl Fn(&P) -> Pr) -> ImageBuffer<Pr, Box<[Pr::Subpixel]>> where Pr::Subpixel: SafeZero {
+		let mut result: ImageBuffer<MaybeUninit<Pr>, Box<SubpixelArray<MaybeUninit<Pr>>>> = if Pr::CHANNEL_COUNT == P::CHANNEL_COUNT && std::mem::size_of::<Pr::Subpixel>() == std::mem::size_of::<P::Subpixel>() && std::mem::align_of::<Pr::Subpixel>() == std::mem::align_of::<P::Subpixel>() {
+			ImageBuffer::zeroed_with_stride(self.dims.width, self.dims.height, self.dims.stride)
+		} else if self.is_packed() {
+			ImageBuffer::zeroed_packed(self.dims.width, self.dims.height)
+		} else {
+			ImageBuffer::zeroed(self.dims.width, self.dims.height)
+		};
+
+		if self.is_packed() && result.is_packed() {
 			let src_iter = self.data.chunks_exact(<P as Pixel>::CHANNEL_COUNT);
 			let dst_iter = result.data.chunks_exact_mut(<Pr as Pixel>::CHANNEL_COUNT);
 			for (src, dst) in src_iter.zip(dst_iter) {
@@ -429,7 +449,44 @@ impl<P: Pixel> ImageBuffer<MaybeUninit<P>, Box<SubpixelArray<MaybeUninit<P>>>> w
 
 #[cfg(test)]
 mod test {
-    use super::ImageY8;
+    use super::{ImageY8, ImageRGB8};
+
+	#[test]
+	fn alloc_zeroed() {
+		ImageY8::zeroed(10, 10);
+	}
+
+	#[test]
+	fn alloc_stride_exact() {
+		ImageY8::zeroed_with_stride(10, 10, 10);
+	}
+
+	#[test]
+	fn alloc_stride_bigger() {
+		ImageY8::zeroed_with_stride(10, 10, 11);
+	}
+
+	#[test]
+	#[should_panic]
+	fn alloc_stride_smaller() {
+		ImageY8::zeroed_with_stride(10, 10, 9);
+	}
+
+	#[test]
+	fn alloc_stride_exact_rgb() {
+		ImageRGB8::zeroed_with_stride(10, 10, 30);
+	}
+
+	#[test]
+	fn alloc_stride_bigger_rgb() {
+		ImageRGB8::zeroed_with_stride(10, 10, 42);
+	}
+
+	#[test]
+	#[should_panic]
+	fn alloc_stride_smaller_rgb() {
+		ImageRGB8::zeroed_with_stride(10, 10, 27);
+	}
 
 	#[test]
 	fn slice_simple() {
@@ -483,6 +540,46 @@ mod test {
 			assert_eq!(slice.width(), 2);
 			assert_eq!(slice.height(), 5);
 			assert_eq!(slice.stride(), 10);
+			assert_eq!(slice.pixels().into_iter().count(), 10);
+		}
+	}
+
+	#[test]
+	fn slice_rgb() {
+		let image = ImageRGB8::zeroed_with_stride(5, 5, 30);
+		{
+			let slice_full = image.slice(.., ..);
+			assert_eq!(slice_full.width(), 5);
+			assert_eq!(slice_full.height(), 5);
+			assert_eq!(slice_full.stride(), 30);
+			assert_eq!(slice_full.pixels().into_iter().count(), 25);
+		}
+		{
+			let slice = image.slice(.., 1..=2);
+			assert_eq!(slice.width(), 5);
+			assert_eq!(slice.height(), 2);
+			assert_eq!(slice.stride(), 30);
+			assert_eq!(slice.pixels().into_iter().count(), 10);
+		}
+		{
+			let slice = image.slice(1..=2, ..);
+			assert_eq!(slice.width(), 2);
+			assert_eq!(slice.height(), 5);
+			assert_eq!(slice.stride(), 30);
+			assert_eq!(slice.pixels().into_iter().count(), 10);
+		}
+		{
+			let slice = image.slice(1..=2, 1..=2);
+			assert_eq!(slice.width(), 2);
+			assert_eq!(slice.height(), 2);
+			assert_eq!(slice.stride(), 30);
+			assert_eq!(slice.pixels().into_iter().count(), 4);
+		}
+		{
+			let slice = image.slice(0..=1, ..);
+			assert_eq!(slice.width(), 2);
+			assert_eq!(slice.height(), 5);
+			assert_eq!(slice.stride(), 30);
 			assert_eq!(slice.pixels().into_iter().count(), 10);
 		}
 	}

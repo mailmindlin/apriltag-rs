@@ -116,7 +116,7 @@ impl<P: GpuPixel> GpuImageLike for GpuBuffer<P> {
     }
 
     fn stride(&self) -> usize {
-        self.dims.stride_spx * std::mem::size_of::<P::Subpixel>()
+        self.dims.stride * std::mem::size_of::<P::Subpixel>()
     }
 }
 
@@ -250,11 +250,11 @@ impl<P: GpuPixel> GpuImageDownload<P> for GpuTexture<P> where P: Send + Sync, P:
                 let dims = ImageDimensions {
                     width: self.width(),
                     height: self.height(),
-                    stride_spx: self.stride() / size_spx,
+                    stride: self.stride() / size_spx,
                 };
                 let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
                     label: None,
-                    size: ((dims.stride_spx * self.height())) as u64,
+                    size: ((dims.stride * self.height())) as u64,
                     usage,
                     mapped_at_creation: false,
                 });
@@ -274,7 +274,7 @@ impl<P: GpuPixel> GpuImageDownload<P> for GpuTexture<P> where P: Send + Sync, P:
                         buffer: &buf.buffer,
                         layout: wgpu::ImageDataLayout {
                             offset: 0,
-                            bytes_per_row: Some((buf.dims.stride_spx * size_spx) as _),
+                            bytes_per_row: Some((buf.dims.stride * size_spx) as _),
                             rows_per_image: Some(self.height() as _),
                         }
                     },

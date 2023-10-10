@@ -10,8 +10,14 @@ pub struct ImageDimensions {
 	pub width: usize,
 	/// Image height (in pixels)
 	pub height: usize,
-	/// Image stride (in pixels)
+	/// Image stride (in subpixels)
 	pub stride: usize,
+}
+
+impl ImageDimensions {
+    pub(super) const fn width_subpixels<P: Pixel>(&self) -> usize {
+        self.width * P::CHANNEL_COUNT
+    }
 }
 
 impl Dimensions2D<usize> for ImageDimensions {
@@ -27,15 +33,15 @@ impl Dimensions2D<usize> for ImageDimensions {
 		index.x < self.width && index.y < self.height
 	}
 
-	fn offset_unchecked(&self, index: &Index2D<usize>) -> usize {
-		self.stride * index.y + index.x
-	}
+	// fn offset_unchecked(&self, index: &Index2D<usize>) -> usize {
+	// 	self.stride * index.y + index.x
+	// }
 
-	fn index_for_offset_unchecked(&self, offset: usize) -> Index2D<usize> {
-		let y = offset / self.stride;
-		let x = offset % self.stride;
-		Index2D { x, y }
-	}
+	// fn index_for_offset_unchecked(&self, offset: usize) -> Index2D<usize> {
+	// 	let y = offset / self.stride;
+	// 	let x = offset % self.stride;
+	// 	Index2D { x, y }
+	// }
 }
 
 #[inline(always)]
@@ -50,17 +56,17 @@ pub(super) fn pixel_idxs<P: Pixel>(dims: &ImageDimensions, x: usize, y: usize) -
 
 #[inline(always)]
 pub(super) fn pixel_idxs_checked<P: Pixel>(dims: &ImageDimensions, x: usize, y: usize) -> Option<Range<usize>> {
-    let cell_offset = dims.offset_checked(&Index2D { x, y })?;
-    let num_channels = <P as Pixel>::CHANNEL_COUNT;
-    let start_idx = cell_offset * num_channels;
-    Some(start_idx..start_idx + num_channels)
+    if dims.contains(&Index2D { x, y }) {
+        Some(pixel_idxs_unchecked::<P>(dims, x, y))
+    } else {
+        None
+    }
 }
 
 #[inline(always)]
 pub(super) fn pixel_idxs_unchecked<P: Pixel>(dims: &ImageDimensions, x: usize, y: usize) -> Range<usize> {
-    let cell_offset = dims.offset_unchecked(&Index2D { x, y });
     let num_channels = <P as Pixel>::CHANNEL_COUNT;
-    let start_idx = cell_offset * num_channels;
+    let start_idx = (x * num_channels) + (y * dims.stride);
     start_idx..start_idx + num_channels
 }
 
@@ -74,7 +80,7 @@ pub(super) fn row_idxs<P: Pixel>(dims: &ImageDimensions, y: usize) -> Range<usiz
 }
 
 pub(super) const fn row_idxs_unchecked<P: Pixel>(dims: &ImageDimensions, y: usize) -> Range<usize> {
-    let row_start = y * dims.stride * P::CHANNEL_COUNT;
+    let row_start = y * dims.stride;
     let row_end = row_start + dims.width * P::CHANNEL_COUNT;
     row_start..row_end
 }
@@ -117,8 +123,10 @@ pub(super) fn slice_idxs<P: Pixel>(dims: &ImageDimensions, x: impl RangeBounds<u
         }
     }
 
-    let start_idx = dims.offset_unchecked(&Index2D { x: x.start, y: y.start });
-    let end_idx = dims.offset_unchecked(&Index2D { x: x.end - 1, y: y.end - 1 }) + 1;
+    let num_channels = <P as Pixel>::CHANNEL_COUNT;
+    let start_idx = (x.start * num_channels) + (y.start * dims.stride);
+    let end_idx = ((x.end - 1) * num_channels) + ((y.end - 1) * dims.stride) + num_channels;
+
     let width = x.end - x.start;
     let height = y.end - y.start;
     // let stride = dims.offset_unchecked(&Index2D { x: x.start, y: y.start + 1 }) - start_idx;
@@ -130,7 +138,7 @@ pub(super) fn slice_idxs<P: Pixel>(dims: &ImageDimensions, x: impl RangeBounds<u
             height,
             stride,
         },
-        (start_idx * P::CHANNEL_COUNT..end_idx * P::CHANNEL_COUNT),
+        (start_idx..end_idx),
     )
 }
 
@@ -138,7 +146,14 @@ impl<P: Pixel, Container: Deref<Target = [<P as Pixel>::Subpixel]>> Index<(usize
 	type Output = P::Value;
 
 	fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
-		let slice = &self.data[self.pixel_idxs(x, y)];
+        #[cfg(debug_assertions)]
+        let idx = match self.pixel_idxs_checked(x, y) {
+            Some(idx) => idx,
+            None => panic!("Range index ({x}, {y}) out of range for image size ({}, {})", self.width(), self.height()),
+        };
+        // #[cfg(not(debug_assertions))]
+        let idx = self.pixel_idxs(x, y);
+		let slice = &self.data[idx];
 		<P as Pixel>::slice_to_value(slice)
 	}
 }

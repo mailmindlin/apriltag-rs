@@ -61,11 +61,11 @@ impl GpuContext {
 		let dims = ImageDimensions {
 			width,
 			height,
-			stride_spx: (width * P::CHANNEL_COUNT).next_multiple_of(align),
+			stride: (width * P::CHANNEL_COUNT).next_multiple_of(align),
 		};
 		let buffer = self.device.create_buffer(&BufferDescriptor {
 			label: None,
-			size: ((dims.stride_spx * height)) as u64,
+			size: ((dims.stride * height)) as u64,
 			usage,
 			mapped_at_creation: false,
 		});
@@ -161,11 +161,11 @@ impl GpuContext {
 			let dims = ImageDimensions {
 				width: image.dimensions().width,
 				height: image.dimensions().height,
-				stride_spx: image.dimensions().width.next_multiple_of(row_alignment),
+				stride: image.dimensions().width.next_multiple_of(row_alignment),
 			};
 			let buffer = self.device.create_buffer(&BufferDescriptor {
 				label,
-				size: (dims.height * dims.stride_spx) as u64,
+				size: (dims.height * dims.stride) as u64,
 				usage,
 				mapped_at_creation: true,
 			});
@@ -174,7 +174,7 @@ impl GpuContext {
 				let mut view = buffer.slice(..).get_mapped_range_mut();
 				for y in 0..image.height() {
 					let src = image.row(y).as_slice();
-					let dst = &mut view[y * dims.stride_spx..y*dims.stride_spx + dims.width];
+					let dst = &mut view[y * dims.stride..y*dims.stride + dims.width];
 					dst.copy_from_slice(src);
 				}
 			}

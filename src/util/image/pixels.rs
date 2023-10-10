@@ -180,7 +180,8 @@ impl<'a, P: Pixel + 'a> Iterator for EnumeratePixels<'a, P> {
 pub struct EnumeratePixelsMut<'a, P: Pixel> {
 	pub(super) dims: &'a ImageDimensions,
 	pub(super) data: &'a mut SubpixelArray<P>,
-	off: usize,
+	x: usize,
+	y: usize,
 }
 
 impl<'a, P: Pixel + 'a> EnumeratePixelsMut<'a, P> {
@@ -188,7 +189,8 @@ impl<'a, P: Pixel + 'a> EnumeratePixelsMut<'a, P> {
 		Self {
 			data,
 			dims,
-			off: 0
+			x: 0,
+			y: 0,
 		}
 	}
 }
@@ -197,30 +199,47 @@ impl<'a, P: Pixel + 'a> Iterator for EnumeratePixelsMut<'a, P> {
     type Item = ((usize, usize), &'a mut P);
 
     fn next(&mut self) -> Option<Self::Item> {
-		let x = self.off % self.dims.stride;
-		let x = if x >= self.dims.width {
-			self.off += self.dims.stride - self.dims.width;
-			0
-		} else {
-			x
-		};
-		let y = self.off / self.dims.stride;
-		if y >= self.dims.height {
+		// let x = self.off % self.dims.stride_spx;
+		// let x = if x >= self.dims.width {
+		// 	// Bump to next row
+		// 	self.off += self.dims.stride_spx - (self.dims.width * P::CHANNEL_COUNT);
+		// 	0
+		// } else {
+		// 	x
+		// };
+		// let y = self.off / self.dims.stride_spx;
+		// if y >= self.dims.height {
+		// 	return None;
+		// }
+		// let start = self.off;
+		// self.off += P::CHANNEL_COUNT;
+
+		// let idxs = start..start + P::CHANNEL_COUNT;
+		// let slice = &mut self.data[idxs];
+		// let value = unsafe { std::mem::transmute(P::from_slice_mut(slice)) };
+		// Some(((x, y), value))
+		while self.x >= self.dims.width {
+			self.y += 1;
+			self.x -= self.dims.width;
+		}
+		if self.y >= self.dims.height {
 			return None;
 		}
-		let start = self.off * P::CHANNEL_COUNT;
-		self.off += 1;
+		let x = self.x;
+		let y = self.y;
+		self.x += 1;
 
-		let idxs = start..start + P::CHANNEL_COUNT;
+		let idxs = index::pixel_idxs::<P>(self.dims, x, y);
 		let slice = &mut self.data[idxs];
-		let value = unsafe { std::mem::transmute(P::from_slice_mut(slice)) };
+		let value = P::from_slice_mut(slice);
+		let value = unsafe { std::mem::transmute(value) };
 		Some(((x, y), value))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::util::{ImageY8, image::Luma};
+    use crate::util::{ImageY8, image::{Luma, Rgb}, ImageRGB8};
 
 	#[test]
 	fn enumerate_pixels() {
@@ -244,28 +263,56 @@ mod test {
 	fn enumerate_pixels_idxs() {
 		let mut img = ImageY8::zeroed_with_stride(2, 2, 4);
 		img[(0, 0)] = 1;
-		img[(1, 1)] = 1;
+		img[(1, 1)] = 2;
 		
 		let mut it = img.enumerate_pixels().into_iter();
-		assert_eq!(it.next().unwrap(), ((0, 0), &Luma([1])));
-		assert_eq!(it.next().unwrap(), ((1, 0), &Luma([0])));
-		assert_eq!(it.next().unwrap(), ((0, 1), &Luma([0])));
-		assert_eq!(it.next().unwrap(), ((1, 1), &Luma([1])));
-		assert!(it.next().is_none());
+		assert_eq!(it.next(), Some(((0, 0), &Luma([1]))));
+		assert_eq!(it.next(), Some(((1, 0), &Luma([0]))));
+		assert_eq!(it.next(), Some(((0, 1), &Luma([0]))));
+		assert_eq!(it.next(), Some(((1, 1), &Luma([2]))));
+		assert_eq!(it.next(), None);
 	}
 
 	#[test]
 	fn enumerate_pixels_mut_idxs() {
 		let mut img = ImageY8::zeroed_with_stride(2, 2, 4);
 		img[(0, 0)] = 1;
-		img[(1, 1)] = 1;
+		img[(1, 1)] = 2;
 		
 		let mut it = img.enumerate_pixels_mut().into_iter();
-		assert_eq!(it.next().unwrap(), ((0, 0), &mut Luma([1])));
-		assert_eq!(it.next().unwrap(), ((1, 0), &mut Luma([0])));
-		assert_eq!(it.next().unwrap(), ((0, 1), &mut Luma([0])));
-		assert_eq!(it.next().unwrap(), ((1, 1), &mut Luma([1])));
-		assert!(it.next().is_none());
+		assert_eq!(it.next(), Some(((0, 0), &mut Luma([1]))));
+		assert_eq!(it.next(), Some(((1, 0), &mut Luma([0]))));
+		assert_eq!(it.next(), Some(((0, 1), &mut Luma([0]))));
+		assert_eq!(it.next(), Some(((1, 1), &mut Luma([2]))));
+		assert_eq!(it.next(), None);
+	}
+
+	#[test]
+	fn enumerate_pixels_idxs_rgb() {
+		let mut img = ImageRGB8::zeroed_with_stride(2, 2, 13);
+		img[(0, 0)] = [1, 2, 3];
+		img[(1, 1)] = [4, 5, 6];
+		
+		let mut it = img.enumerate_pixels().into_iter();
+		assert_eq!(it.next(), Some(((0, 0), &Rgb([1, 2, 3]))));
+		assert_eq!(it.next(), Some(((1, 0), &Rgb([0, 0, 0]))));
+		assert_eq!(it.next(), Some(((0, 1), &Rgb([0, 0, 0]))));
+		assert_eq!(it.next(), Some(((1, 1), &Rgb([4, 5, 6]))));
+		assert_eq!(it.next(), None);
+	}
+
+	#[test]
+	fn enumerate_pixels_mut_idxs_rgb() {
+		let mut img = ImageRGB8::zeroed_with_stride(2, 2, 13);
+		img[(0, 0)] = [1, 2, 3];
+		img[(1, 1)] = [4, 5, 6];
+		
+		let mut it = img.enumerate_pixels_mut().into_iter();
+		assert_eq!(it.next(), Some(((0, 0), &mut Rgb([1, 2, 3]))));
+		assert_eq!(it.next(), Some(((1, 0), &mut Rgb([0, 0, 0]))));
+		assert_eq!(it.next(), Some(((0, 1), &mut Rgb([0, 0, 0]))));
+		assert_eq!(it.next(), Some(((1, 1), &mut Rgb([4, 5, 6]))));
+		assert_eq!(it.next(), None);
 	}
 
 	#[test]
