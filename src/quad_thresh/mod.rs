@@ -8,7 +8,10 @@ use std::{fs::File, f64::consts as f64c};
 
 use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
 
-use self::{unionfind::{connected_components, UnionFindStatic}, quadfit::fit_quads};
+use self::{unionfind::connected_components, quadfit::fit_quads};
+
+#[cfg(feature="debug")]
+use self::unionfind::UnionFindStatic;
 
 /// Minimum size for blobs
 const MIN_CLUSTER_SIZE: usize = 24;
