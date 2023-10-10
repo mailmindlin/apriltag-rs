@@ -40,7 +40,7 @@ pub(crate) fn tile_minmax_cpu<const KW: usize>(im: ImageRefY8) -> ImageBuffer<[u
 }
 
 fn blur(im_minmax: Image<[u8; 2]>) -> ImageBuffer<[u8; 2]> {
-    let mut result = ImageBuffer::clone_like(&im_minmax);
+    let mut result = ImageBuffer::clone_packed(&im_minmax);
     for y in 0..im_minmax.height() {
         for x in 0..im_minmax.width() {
             let mut min = u8::MAX;
@@ -203,7 +203,7 @@ pub(crate) const TILESZ: usize = 4;
 /// The important thing is that the windows be large enough to
 /// capture edge transitions; the tag does not need to fit into
 /// a tile.
-pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, config: &DetectorConfig, tp: &mut TimeProfile, im: ImageRefY8) -> Result<ImageBuffer<Luma<u8>>, DetectError> {
+pub(crate) fn threshold(config: &DetectorConfig, tp: &mut TimeProfile, im: ImageRefY8) -> Result<ImageBuffer<Luma<u8>>, DetectError> {
     let w = im.width();
     let h = im.height();
     assert!(w < 32768);
@@ -248,12 +248,12 @@ pub(crate) fn threshold(qtp: &AprilTagQuadThreshParams, config: &DetectorConfig,
     }
     tp.stamp("blur");
 
-    let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, qtp)?;
+    let mut threshim = build_threshim::<TILESZ>(im, &im_minmax, &config.qtp)?;
     drop(im_minmax);
 
     // this is a dilate/erode deglitching scheme that does not improve
     // anything as far as I can tell.
-    if qtp.deglitch {
+    if config.qtp.deglitch {
         tp.stamp("build_threshim");
         deglitch(&mut threshim);
     }
