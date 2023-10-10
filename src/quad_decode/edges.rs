@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use arrayvec::ArrayVec;
 
-use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageY8, ImageDimensions}}};
+use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageDimensions, ImageRefY8}}};
 #[cfg(feature="compare_reference")]
 use crate::geom::quad::Quadrilateral;
 
@@ -59,7 +59,7 @@ fn check_bounds2(v: Vec2, dims: &ImageDimensions) -> Option<(usize, usize)> {
 }
 
 impl Quad {
-    pub(super) fn refine_edges(&mut self, det_params: &DetectorConfig, im_orig: &ImageY8) {
+    pub(super) fn refine_edges(&mut self, det_params: &DetectorConfig, im_orig: &ImageRefY8) {
         // println!("refine_edges corners: {:?}", self.corners);
         #[cfg(feature="compare_reference")]
         let mut quad_sys = apriltag_sys::quad {
