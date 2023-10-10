@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all};
+use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all, panic::AssertUnwindSafe};
 
 use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8, image::Pixel}, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
@@ -48,9 +48,9 @@ struct Args {
 fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
     if args.opencl {
-        builder.use_opencl(apriltag_rs::OpenClMode::Required)
+        builder.set_gpu_mode(apriltag_rs::GpuAccelRequest::Required)
     } else {
-        builder.use_opencl(apriltag_rs::OpenClMode::Disabled)
+        builder.set_gpu_mode(apriltag_rs::GpuAccelRequest::Disabled)
     }
 
     if args.family.len() == 0 {
@@ -112,145 +112,59 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
     Ok(result)
 }
 
-fn detect_with(detector: &AprilTagDetector, image: &ImageY8) -> Detections {
-    let detections = detector.detect(&image)
-        .expect("Error detecting AprilTags");
-    println!("Found {} tags", detections.detections.len());
-    detections
-}
-
-fn main() {
-    let mut args = Args::parse();
-    if args.debug {
-        println!("Arguments:");
-        println!(" - threads: {}", args.threads);
-    }
-    args.opencl = false;
-    let detector = build_detector(&args, Some("cpu"));
-    args.opencl = true;
-    let detector_gpu = build_detector(&args, Some("gpu"));
-
-    let quiet = args.quiet;
-    let mut acc = TimeProfileStatistics::default();
-
-    for iter in 0..args.iters {
-        let mut total_quads = 0;
-        let mut total_hamm_hist = [0usize; HAMM_HIST_MAX];
-        let mut total_time = Duration::ZERO;
-
-        if args.iters > 1 {
-            println!("iter {} / {}", iter + 1, args.iters);
-        }
-
-        for input in args.input_files.iter() {
-            let mut hamm_hist = [0u32; HAMM_HIST_MAX];
-
-            if quiet {
-                print!("{:20}", input.display());
-            } else {
-                println!("loading {}", input.display());
-            }
-
-            let im = match load_image(&input) {
-                Ok(image) => image,
-                Err(e) => {
-                    println!("Error: couldn't load {}", input.display());
-                    println!("Cause: {}", e);
-                    continue;
-                }
-            };
-
-            println!("image: {} {}x{}", input.display(), im.width(), im.height());
-
-            println!("==== GPU ====");
-            let detections_gpu = detect_with(&detector_gpu, &im);
+fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Detections {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| detector.detect(image))) {
+        Ok(Ok(detections)) => {
+            println!("Found {} tags", detections.detections.len());
             if !quiet {
-                print!("{}", detections_gpu.tp);
-            }
-
-            println!("==== CPU ====");
-            let detections = detect_with(&detector, &im);
-
-            
-
-            for (i, det) in detections.detections.iter().enumerate() {
-                if !quiet {
+                for (i, det) in detections.detections.iter().enumerate() {
                     println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
-                           i,
-                           det.family.bits.len(),
-                           det.family.min_hamming,
-                           det.id,
-                           det.hamming,
-                           det.decision_margin
+                        i,
+                        det.family.bits.len(),
+                        det.family.min_hamming,
+                        det.id,
+                        det.hamming,
+                        det.decision_margin
                     );
                 }
-
-                hamm_hist[det.hamming as usize] += 1;
-                total_hamm_hist[det.hamming as usize] += 1;
             }
-
-            if !quiet {
-                print!("{}", detections.tp);
-                acc.add(&detections.tp);
-            }
-
-            total_quads += detections.nquads;
-
-            if !quiet {
-                print!("hamm ");
-            }
-
-            for i in 0..HAMM_HIST_MAX {
-                print!("{:5} ", hamm_hist[i]);
-            }
-
-            let t = detections.tp.total_duration();
-            total_time += t;
-            print!("{:12.3}s", t.as_secs_f32());
-            print!("{:4}", detections.nquads);
-
-            println!();
+            detections
+        },
+        Ok(Err(e)) => {
+            convert_images(detector);
+            panic!("Error detecting AprilTags: {e:?}");
         }
+        Err(e) => {
+            convert_images(detector);
+            std::panic::resume_unwind(e);
+        },
+    }
+}
 
-
-        println!("Summary");
-
-        print!("hamm ");
-        for v in total_hamm_hist {
-            print!("{:5} ", v);
+fn convert_images(det: &AprilTagDetector) {
+    let dbp = if let Some(dbp) = det.params.debug_path.as_ref() { dbp } else { return; };
+    std::fs::read_dir(dbp).unwrap().par_bridge().for_each(|path| {
+        let path = path.unwrap();
+        if !path.file_type().unwrap().is_file() {
+            return;
         }
-        print!("{:12.3} ", total_time.as_secs_f32());
-        print!("{:5}", total_quads);
-        println!();
-    }
+        if !path.file_name().to_str().unwrap().ends_with(".pnm") {
+            return;
+        }
+        let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
+        let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
+        for ((x, y), value) in img.enumerate_pixels() {
+            *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
+        }
+        buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
+            .unwrap();
+    });
+}
 
-    if args.iters > 1 {
-        acc.display();
-    }
-
-    for det in [&detector, &detector_gpu] {
-        let dbp = if let Some(dbp) = det.params.debug_path.as_ref() { dbp } else { continue; };
-        std::fs::read_dir(dbp).unwrap().par_bridge().for_each(|path| {
-            let path = path.unwrap();
-            if !path.file_type().unwrap().is_file() {
-                return;;
-            }
-            if !path.file_name().to_str().unwrap().ends_with(".pnm") {
-                return;;
-            }
-            let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
-            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
-            for ((x, y), value) in img.enumerate_pixels() {
-                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
-            }
-            buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
-                .unwrap();
-        });
-    }
-
-    if let Some(path_cpu) = detector.params.debug_path.as_ref() {
-        let path_gpu = detector_gpu.params.debug_path.unwrap();
-        std::fs::read_dir(path_cpu).unwrap().par_bridge().for_each(|entry_cpu| {
+fn compare_images(path_cpu: &PathBuf, path_gpu: PathBuf) {
+    std::fs::read_dir(path_cpu).unwrap()
+        .par_bridge()
+        .for_each(|entry_cpu| {
             let entry_cpu = entry_cpu.unwrap();
             if !entry_cpu.file_type().unwrap().is_file() {
                 return;
@@ -309,5 +223,111 @@ fn main() {
             let dst = dst.with_extension("png");
             buf.save_with_format(dst, image::ImageFormat::Png).unwrap();
         });
+}
+
+fn main() {
+    let mut args = Args::parse();
+    if args.debug {
+        println!("Arguments:");
+        println!(" - threads: {}", args.threads);
+    }
+    args.opencl = false;
+    let detector = build_detector(&args, Some("cpu"));
+    args.opencl = true;
+    let detector_gpu = build_detector(&args, Some("gpu"));
+
+    let quiet = args.quiet;
+    let mut acc = TimeProfileStatistics::default();
+
+    for iter in 0..args.iters {
+        let mut total_quads = 0;
+        let mut total_hamm_hist = [0usize; HAMM_HIST_MAX];
+        let mut total_time = Duration::ZERO;
+
+        if args.iters > 1 {
+            println!("iter {} / {}", iter + 1, args.iters);
+        }
+
+        for input in args.input_files.iter() {
+            let mut hamm_hist = [0u32; HAMM_HIST_MAX];
+
+            if quiet {
+                print!("{:20}", input.display());
+            } else {
+                println!("loading {}", input.display());
+            }
+
+            let im = match load_image(&input) {
+                Ok(image) => image,
+                Err(e) => {
+                    println!("Error: couldn't load {}", input.display());
+                    println!("Cause: {}", e);
+                    continue;
+                }
+            };
+
+            println!("image: {} {}x{}", input.display(), im.width(), im.height());
+
+            println!("==== GPU ====");
+            let detections_gpu = detect_with(&detector_gpu, &im, quiet);
+            if !quiet {
+                print!("{}", detections_gpu.tp);
+            }
+
+            println!("==== CPU ====");
+            let detections = detect_with(&detector, &im, quiet);
+            
+
+            for det in detections.detections.iter() {
+                hamm_hist[det.hamming as usize] += 1;
+                total_hamm_hist[det.hamming as usize] += 1;
+            }
+
+            if !quiet {
+                print!("{}", detections.tp);
+                acc.add(&detections.tp);
+            }
+
+            total_quads += detections.nquads;
+
+            if !quiet {
+                print!("hamm ");
+            }
+
+            for i in 0..HAMM_HIST_MAX {
+                print!("{:5} ", hamm_hist[i]);
+            }
+
+            let t = detections.tp.total_duration();
+            total_time += t;
+            print!("{:12.3}s", t.as_secs_f32());
+            print!("{:4}", detections.nquads);
+
+            println!();
+        }
+
+
+        println!("Summary");
+
+        print!("hamm ");
+        for v in total_hamm_hist {
+            print!("{:5} ", v);
+        }
+        print!("{:12.3} ", total_time.as_secs_f32());
+        print!("{:5}", total_quads);
+        println!();
+    }
+
+    if args.iters > 1 {
+        acc.display();
+    }
+
+    for det in [&detector, &detector_gpu] {
+        convert_images(det);
+    }
+
+    if let Some(path_cpu) = detector.params.debug_path.as_ref() {
+        let path_gpu = detector_gpu.params.debug_path.unwrap();
+        compare_images(path_cpu, path_gpu);
     }
 }
