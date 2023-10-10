@@ -13,7 +13,11 @@ impl OclUnionFindInit {
 
 	pub(super) fn result_dims(&self, src_dims: &ImageDimensions) -> ImageDimensions {
 		let uf_width = src_dims.width * 2;
-		ImageDimensions { width: uf_width, height: src_dims.height, stride: uf_width }
+		ImageDimensions {
+			width: uf_width,
+			height: src_dims.height,
+			stride: uf_width.next_multiple_of(32),
+		}
 	}
 
 	pub(super) fn make_kernel(&self, core: &OclCore, dims: &ImageDimensions, dst: &OclBufferMapped<u32>) -> Result<OclKernel, OclError> {
@@ -72,7 +76,7 @@ impl OclUfFlatten {
 	pub(super) fn make_kernel(&self, core: &OclCore, uf: &OclBufferMapped<u32>) -> Result<OclKernel, OclError> {
 		let mut builder = OclKernel::builder();
 		builder.program(&core.program);
-		builder.queue(core.queue_kernel.clone());
+		builder.queue(core.queue_init.clone());
 
 		builder.name("k04_unionfind_flatten");
 		builder.arg(uf.buf());
