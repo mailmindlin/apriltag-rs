@@ -39,6 +39,7 @@ futures = "0.3.28"
 proc-macro2 = "1.0.66"
 bytemuck = "1.13.1"
 concurrent-queue = "2.2.0"
+async-trait = "0.1.73"
 
 # Feature: Python FFI (cpython)
 [dependencies.cpython]
@@ -80,6 +81,7 @@ optional = true
 [dependencies.wgpu]
 version = "0.17.0"
 optional = true
+features = ["vulkan-portability"]
 
 [dev-dependencies]
 image = "0.24.6"
