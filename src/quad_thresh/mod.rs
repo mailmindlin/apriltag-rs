@@ -63,10 +63,10 @@ impl Default for AprilTagQuadThreshParams {
 fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &impl UnionFindStatic<(u32, u32), Id = u32>, qtp: &AprilTagQuadThreshParams) -> std::io::Result<()> {
     use rand::{rngs::StdRng, SeedableRng};
 
-    let mut d = ImageBuffer::<Rgb<u8>>::new(w, h);
+    let mut d = ImageBuffer::<Rgb<u8>>::zeroed(w, h);
     let mut rng = StdRng::seed_from_u64(325);
 
-    let mut colors = calloc::<Option<Rgb<u8>>>(d.len());
+    let mut colors = calloc::<Option<Rgb<u8>>>(d.num_pixels());
     for ((x, y), dst) in d.enumerate_pixels_mut() {
         let (v, v_size) = uf.get_set_static((x as _, y as _));
 
@@ -133,7 +133,7 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &grad_cluster::Clus
         (top as usize) * h + (left as usize)
     });
 
-    let mut d = ImageRGB8::new(w, h);
+    let mut d = ImageRGB8::zeroed(w, h);
     let mut rng = StdRng::seed_from_u64(128);
     for cluster in clusters1.into_iter() {
         let color = rng.gen_color_rgb(50u8);
