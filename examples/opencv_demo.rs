@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use apriltag_rs::util::ImageY8;
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, OpenClMode};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, GpuAccelRequest};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -56,9 +56,9 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
         panic!("No AprilTag families to detect");
     }
     if args.opencl {
-        builder.use_opencl(OpenClMode::Required);
+        builder.set_gpu_mode(GpuAccelRequest::Required);
     } else {
-        builder.use_opencl(OpenClMode::Disabled);
+        builder.set_gpu_mode(GpuAccelRequest::Disabled);
     }
 
     for family_name in args.family.iter() {
@@ -236,6 +236,6 @@ fn main() {
 
         println!("{}", detections.tp);
 
-        println!("Ocl: {:?}/{}", detector1.opencl_mode(), detections2.tp);
+        println!("Ocl: {:?}/{}", detector1.has_gpu(), detections2.tp);
     }
 }
