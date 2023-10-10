@@ -7,7 +7,7 @@ use super::{OutOfBoundsError, MatDims, Mat};
 
 /// 3x3 matrix
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat33(pub [f64; 9]);
 
 
