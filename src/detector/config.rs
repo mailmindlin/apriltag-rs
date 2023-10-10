@@ -1,6 +1,79 @@
-use std::{num::NonZeroU32, path::PathBuf};
+use std::{num::{NonZeroU32, NonZeroUsize}, path::PathBuf, cmp::Ordering};
 
 use crate::AprilTagQuadThreshParams;
+
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GpuAccelRequest {
+	/// Do not use GPU acceleration
+	Disabled,
+	/// Attempt to use acceleration if any device is available
+	/// 
+	/// This will possibly use OpenCL on the CPU
+	Prefer,
+	/// Attempt to use acceleration if any GPU is available,
+	/// but won't use the CPU
+	PreferGpu,
+	/// Attempt to use acceleration if device index is available
+	PreferDeviceIdx(usize),
+	/// Force using acceleration (build error if unavailable)
+	Required,
+	/// Force using acceleration on some GPU
+	RequiredGpu,
+	/// Force using a specific OpenCL device (build error if OpenCL or device is unavailable)
+	RequiredDeviceIdx(usize),
+}
+
+impl GpuAccelRequest {
+	pub const fn is_disabled(&self) -> bool {
+		matches!(self, Self::Disabled)
+	}
+	
+	pub const fn is_required(&self) -> bool {
+		match self {
+			Self::Required | Self::RequiredGpu | Self::RequiredDeviceIdx(_) => true,
+			_ => false,
+		}
+	}
+}
+
+impl Default for GpuAccelRequest {
+    fn default() -> Self {
+        Self::Prefer
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SourceDimensions {
+	/// Unknown dimensions
+	Dynamic,
+	Exactly {
+		width: NonZeroUsize,
+		height: NonZeroUsize,
+	}
+}
+
+impl SourceDimensions {
+	pub(crate) fn cmp_width(&self, width: usize) -> Option<Ordering> {
+		if width == 0 {
+			return Some(Ordering::Greater);
+		}
+		match self {
+			SourceDimensions::Dynamic => None,
+			SourceDimensions::Exactly { width: width1, .. } => Some(width1.get().cmp(&width))
+		}
+	}
+
+	pub(crate) fn cmp_height(&self, height: usize) -> Option<Ordering> {
+		if height == 0 {
+			return Some(Ordering::Greater);
+		}
+		match self {
+			SourceDimensions::Dynamic => None,
+			SourceDimensions::Exactly { height: height1, .. } => Some(height1.get().cmp(&height))
+		}
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct DetectorConfig {
@@ -44,6 +117,10 @@ pub struct DetectorConfig {
 
 	/// Path to debug to
 	pub debug_path: Option<PathBuf>,
+
+	pub gpu: GpuAccelRequest,
+	pub allow_concurrency: bool,
+	pub source_dimensions: SourceDimensions,
 }
 
 
@@ -58,6 +135,9 @@ impl Default for DetectorConfig {
 			debug: false,
 			qtp: AprilTagQuadThreshParams::default(),
 			debug_path: None,
+			gpu: Default::default(),
+			allow_concurrency: true,
+			source_dimensions: SourceDimensions::Dynamic,
 		}
     }
 }
@@ -136,7 +216,7 @@ impl DetectorConfig {
 
 	#[cfg(not(feature="debug"))]
 	#[inline(always)]
-	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(File) -> io::Result<()>) {
+	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(File) -> std::io::Result<()>) {
 		
 	}
 
