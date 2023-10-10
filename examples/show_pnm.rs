@@ -27,7 +27,7 @@ fn load_image(path: &Path) -> io::Result<ImageRGB8> {
     let reader = ImageReader::open(path)?;
     let image = reader.decode().unwrap().into_rgb8();
 
-    let mut result = ImageRGB8::new(image.width() as usize, image.height() as usize);
+    let mut result = ImageRGB8::zeroed(image.width() as usize, image.height() as usize);
     for (x, y, value) in image.enumerate_pixels() {
         result[(x as usize, y as usize)] = value.0;
     }
