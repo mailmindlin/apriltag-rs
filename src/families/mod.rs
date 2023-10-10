@@ -47,7 +47,7 @@ impl Rotation {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord)]
 pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
@@ -71,6 +71,36 @@ pub struct AprilTagFamily {
 	// accelerate decoding.  They put their data here. (Do not use the
 	// same apriltag_family instance in more than one implementation)
 	// _impl: u32,
+}
+
+impl PartialOrd for AprilTagFamily {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.name.partial_cmp(&other.name) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.width_at_border.partial_cmp(&other.width_at_border) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.total_width.partial_cmp(&other.total_width) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.reversed_border.partial_cmp(&other.reversed_border) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.min_hamming.partial_cmp(&other.min_hamming) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.bits.partial_cmp(&other.bits) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.codes.partial_cmp(&other.codes)
+    }
 }
 
 impl AprilTagFamily {
