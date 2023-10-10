@@ -11,7 +11,8 @@ use std::borrow::Borrow;
 use std::marker::PhantomData;
 use std::time::{Instant, Duration};
 
-use ocl::enums::ProfilingInfo;
+use ocl::core::OpenclVersion;
+use ocl::enums::{ProfilingInfo, DeviceInfoResult};
 use ocl::prm::{Uchar2, Uint};
 use ocl::{
     Platform as OclPlatform,
@@ -19,13 +20,13 @@ use ocl::{
     Device as OclDevice,
     Program, Context,
     Queue,
-    Buffer as OclBuffer,
     CommandQueueProperties,
     Kernel as OclKernel,
     Event as OclEvent, DeviceType, OclPrm, SpatialDims, EventList,
 };
 use rayon::Scope;
 
+use crate::detector::config::GpuAccelRequest;
 use crate::ocl::stage2::OclQuadSigma;
 use crate::ocl::stage4::WrappedUnionFind;
 use crate::quad_thresh::{gradient_clusters, Clusters, debug_unionfind};
@@ -33,7 +34,7 @@ use crate::quad_thresh::threshold::{self};
 use crate::quad_thresh::unionfind::UnionFind2D;
 use crate::util::image::{ImageWritePNM, ImageRefY8};
 use crate::util::pool::PoolGuard;
-use crate::{OpenClMode, DetectorBuildError};
+use crate::DetectorBuildError;
 use crate::util::mem::SafeZero;
 use crate::{DetectorConfig, util::{ImageY8, image::ImageDimensions}, DetectError, TimeProfile};
 
@@ -57,7 +58,7 @@ trait OclStage {
 }
 
 impl From<OclError> for DetectError {
-    fn from(value: OclError) -> Self {
+    fn from(_: OclError) -> Self {
         Self::OpenCLError
     }
 }
@@ -72,7 +73,6 @@ impl SafeZero for Uchar2 {}
 impl SafeZero for Uint {}
 
 pub(crate) struct OpenCLDetector {
-    pub(crate) mode: OpenClMode,
     core: OclCore,
     download_src: bool,
     quad_decimate: Option<OclQuadDecimate>,
@@ -85,10 +85,10 @@ pub(crate) struct OpenCLDetector {
     uf_flatten: OclUfFlatten,
 }
 
-struct KernelBuffersG<'a, R: OclPrm = u8> {
-    buffer: OclBufferState<R>,
-    kernel: PoolGuard<'a, (), OclKernel>,
-}
+// struct KernelBuffersG<'a, R: OclPrm = u8> {
+//     buffer: OclBufferState<R>,
+//     kernel: PoolGuard<'a, (), OclKernel>,
+// }
 struct KernelBuffers<R: OclPrm = u8, B: OclBufferLike<R> = OclBufferState<R>, K: Borrow<OclKernel> = OclKernel> {
     buffer: B,
     kernel: K,
@@ -115,15 +115,15 @@ fn combined_events<'a>(bases: &[&'a dyn OclAwaitable]) -> EventList {
     wait_events
 }
 
-fn find_device(mode: &OpenClMode) -> Result<(OclPlatform, OclDevice), DetectorBuildError> {
+fn find_device(mode: &GpuAccelRequest) -> Result<(OclPlatform, OclDevice), DetectorBuildError> {
     let (devtype, idx, prefer) = match mode {
-        OpenClMode::Disabled => panic!(),
-        OpenClMode::Prefer => (None, 0, true),
-        OpenClMode::Required => (None, 0, false),
-        OpenClMode::PreferDeviceIdx(idx) => (None, *idx, true),
-        OpenClMode::RequiredDeviceIdx(idx) => (None, *idx, false),
-        OpenClMode::PreferGpu => (Some(DeviceType::GPU), 0, true),
-        OpenClMode::RequiredGpu => (Some(DeviceType::GPU), 0, false),
+        GpuAccelRequest::Disabled => panic!(),
+        GpuAccelRequest::Prefer => (None, 0, true),
+        GpuAccelRequest::Required => (None, 0, false),
+        GpuAccelRequest::PreferDeviceIdx(idx) => (None, *idx, true),
+        GpuAccelRequest::RequiredDeviceIdx(idx) => (None, *idx, false),
+        GpuAccelRequest::PreferGpu => (Some(DeviceType::GPU), 0, true),
+        GpuAccelRequest::RequiredGpu => (Some(DeviceType::GPU), 0, false),
     };
     for platform in OclPlatform::list() {
         let devs = match OclDevice::list(platform, devtype) {
@@ -150,7 +150,7 @@ fn find_device(mode: &OpenClMode) -> Result<(OclPlatform, OclDevice), DetectorBu
             return Ok((platform, device));
         }
     }
-    Err(DetectorBuildError::OpenCLNotAvailable)
+    Err(DetectorBuildError::GpuNotAvailable)
 }
 
 fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, ImageY8) {
@@ -168,35 +168,50 @@ fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, Image
 }
 
 impl OpenCLDetector {
-    pub(super) fn new(config: &DetectorConfig, mode: OpenClMode) -> Result<Self, DetectorBuildError> {
-        let (platform, device) = find_device(&mode)?;
+    pub(super) fn new(config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
+        let (platform, device) = find_device(&config.gpu)?;
 
         let context = Context::builder()
             .platform(platform)
             .devices(device)
             .build()?;
-
-        let make_queue_ooo = || {
-            let props = CommandQueueProperties::new();
-            #[cfg(feature="debug")]
-            let props = if config.debug {
-                props.profiling()
-            } else {
-                props
+        
+        let (queue_write, queue_kernel, queue_init, queue_read_debug) = {
+            let available_props = match device.info(ocl::enums::DeviceInfo::QueueProperties) {
+                Ok(DeviceInfoResult::QueueProperties(props)) => props,
+                Ok(_) => return Err(DetectorBuildError::OpenCLError("Unable to get queue props".into())),
+                Err(e) => return Err(DetectorBuildError::OpenCLError(e)),
             };
             
-            let out_of_order = Some(props);
-            Queue::new(&context, device, out_of_order)
-                .or_else(|e| {
-                    eprintln!("Not out of order: {e:?}");
-                    Queue::new(&context, device, None)
-                })
+            let props = CommandQueueProperties::new();
+            #[cfg(feature="debug")]
+            let props = if !config.debug {
+                props
+            } else if !available_props.contains(CommandQueueProperties::PROFILING_ENABLE) {
+                eprintln!("OpenCL: Profiling unavailable");
+                props
+            } else {
+                props.profiling()
+            };
+
+            // Try to make out-of-order queues
+            if available_props.contains(CommandQueueProperties::OUT_OF_ORDER_EXEC_MODE_ENABLE) {
+                let props = Some(props.out_of_order());
+                let queue = Queue::new(&context, device, props)?;
+                (queue.clone(), queue.clone(), queue.clone(), queue.clone())
+            } else {
+                let props = Some(props);
+                let queue_write = Queue::new(&context, device, props)?;
+                let queue_kernel = Queue::new(&context, device, props)?;
+                let queue_init = Queue::new(&context, device, props)?;
+                let queue_debug = Queue::new(&context, device, props)?;
+                (queue_write, queue_kernel, queue_init, queue_debug)
+            }
         };
-        
-        // Try to make out-of-order queues
-        let queue_write = make_queue_ooo()?;
-        let queue_kernel = make_queue_ooo()?;
-        let queue_read_debug = make_queue_ooo()?;
+
+        let opencl_version = device
+            .version()
+            .map_err(|e| DetectorBuildError::OpenCLError(e.into()))?;
         
         let program = {
             let mut builder = Program::builder();
@@ -209,6 +224,9 @@ impl OpenCLDetector {
             builder.source(PROG_THRESHOLD);
             builder.cmplr_def("TILESZ", threshold::TILESZ as _);
 
+            if opencl_version >= OpenclVersion::new(2, 0) {
+                builder.cmplr_def("OPENCL_VERSION_2", 1);
+            }
             builder.source(PROG_UNIONFIND);
             
             let res = builder.build(&context);
@@ -217,10 +235,11 @@ impl OpenCLDetector {
                 let buf = format!("{e:?}");
                 let msg = buf.strip_prefix("BuildLog(").unwrap_or(&buf);
                 let msg = msg.replace("\\n", "\n");
-                println!("Build error: {}", msg);
+                eprintln!("Build error: {}", msg);
             }
             res?
         };
+
         #[cfg(feature="debug")]
         if config.debug {
             println!("Build status: {:?}", program.build_info(device, ocl::enums::ProgramBuildInfo::BuildStatus).unwrap());
@@ -235,6 +254,7 @@ impl OpenCLDetector {
             context,
             program,
             queue_write,
+            queue_init,
             queue_kernel,
             queue_read_debug,
         };
@@ -266,7 +286,6 @@ impl OpenCLDetector {
         let uf_flatten = OclUfFlatten::new(&core);
 
         Ok(Self {
-            mode,
             core,
             download_src,
             quad_decimate,
