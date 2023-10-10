@@ -1,4 +1,4 @@
-use ocl::{Kernel as OclKernel, Error as OclError, Buffer as OclBuffer};
+use ocl::{Kernel as OclKernel, Error as OclError, Buffer as OclBuffer, SpatialDims};
 
 use crate::{util::{image::ImageDimensions, pool::{KeyedPool, PoolGuard}}, detector::config::QuadDecimateMode};
 
@@ -22,6 +22,7 @@ impl OclQuadDecimate {
 	
 			builder.arg_named("src", None::<&OclBuffer<u8>>);
 			builder.arg_named("src_stride", 0u32);
+			builder.arg_named("src_width", 0u32);
 			builder.arg_named("dst", None::<&OclBuffer<u8>>);
 			builder.arg_named("dst_stride", 0u32);
 			match mode {
@@ -50,7 +51,7 @@ impl OclStage for OclQuadDecimate {
 	type R = u8;
 	type K<'a> = PoolGuard<'a, (), OclKernel>;
 	fn result_dims(&self, src_dims: &ImageDimensions) -> ImageDimensions {
-		let (swidth, sheight) = match self.mode {
+		let (width, height) = match self.mode {
 			QuadDecimateMode::ThreeHalves => {
 				let swidth = src_dims.width / 3 * 2;
 				let sheight = src_dims.height / 3 * 2;
@@ -68,26 +69,33 @@ impl OclStage for OclQuadDecimate {
 				(swidth, sheight)
 			},
 		};
-		let sstride = swidth.next_multiple_of(16);
-		ImageDimensions { width: swidth, height: sheight, stride: sstride }
+		// Make output stride a multiple of 16 so we can set the local dims
+		let stride = width.next_multiple_of(if width >= 256 { 32 } else { 16 });
+		ImageDimensions { width, height, stride }
 	}
 
 	fn make_kernel<'a>(&'a self, core: &OclCore, src: &OclBufferState<Self::S>, dst: &OclBufferState<Self::R>) -> Result<Self::K<'a>, OclError> {
+		assert!(dst.dims.stride % 16 == 0, "Output stride must be multiple of 16");
+
+		let gws: SpatialDims = match self.mode {
+			QuadDecimateMode::ThreeHalves => {
+				(dst.width() / 2, dst.height() / 2)
+			},
+			QuadDecimateMode::Scaled(_) => {
+				(dst.width(), dst.height())
+			},
+		}.into();
+		
 		let key = ();
 		let kernel = match self.kcache.try_borrow(key) {
 			Some(mut cached) => {
 				cached.set_arg("src", src.buf())?;
 				cached.set_arg("src_stride", src.stride() as u32)?;
+				cached.set_arg("src_width", src.width() as u32)?;
 				cached.set_arg("dst", dst.buf())?;
 				cached.set_arg("dst_stride", dst.stride() as u32)?;
-				match self.mode {
-					QuadDecimateMode::ThreeHalves => {
-						cached.set_default_global_work_size((dst.width() / 2, dst.height() / 2).into());
-					},
-					QuadDecimateMode::Scaled(_) => {
-						cached.set_default_global_work_size((dst.width(), dst.height()).into());
-					},
-				}
+				cached.set_default_global_work_size(gws);
+				// cached.set_default_local_work_size((16, 1).into());
 				cached
 			},
 			None => {
@@ -97,17 +105,28 @@ impl OclStage for OclQuadDecimate {
 
 				builder.arg_named("src", src.buf());
 				builder.arg_named("src_stride", src.stride() as u32);
+				builder.arg_named("src_width", src.width() as u32);
 				builder.arg_named("dst", dst.buf());
 				builder.arg_named("dst_stride", dst.stride() as u32);
+				
+				builder.global_work_size(gws);
+				let lws_x = if dst.stride() % 64 == 0 {
+					64
+				} else if dst.stride() % 32 == 0 {
+					32
+				} else {
+					16
+				};
+				builder.local_work_size((lws_x, 1));
+
 				match self.mode {
 					QuadDecimateMode::ThreeHalves => {
 						builder.name("k01_filter_quad_decimate_32");
-						builder.global_work_size((dst.width() / 2, dst.height() / 2));
+						
 					},
 					QuadDecimateMode::Scaled(factor) => {
 						builder.name("k01_filter_quad_decimate");
 						builder.arg(factor.get() as u32);
-						builder.global_work_size((dst.width(), dst.height()));
 					},
 				}
 
