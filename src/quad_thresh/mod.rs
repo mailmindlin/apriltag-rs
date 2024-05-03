@@ -6,7 +6,7 @@ pub(super) mod threshold;
 pub(super) use grad_cluster::{gradient_clusters, Clusters};
 use std::{fs::File, f64::consts as f64c};
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::{TimeProfile, debug_images}, DetectorConfig};
 
 use self::{unionfind::connected_components, quadfit::fit_quads};
 
@@ -191,8 +191,8 @@ pub(crate) fn debug_unionfind(config: &DetectorConfig, tp: &mut TimeProfile, dim
     if !config.generate_debug_image() {
         return;
     }
-    config.debug_image("03b_debug_uniofind_depth.pnm", |f| debug_unionfind_depth(f, dims.width, dims.height, uf));
-    config.debug_image("03a_debug_segmentation.pnm",   |f| debug_segmentation(f, dims.width, dims.height, uf, &config.qtp));
+    config.debug_image(debug_images::UNIONFIND_DEPTH, |f| debug_unionfind_depth(f, dims.width, dims.height, uf));
+    config.debug_image(debug_images::SEGMENTATION,   |f| debug_segmentation(f, dims.width, dims.height, uf, &config.qtp));
     tp.stamp("unionfind (output)");
 }
 
@@ -201,7 +201,7 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
     println!("{} gradient clusters", clusters.len());
     
     #[cfg(feature="debug")]
-    td.params.debug_image("04_debug_clusters.pnm", |f| debug_clusters(f, im.width(), im.height(), &clusters));
+    td.params.debug_image(debug_images::CLUSTERS, |f| debug_clusters(f, im.width(), im.height(), &clusters));
     tp.stamp("make clusters");
 
     ////////////////////////////////////////////////////////
@@ -214,7 +214,6 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
     }
 
     #[cfg(feature="debug_ps")]
-    td.params.debug_image("05_debug_lines.ps", |f| debug_lines(f, im, &quads));
 
     tp.stamp("fit quads to clusters");
 

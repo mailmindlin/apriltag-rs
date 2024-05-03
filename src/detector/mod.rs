@@ -234,14 +234,14 @@ impl AprilTagDetector {
 		tp.stamp("blur/sharp");
 
 		#[cfg(feature="debug")]
-		self.params.debug_image("01_debug_preprocess.pnm", |mut f| quad_im.write_pnm(&mut f));
+		self.params.debug_image(debug_images::PREPROCESS, |mut f| quad_im.write_pnm(&mut f));
 
 		////////////////////////////////////////////////////////
 		// step 1. threshold the image, creating the edge image.
 		let threshim = super::quad_thresh::threshold::threshold(&self.params, tp, quad_im.as_ref())?;
 
 		#[cfg(feature="debug")]
-        self.params.debug_image("02_debug_threshold.pnm", |mut f| threshim.write_pnm(&mut f));
+        self.params.debug_image(debug_images::THRESHOLD, |mut f| threshim.write_pnm(&mut f));
 
 		Ok((quad_im, threshim))
 	}
@@ -252,7 +252,7 @@ impl AprilTagDetector {
 	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
 		match &self.gpu {
 			#[cfg(feature="opencl")]
-			GpuAccelerator::OpenCL(ocl) => {
+			HardwareAccelerator::OpenCL(ocl) => {
 				match ocl.cluster(&self.params, tp, im_orig) {
 					Ok(res) => {
 						return Ok(res);
@@ -295,7 +295,7 @@ impl AprilTagDetector {
 		}
 
 		#[cfg(feature="debug")]
-		self.params.debug_image("00_debug_src.pnm", |mut f| im_orig.write_pnm(&mut f));
+		self.params.debug_image(debug_images::SOURCE, |mut f| im_orig.write_pnm(&mut f));
 
 		// CPU
 		let (quad_im, threshim) = self.preprocess_image(tp, im_orig)?;
@@ -371,7 +371,7 @@ impl AprilTagDetector {
 		tp.stamp("quads");
 
 		#[cfg(feature="debug")]
-		self.params.debug_image("07_debug_quads.pnm", |f| debug::debug_quads(f, ImageY8::clone_packed(im_orig), &quads));
+		self.params.debug_image(debug_images::QUADS, |f| debug::debug_quads(f, ImageY8::clone_packed(im_orig), &quads));
 
 		////////////////////////////////////////////////////////////////
 		// Step 2. Decode tags from each quad.
@@ -416,7 +416,7 @@ impl AprilTagDetector {
 
 			#[cfg(feature="debug")]
 			if let Some(im_samples) = im_samples {
-				self.params.debug_image("08_debug_samples.pnm", |mut f| {
+				self.params.debug_image(debug_images::SAMPLES, |mut f| {
 					let im_samples = im_samples.into_inner().unwrap();
 					im_samples.write_pnm(&mut f)
 				});
@@ -430,9 +430,9 @@ impl AprilTagDetector {
 
 		#[cfg(feature="debug")]
 		if self.params.generate_debug_image() {
-			self.params.debug_image("09a_debug_quads_fixed.pnm", |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
+			self.params.debug_image(debug_images::QUADS_FIXED, |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
 			#[cfg(feature="debug_ps")]
-			self.params.debug_image("09b_debug_quads.ps", |f| debug::debug_quads_ps(f, ImageY8::clone_like(im_orig), &quads));
+			self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
 			tp.stamp("decode+refinement (output)");
 		}
 		drop(quads);
@@ -448,8 +448,8 @@ impl AprilTagDetector {
 		#[cfg(feature="debug")]
 		{
 			#[cfg(feature="debug_ps")]
-			self.params.debug_image("10a_debug_output.ps", |f| debug::debug_output_ps(f, ImageY8::clone_like(im_orig), &detections));
-			self.params.debug_image("10b_debug_output.pnm", |f| debug::debug_output_pnm(f, ImageY8::clone_packed(im_orig), &detections));
+			self.params.debug_image(debug_images::OUTPUT_PS, |f| debug::debug_output_ps(f, ImageY8::clone_packed(im_orig), &detections));
+			self.params.debug_image(debug_images::OUTPUT, |f| debug::debug_output_pnm(f, ImageY8::clone_packed(im_orig), &detections));
 		}
 		tp.stamp("debug output");
 

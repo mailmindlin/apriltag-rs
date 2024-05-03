@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 
-use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::TimeProfile, DetectorConfig, DetectError};
+use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::{TimeProfile, debug_images}, DetectorConfig, DetectError};
 
 use super::AprilTagQuadThreshParams;
 
@@ -227,8 +227,8 @@ pub(crate) fn threshold(config: &DetectorConfig, tp: &mut TimeProfile, im: Image
     #[cfg(feature="debug")]
     if config.generate_debug_image() {
         let (img_min, img_max) = split_image(im_minmax.as_ref());
-        config.debug_image("02a_tile_minmax_min.pnm", |mut f| img_min.write_pnm(&mut f));
-        config.debug_image("02b_tile_minmax_max.pnm", |mut f| img_max.write_pnm(&mut f));
+        config.debug_image(debug_images::TILE_MIN, |mut f| img_min.write_pnm(&mut f));
+        config.debug_image(debug_images::TILE_MAX, |mut f| img_max.write_pnm(&mut f));
     }
     tp.stamp("tile_minmax");
 
@@ -243,8 +243,8 @@ pub(crate) fn threshold(config: &DetectorConfig, tp: &mut TimeProfile, im: Image
     #[cfg(feature="debug")]
     if config.generate_debug_image() {
         let (img_min, img_max) = split_image(im_minmax.as_ref());
-        config.debug_image("02c_tile_minmax_blur_min.pnm", |mut f| img_min.write_pnm(&mut f));
-        config.debug_image("02d_tile_minmax_blur_max.pnm", |mut f| img_max.write_pnm(&mut f));
+        config.debug_image(debug_images::BLUR_MIN, |mut f| img_min.write_pnm(&mut f));
+        config.debug_image(debug_images::BLUR_MAX, |mut f| img_max.write_pnm(&mut f));
     }
     tp.stamp("blur");
 
