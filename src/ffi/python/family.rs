@@ -6,12 +6,16 @@ use crate::{AprilTagFamily as ATFamily, util::ImageY8};
 py_class!(pub class AprilTagFamily |py| {
     data family: RefCell<Arc<ATFamily>>;
 
+    @staticmethod def names() -> PyResult<Vec<String>> {
+        Ok(ATFamily::names().into_iter().map(|s| String::from(s)).collect())
+    }
+
     /// Create AprilTag family for name
     @staticmethod def for_name(name: PyString) -> PyResult<PyObject> {
         let name = name.to_string(py)?;
         let family = match ATFamily::for_name(&name) {
             Some(family) => family,
-            None => return Ok(py.None()),
+            None => return Err(PyErr::new::<exc::ValueError, _>(py, format!("Unknown AprilTag family '{name}'"))),
         };
         let x = Self::create_instance(py, RefCell::new(family))?;
         Ok(x.into_object())
@@ -57,7 +61,7 @@ py_class!(pub class AprilTagFamily |py| {
     @codes.setter def set_codes(&self, value: Option<Vec<u64>>) -> PyResult<()> {
         let value = match value {
             Some(value) => value,
-            None => return Err(PyErr::new::<exc::NotImplementedError, _>(py, "Cannot delete quad_sigma")),
+            None => return Err(PyErr::new::<exc::NotImplementedError, _>(py, "Cannot delete AprilTagFamily.codes")),
         };
 
         let mut family = self.family(py).borrow_mut();
@@ -81,7 +85,11 @@ py_class!(pub class AprilTagFamily |py| {
     }
 
     def __str__(&self) -> PyResult<String> {
-        Ok(format!("AprilTagFamily {{ name = {} .. }}", self.family(py).borrow().name))
+        Ok(format!("AprilTagFamily {{ name = '{}' .. }}", self.family(py).borrow().name))
+    }
+
+    def __repr__(&self) -> PyResult<String> {
+        self.__str__(py)
     }
 });
 
