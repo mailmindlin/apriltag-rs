@@ -323,7 +323,8 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
         None
     } else {
         //TODO: double check this is correct
-        unreachable!()
+        // unreachable!("No minima")
+        None
     }
 }
 
