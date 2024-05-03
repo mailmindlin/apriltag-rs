@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use arrayvec::ArrayVec;
 use rayon::prelude::*;
 
-use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::{ImageY8, ImageRefY8}}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
+use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageRefY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams, grad_cluster::{Clusters, ClusterId}};
 
@@ -389,7 +389,7 @@ fn compute_lfps(cluster: &[Pt], im: &ImageRefY8) -> Vec<LineFitPoint> {
         use crate::sys::{ImageU8Sys, ZArraySys};
         use float_cmp::assert_approx_eq;
         struct CNativeMem<T>(*const T, usize);
-        impl<T> Index<usize> for CNativeMem<T> {
+        impl<T> std::ops::Index<usize> for CNativeMem<T> {
             type Output = T;
 
             fn index(&self, index: usize) -> &Self::Output {
@@ -1214,7 +1214,7 @@ impl FitQuadsParams {
 }
 
 
-pub(super) fn fit_quads(td: &AprilTagDetector, mut clusters: Clusters, im: &ImageRefY8) -> Vec<Quad> {
+pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Clusters, im: &ImageRefY8) -> Vec<Quad> {
 	let fqp = FitQuadsParams::new(td);
 
     // Deterministic
