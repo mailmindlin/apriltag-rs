@@ -1,6 +1,6 @@
-use cpython::{Python, exc, PyErr, PyResult, PyObject, buffer::PyBuffer, FromPyObject, ToPyObject, ObjectProtocol, PyString};
+use cpython::{buffer::PyBuffer, exc, FromPyObject, ObjectProtocol, PyErr, PyFloat, PyList, PyObject, PyResult, PyString, Python, PythonObject, ToPyObject};
 
-use crate::util::ImageY8;
+use crate::util::{math::{mat::Mat33, Vec3}, ImageY8};
 
 
 pub(super) fn readonly<T>(py: Python, value: Option<T>, name: &'static str) -> PyResult<T> {
@@ -79,6 +79,61 @@ impl ToPyObject for ImageY8 {
             obj
         } else {
             todo!("Python ImageY8 without numpy");
+        }
+    }
+}
+
+
+impl ToPyObject for Mat33 {
+    type ObjectType = PyObject;
+
+    fn to_py_object(&self, py: Python) -> Self::ObjectType {
+        // List of lists
+        let elem = |idx| PyFloat::new(py, self[idx]).into_object();
+        let arr = PyList::new(py, &[
+            PyList::new(py, &[elem((0, 0)), elem((0, 1)), elem((0, 2))]).into_object(),
+            PyList::new(py, &[elem((1, 0)), elem((1, 1)), elem((1, 2))]).into_object(),
+            PyList::new(py, &[elem((2, 0)), elem((2, 1)), elem((2, 2))]).into_object(),
+        ]);
+
+        // Try converting it to a numpy matrix object
+        fn np_mat33(py: Python, raw: &PyList) -> PyResult<PyObject> {
+            let np = py.import("numpy")?;
+            let np_matrix = np.get(py, "asarray")?;
+            np_matrix.call(py, (raw, ), None)
+        }
+
+        if let Ok(res) = np_mat33(py, &arr) {
+            res
+        } else {
+            arr.into_object()
+        }
+    }
+}
+
+impl ToPyObject for Vec3 {
+    type ObjectType = PyObject;
+
+    fn to_py_object(&self, py: Python) -> Self::ObjectType {
+        // List of lists
+        let arr = PyList::new(py, &[
+            PyFloat::new(py, self.0).into_object(),
+            PyFloat::new(py, self.1).into_object(),
+            PyFloat::new(py, self.2).into_object(),
+        ]);
+
+        // Try converting it to a numpy matrix object
+        fn np_vec3(py: Python, raw: &PyList) -> PyResult<PyObject> {
+            let np = py.import("numpy")?;
+            let np_matrix = np.get(py, "asarray")?;
+            let np_f64 = np.get(py, "float64")?;
+            np_matrix.call(py, (raw, np_f64), None)
+        }
+
+        if let Ok(res) = np_vec3(py, &arr) {
+            res
+        } else {
+            arr.into_object()
         }
     }
 }
