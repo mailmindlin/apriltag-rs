@@ -66,7 +66,7 @@ impl PartialOrd for AprilTagDetection {
             ord => return ord,
         }
 		match self.center.y().partial_cmp(&other.center.y()) {
-            Some(core::cmp::Ordering::Equal) => None,
+            Some(core::cmp::Ordering::Equal) => {},
             ord => return ord,
         }
         // match self.H.partial_cmp(&other.H) {
@@ -74,6 +74,7 @@ impl PartialOrd for AprilTagDetection {
         //     ord => return ord,
         // }
         // self.corners.partial_cmp(&other.corners)
+		None
     }
 }
 
@@ -126,7 +127,7 @@ impl AprilTagDetection {
 	}
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Detections {
 	pub detections: Vec<AprilTagDetection>,
 	pub nquads: u32,
