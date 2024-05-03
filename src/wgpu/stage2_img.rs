@@ -6,7 +6,7 @@ use crate::{detector::quad_sigma_kernel, wgpu::buffer::GpuImageLike};
 
 use super::{GpuStageContext, GpuStage, GpuContext, WGPUError, util::{DataStore, ProgramBuilder}, buffer::GpuTexture};
 
-const PROG_QUAD_SIGMA: &str = include_str!("./02_quad_sigma_img.wgsl");
+const PROG_QUAD_SIGMA: &str = include_str!("./shader/02_quad_sigma_img.wgsl");
 
 pub(super) struct GpuQuadSigma {
 	local_dims: (u32, u32),

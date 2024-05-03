@@ -6,7 +6,7 @@ use crate::{detector::config::QuadDecimateMode, wgpu::buffer::GpuImageLike};
 
 use super::{util::ConstBuilder, buffer::{GpuStage, GpuBufferY8}, GpuStageContext, GpuContext, WGPUError};
 
-const PROG_QUAD_DECIMATE: &str = include_str!("./01_quad_decimate.wgsl");
+const PROG_QUAD_DECIMATE: &str = include_str!("./shader/01_quad_decimate.wgsl");
 
 pub(super) struct GpuQuadDecimate {
 	mode: QuadDecimateMode,

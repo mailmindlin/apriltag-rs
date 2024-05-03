@@ -28,16 +28,8 @@ fn blur_coords(coords: vec2u) -> u32 {
         return textureLoad(img_src, coords, 0).r;
     }
     if (x_oob) {
-        var sum = 0u;
-        for (var v: u32 = 0u; v < ksz; v++) {
-            let px = min(sub_sat(coords.x+v, border), dims.x);
-            let k_v = get_filter(v);
-            sum += k_v * textureLoad(img_src, vec2u(px, coords.y), 0).r;
-        }
-        return clamp(sum >> 8u, 0u, 255u);
-    }
-    if (y_oob) {
-        var sum = 0u;
+        // Only convolve in y direction
+        var sum = 127u;
         for (var u: u32 = 0u; u < ksz; u++) {
             let py = min(sub_sat(coords.y+u, border), dims.y);
             let k_u = get_filter(u);
@@ -45,8 +37,18 @@ fn blur_coords(coords: vec2u) -> u32 {
         }
         return clamp(sum >> 8u, 0u, 255u);
     }
+    if (y_oob) {
+        // Only convolve in x direction
+        var sum = 127u;
+        for (var v: u32 = 0u; v < ksz; v++) {
+            let px = min(sub_sat(coords.x+v, border), dims.x);
+            let k_v = get_filter(v);
+            sum += k_v * textureLoad(img_src, vec2u(px, coords.y), 0).r;
+        }
+        return clamp(sum >> 8u, 0u, 255u);
+    }
     // Collect neighbor values and multiply with gaussian
-    var sum = 0u;
+    var sum = (1u << 15u);
     // Calculate the mask size based on sigma (larger sigma, larger mask)
     for (var u: u32 = 0u; u < ksz; u++) {
         let py = min(sub_sat(coords.y+u, border), dims.y);
