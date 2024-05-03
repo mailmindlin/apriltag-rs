@@ -4,11 +4,16 @@ use std::{mem::MaybeUninit, alloc::AllocError};
 pub trait SafeZero {}
 
 impl SafeZero for u8 {}
+impl SafeZero for u16 {}
 impl SafeZero for u32 {}
+impl SafeZero for u64 {}
+impl SafeZero for i8 {}
+impl SafeZero for i16 {}
 impl SafeZero for i32 {}
 impl SafeZero for i64 {}
 impl SafeZero for f32 {}
 impl SafeZero for f64 {}
+impl SafeZero for isize {}
 impl SafeZero for usize {}
 
 /// Arrays of SafeZero can be allocated
