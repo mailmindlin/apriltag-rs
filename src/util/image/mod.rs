@@ -52,8 +52,10 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> Debug for ImageBuffer<P
 				for spx in &chunk[0..self.width()] {
 					write!(f, "{spx:02x} ")?;
 				}
-				for spx in &chunk[self.width()..] {
-					write!(f, "{spx:02x}_")?;
+				if f.alternate() {
+					for spx in &chunk[self.width()..] {
+						write!(f, "{spx:02x}_")?;
+					}
 				}
 				writeln!(f, "]")?;
 			}
