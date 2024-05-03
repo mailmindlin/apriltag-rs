@@ -3,8 +3,6 @@ use std::cmp::max;
 use arrayvec::ArrayVec;
 
 use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageDimensions, ImageRefY8}}};
-#[cfg(feature="compare_reference")]
-use crate::geom::quad::Quadrilateral;
 
 use super::Quad;
 
@@ -248,6 +246,8 @@ impl Quad {
 
         #[cfg(feature="compare_reference")]
         {
+            use std::io::Write;
+            use crate::geom::quad::Quadrilateral;
             use crate::sys::{AprilTagDetectorSys, ImageU8Sys};
             use float_cmp::assert_approx_eq;
 
