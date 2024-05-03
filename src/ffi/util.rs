@@ -1,4 +1,4 @@
-use std::{sync::{atomic::AtomicPtr, Arc}, marker::PhantomData, mem::{self}, ptr, ops::Deref, cell::UnsafeCell};
+use std::{cell::UnsafeCell, marker::PhantomData, mem, ops::Deref, panic::RefUnwindSafe, ptr, sync::{atomic::AtomicPtr, Arc}};
 
 pub trait Container: Deref {
     fn into_raw(this: Self) -> *const <Self as Deref>::Target;
@@ -29,6 +29,22 @@ impl<T> Container for Box<T> {
 pub struct ManagedPtr<C: Container, F=<C as Deref>::Target> where <C as Deref>::Target: Sized {
     pub ptr: UnsafeCell<*const F>,
     container: PhantomData<C>,
+}
+
+//TODO: check for correctness
+impl <C: Container, F> RefUnwindSafe for ManagedPtr<C, F>
+    where
+        <C as Deref>::Target: Sized,
+        C: RefUnwindSafe,
+        F: RefUnwindSafe {}
+
+impl <C: Container, F> Default for ManagedPtr<C, F> where <C as Deref>::Target: Sized {
+    fn default() -> Self {
+        Self {
+            ptr: UnsafeCell::new(ptr::null()),
+            container: Default::default()
+        }
+    }
 }
 
 impl<C: Container, F> ManagedPtr<C, F> where <C as Deref>::Target: Sized {
@@ -113,6 +129,7 @@ impl<C: Container, F> AtomicManagedPtr<C, F> where <C as Deref>::Target: Sized {
             Some(unsafe { C::from_raw(ptr as *const <C as Deref>::Target) })
         }
     }
+    /// Take value out of pointer
     pub(super) fn take(&self) -> Option<C> {
         let prev = self.ptr.swap(ptr::null_mut(), std::sync::atomic::Ordering::SeqCst);
         
