@@ -86,8 +86,9 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuff
     }
 }
 
-impl<P: Pixel, Container: AsRef<[<P as Pixel>::Subpixel]>> ImageBuffer<P, Container> {
-	pub fn as_ref<'a>(&'a self) -> ImageBuffer<P,&'a [<P as Pixel>::Subpixel]> {
+/// Convert owned [ImageBuffer] to [ImageRef]
+impl<P: Pixel, Container: AsRef<SubpixelArray<P>>> ImageBuffer<P, Container> {
+	pub fn as_ref<'a>(&'a self) -> ImageBuffer<P,&'a SubpixelArray<P>> {
 		ImageBuffer { dims: self.dims, data: self.data.as_ref(), pix: self.pix }
 	}
 }
