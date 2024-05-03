@@ -12,7 +12,7 @@ fn py_entry(py: Python, tp: &ATTimeProfile, idx: usize) -> PyResult<PyTuple> {
     let entry = tp.entries().get(idx)
         .ok_or_else(|| PyErr::new::<exc::IndexError, _>(py, format!("Index {idx} out of range")))?;
 
-    let start = *tp.start();
+    let start = tp.start();
     let res = PyTuple::new(py, &[
         PyString::new(py, entry.name()).into_object(),
         py_duration(py, entry.timestamp().duration_since(start))?,
@@ -85,7 +85,7 @@ py_class!(pub class TimeProfileIter |py| {
             };
             *idx += 1;
             let key = PyString::new(py, entry.name());
-            let ts = entry.timestamp().duration_since(*tp.start());
+            let ts = entry.timestamp().duration_since(tp.start());
             (key, ts)
         };
         let value = PyFloat::new(py, ts.as_secs_f64());
