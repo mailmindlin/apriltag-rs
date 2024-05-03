@@ -135,7 +135,7 @@ py_class!(pub class DetectorConfig |py| {
     @property def debug_path(&self) -> PyResult<Option<PyString>> {
         self.config(py).read(py, |config| {
             match &config.debug_path {
-                Some(path) => Some(PyString::new(py, &path)),
+                Some(path) => Some(PyString::new(py, &path.to_string_lossy())),
                 None => None,
             }
         })
@@ -151,7 +151,8 @@ py_class!(pub class DetectorConfig |py| {
             Some(value) => {
                 let value = value
                     .to_string(py)?
-                    .to_string();
+                    .to_string()
+                    .into();
                 self.config(py).write(py, |config| {
                     config.debug_path = Some(value);
                 })
