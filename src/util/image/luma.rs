@@ -76,32 +76,32 @@ impl DefaultAlignment for Luma<u8> {
 impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
-fn convolve(x: &[u8], y: &mut [u8], k: &[u8], need_copy: bool) {
-    debug_assert_eq!(k.len() % 2, 1, "Kernel size must be odd");
-    assert_eq!(x.len(), y.len());
-    debug_assert!(x.len() >= k.len(), "x len {} must be greater than k len {}", x.len(), k.len());
+fn convolve(src: &[u8], dst: &mut [u8], krn: &[u8], need_copy: bool) {
+    debug_assert_eq!(krn.len() % 2, 1, "Kernel size must be odd");
+    assert_eq!(src.len(), dst.len());
+    debug_assert!(src.len() >= krn.len(), "x len {} must be greater than k len {}", src.len(), krn.len());
 
     // Copy left
     if need_copy {
-        let left_end = std::cmp::min(k.len() / 2, x.len());
-        y[..left_end].copy_from_slice(&x[..left_end]);
+        let left_end = std::cmp::min(krn.len() / 2, src.len());
+        dst[..left_end].copy_from_slice(&src[..left_end]);
     }
 
     // Convolve middle
-    for i in 0..(x.len() - k.len()) {
-        let mut acc = 0u32;
+    for i in 0..(src.len() - krn.len()) {
+        let mut acc = 0;
 
-        for j in 0..k.len() {
-            acc += k[j] as u32 * x[i + j] as u32;
+        for j in 0..krn.len() {
+            acc += krn[j] as u32 * src[i + j] as u32;
         }
 
-        y[k.len()/2 + i] = (acc >> 8).clamp(0, 255) as u8;
+        dst[krn.len()/2 + i] = (acc >> 8).clamp(0, 255) as u8;
     }
 
     // Copy right
     if need_copy {
-        let right_start = x.len() - k.len() + k.len()/2;
-        y[right_start..].copy_from_slice(&x[right_start..])
+        let right_start = src.len() - krn.len() + krn.len()/2;
+        dst[right_start..].copy_from_slice(&src[right_start..])
     }
 }
 
