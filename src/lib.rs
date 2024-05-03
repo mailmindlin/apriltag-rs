@@ -10,7 +10,7 @@
     maybe_uninit_slice,
     // anonymous_lifetime_in_impl_trait,
     // array_chunks,
-    pointer_byte_offsets,
+    ptr_as_uninit,
 )]
 #![allow(non_snake_case)]
 
