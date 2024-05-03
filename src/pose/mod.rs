@@ -319,7 +319,8 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
         Some(res)
     } else if minima.len() > 1  {
         // This can happen if our prior pose estimate was not very good.
-        // panic!("Error, more than one new minima found.");
+        #[cfg(debug_assertions)]
+        eprintln!("Error, more than one new minima found.");
         None
     } else {
         //TODO: double check this is correct
@@ -343,6 +344,7 @@ pub struct AprilTagDetectionInfo {
     pub extrinsics: PoseParams,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct AprilTagPose {
     /// Rotation matrix
     pub R: Mat33,
@@ -350,6 +352,7 @@ pub struct AprilTagPose {
     pub t: Vec3,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct AprilTagPoseWithError {
     pub pose: AprilTagPose,
     pub error: f64,
@@ -386,6 +389,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
     AprilTagPose { R, t }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct OrthogonalIterationResult {
     /// Best pose solution
     pub solution1: AprilTagPoseWithError,
