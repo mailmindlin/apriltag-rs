@@ -463,7 +463,7 @@ impl OpenCLDetector {
             let img_src = self.core.upload_image(self.download_src, tp, image)
                 .expect("Uploading src");
             #[cfg(feature="debug")]
-            config.debug_image("00_debug_src.pnm", |mut f| self.debug_ocl_image(&mut f, &img_src.buffer));
+            config.debug_image(debug_images::SOURCE, |mut f| self.debug_ocl_image(&mut f, &img_src.buffer));
             img_src
         };
 
@@ -499,7 +499,7 @@ impl OpenCLDetector {
             tp.stamp("quad_decimate enq");
 
             #[cfg(feature="debug")]
-            config.debug_image("00a_debug_decimate.pnm", |mut f| {
+            config.debug_image(debug_images::DECIMATE, |mut f| {
                 let img = self.core.download_image(&qd_buf)?;
                 img.write_pnm(&mut f)
             });
@@ -522,7 +522,7 @@ impl OpenCLDetector {
         println!("Enqueued quad_sigma");
 
         #[cfg(feature="debug")]
-        config.debug_image("01_debug_preprocess.pnm", |mut f| {
+        config.debug_image(debug_images::PREPROCESS, |mut f| {
             let img = self.core.download_image(&last_buf)?;
             img.write_pnm(&mut f)
         });
@@ -532,10 +532,10 @@ impl OpenCLDetector {
         tp.stamp("tile_minmax enq");
 
         #[cfg(feature="debug")]
-        config.debug_image("02a_tile_minmax_min.pnm", |mut f| {
+        config.debug_image(debug_images::TILE_MIN, |mut f| {
             println!("Enqueued tile_minmax");
             let (img_min, img_max) = split_minmax(&self.core, &tm_buf);
-            config.debug_image("02b_tile_minmax_max.pnm", |mut f| img_max.write_pnm(&mut f));
+            config.debug_image(debug_images::TILE_MAX, |mut f| img_max.write_pnm(&mut f));
             img_min.write_pnm(&mut f)
         });
 
@@ -543,10 +543,10 @@ impl OpenCLDetector {
         let tb_buf = enqueue_kernel(&mut kernels.tile_blur, tm_buf.event())?;
         tp.stamp("tile_blur enq");
         #[cfg(feature="debug")]
-        config.debug_image("02c_tile_minmax_blur_min.pnm", |mut f| {
+        config.debug_image(debug_images::BLUR_MIN, |mut f| {
             println!("Enqueued tile_blur");
             let (img_min, img_max) = split_minmax(&self.core, &tb_buf);
-            config.debug_image("02d_tile_minmax_blur_max.pnm", |mut f| img_max.write_pnm(&mut f));
+            config.debug_image(debug_images::BLUR_MAX, |mut f| img_max.write_pnm(&mut f));
             img_min.write_pnm(&mut f)
         });
 
@@ -568,7 +568,7 @@ impl OpenCLDetector {
         };
 
         #[cfg(feature="debug")]
-        config.debug_image("02_debug_threshold.pnm", |mut f| {
+        config.debug_image(debug_images::THRESHOLD, |mut f| {
             println!("Enqueued threshold");
             let img = self.core.download_image(&th_buf).expect("Download threshold");
             img.write_pnm(&mut f)
