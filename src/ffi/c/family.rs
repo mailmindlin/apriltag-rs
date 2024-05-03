@@ -184,35 +184,3 @@ impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
         Ok(arc)
     }
 }
-
-
-// impl From<ApriltagFamily> for apriltag_family_t {
-//     fn from(mut value: ApriltagFamily) -> Self {
-//         let mut bits_x = Vec::with_capacity(value.bits.len());
-//         let mut bits_y = Vec::with_capacity(value.bits.len());
-//         for (bit_x, bit_y) in value.bits.iter() {
-//             bits_x.push(bit_x);
-//             bits_y.push(bit_y);
-//         }
-//         bits_x.shrink_to_fit();
-//         bits_y.shrink_to_fit();
-
-//         value.codes.shrink_to_fit();
-//         let (codes, ncodes, codes_cap) = value.codes.into_raw_parts();
-//         assert_eq!(ncodes, codes_cap);
-
-//         Self {
-//             ncodes: ncodes as _,
-//             codes: codes,
-//             width_at_border: value.width_at_border as _,
-//             total_width: value.total_width as _,
-//             reversed_border: value.reversed_border,
-//             nbits: value.bits.len() as _,
-//             bit_x: bits_x.into_raw_parts().0 as *const _,
-//             bit_y: bits_y.into_raw_parts().0 as *const _,
-//             h: value.min_hamming as _,
-//             name: CString::new(value.name.as_ref()).unwrap().into_raw(),
-//             ximpl: std::ptr::null(),
-//         }
-//     }
-// }
