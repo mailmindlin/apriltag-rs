@@ -3,6 +3,7 @@ use std::{num::{NonZeroU32, NonZeroUsize}, path::PathBuf, cmp::Ordering};
 use crate::AprilTagQuadThreshParams;
 
 
+/// When building the [AprilTagDetector], what kind of acceleration should we use?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GpuAccelRequest {
 	/// Do not use GPU acceleration
@@ -29,6 +30,9 @@ impl GpuAccelRequest {
 		matches!(self, Self::Disabled)
 	}
 	
+	/// Is acceleration required?
+	/// 
+	/// If `true`, emit a detector build error if acceleration is not available
 	pub const fn is_required(&self) -> bool {
 		match self {
 			Self::Required | Self::RequiredGpu | Self::RequiredDeviceIdx(_) => true,
@@ -115,11 +119,12 @@ pub struct DetectorConfig {
 
 	pub qtp: AprilTagQuadThreshParams,
 
-	/// Path to debug to
+	/// Path to write debug images to
 	pub debug_path: Option<PathBuf>,
 
 	pub gpu: GpuAccelRequest,
 	pub allow_concurrency: bool,
+	/// What size frames should we expect?
 	pub source_dimensions: SourceDimensions,
 }
 

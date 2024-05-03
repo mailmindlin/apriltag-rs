@@ -28,6 +28,7 @@ pub type ImageRef<'a, P> = Image<P, &'a SubpixelArray<P>>;
 pub type ImageRefY8<'a> = ImageRef<'a, Luma<u8>>;
 
 type SubpixelArray<P> = [<P as Pixel>::Subpixel];
+/// Default container type for pixel format
 type DC<P> = Box<SubpixelArray<P>>;
 
 #[derive(Clone)]
@@ -90,14 +91,17 @@ impl<P: Pixel, Container: AsRef<[<P as Pixel>::Subpixel]>> ImageBuffer<P, Contai
 }
 
 impl<P: Pixel, Container> ImageBuffer<P, Container> {
+	/// Convert into raw data
 	pub fn into_raw(self) -> Container {
 		self.data
 	}
 
+	/// Get reference to backing data
 	pub fn container(&self) -> &Container {
 		&self.data
 	}
 
+	/// Get image dimensions
 	#[inline(always)]
     pub const fn dimensions(&self) -> &ImageDimensions {
         &self.dims
@@ -131,6 +135,7 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 		self.width_spx() == self.stride()
 	}
 
+	/// Total number of pixels in this image
 	#[inline]
 	pub fn num_pixels(&self) -> usize {
 		self.width() * self.height()
@@ -218,7 +223,9 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 		Self::try_zeroed_dims(ImageDimensions { width, height, stride: stride_spx })
 	}
 
-	/// Try new zeroed image with dimensions. Returns error over panicking
+	/// Try new zeroed image with dimensions.
+	/// 
+	/// Returns error instead of panicking.
 	pub fn try_zeroed_dims(dims: ImageDimensions) -> Result<Self, ImageAllocError> {
 		let data = try_calloc::<P::Subpixel>(dims.height*dims.stride)?;
 
@@ -309,6 +316,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
         }
     }
 
+	/// Iterate through rows
 	pub fn rows(&self) -> Rows<P> {
         Rows {
             buf: &self.data,
@@ -316,6 +324,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
         }
     }
 
+	/// Iterate through pixels
 	pub fn pixels(&self) -> Pixels<P> {
         Pixels {
 			buf: &self.data,
@@ -323,6 +332,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 		}
     }
 
+	/// Iterate through pixels, with indices
 	pub fn enumerate_pixels(&self) -> EnumeratePixels<P> {
 		EnumeratePixels::new(&self.data, &self.dims)
 	}

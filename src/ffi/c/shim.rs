@@ -79,18 +79,21 @@ pub(super) mod param {
     }
 }
 
+/// CFFI input pointer.
 #[repr(transparent)]
 pub struct InPtr<'a, T>{
     ptr: *const T,
     lifetime: PhantomData<&'a T>,
 }
 
+/// CFFI output pointer
 #[repr(transparent)]
 pub struct OutPtr<'a, T> {
     ptr: *mut T,
     lifetime: PhantomData<&'a mut T>,
 }
 
+/// CFFI input & output pointer
 pub struct InOutPtr<'a, T> {
     ptr: *mut T,
     lifetime: PhantomData<&'a mut T>,
@@ -123,7 +126,9 @@ fn dispatch_err(name: &'static str, err: impl Any + Debug) -> CFFIError {
     CFFIError::BadInput { param_name: name, inner: FFIConvertError::Other(msg) }
 }
 
+/// FFI pointer that may be read from
 pub(super) trait ReadPtr<'a, T> {
+    /// Get as raw pointer
     fn ptr(&self) -> *const T;
 
     unsafe fn try_read<R>(&self, name: &'static str) -> Result<R, CFFIError> where R: TryFrom<*const T>, <R as TryFrom<*const T>>::Error: Debug + Any {

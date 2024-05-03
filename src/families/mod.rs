@@ -19,12 +19,17 @@ pub use tagCircle21h7::tagCircle21h7_create;
 
 pub(crate) type Code = u64;
 
+/// Tag rotation. CCW+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rotation {
+    /// 0º (identity) rotation
 	Identity,
+    /// 90º CCW rotation
 	Deg90,
+    /// 180º CCW rotation
 	Deg180,
+    /// 270º CCW rotation
 	Deg270,
 }
 
@@ -33,6 +38,7 @@ impl Rotation {
         [Self::Identity, Self::Deg90, Self::Deg180, Self::Deg270]
     }
 
+    /// Number of CCW 90º rotations to get to this rotation
     #[inline(always)]
     pub const fn count(&self) -> usize {
         match self {
@@ -43,6 +49,7 @@ impl Rotation {
         }
     }
 
+    /// Rotation in radians (CCW+)
     #[inline]
     pub fn theta(&self) -> f64 {
         self.count() as f64 * core::f64::consts::FRAC_PI_2
@@ -63,10 +70,10 @@ pub struct AprilTagFamily {
 
     pub reversed_border: bool,
 
-	/// minimum hamming distance between any two codes. (e.g. 36h11 => 11)
+	/// Minimum hamming distance between any two codes. (e.g. `36h11` => 11)
 	pub min_hamming: u32,
 
-	// a human-readable name, e.g., "tag36h11"
+	/// A human-readable name, e.g., "tag36h11"
 	pub name: Cow<'static, str>,
 
 	// some detector implementations may preprocess codes in order to

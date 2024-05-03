@@ -93,6 +93,7 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &impl UnionFindStatic
     d.write_pnm(&mut f)
 }
 
+/// Generate a debug image showing how many hops we take to resolve each pixel in the UnionFind
 #[cfg(feature="debug")]
 fn debug_unionfind_depth(mut f: File, w: usize, h: usize, uf: &impl UnionFindStatic<(u32, u32)>) -> std::io::Result<()> {
     let mut d = ImageBuffer::<Rgb<u8>>::zeroed_packed(w, h);

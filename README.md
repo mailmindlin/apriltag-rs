@@ -1,10 +1,21 @@
 # apriltag-rs
- 
 
-## Features
+# Table of Contents
 
-### `cffi`
-Generates C FFI interface compatible with libapriltag
+
+# Installation
+
+This package tries to be compatible with 
+
+# Building from scratch
+
+Compile with `cargo`
+
+## Compile-time Features
+
+### Bindings
+ `cffi`
+Generates C FFI interface that should be compatible with [libapriltag](https://github.com/AprilRobotics/apriltag).
 
 ### `cpython`
 Python bindings and library

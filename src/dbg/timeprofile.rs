@@ -70,7 +70,7 @@ impl Display for TimeProfileStatistics {
 #[derive(Clone)]
 pub struct TimeProfile {
     now: Instant,
-
+    /// Named timestamps
     stamps: Vec<TimeProfileEntry>,
 }
 
@@ -116,7 +116,7 @@ impl TimeProfile {
         self.now = Instant::now();
     }
 
-    /// Record a timestamp
+    /// Record a timestamp right now
     #[inline]
     pub fn stamp(&mut self, name: &str) {
         let entry = TimeProfileEntry {
@@ -161,6 +161,8 @@ impl Display for TimeProfile {
         let mut i = 0;
 
         let stamps = &self.stamps;
+
+        // Find maximums for scaling output
         let max_name_length = stamps.iter()
             .map(|stamp| stamp.name.len())
             .max()

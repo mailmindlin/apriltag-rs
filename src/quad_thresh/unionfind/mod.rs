@@ -10,34 +10,50 @@ mod reference;
 pub(super) type UnionFindId = u32;
 
 pub(crate) trait UnionFind<I> {
-    type Id;
+    /// Element ID
+    type Id: Eq;
 
     /// Get set representative and cardinality
     fn get_set(&mut self, index: I) -> (Self::Id, u32);
 
+    /// Compute the element ID for an index. Useful for caching.
     fn index_to_id(&self, idx: I) -> Self::Id;
 
+    /// Connect the elements at two indices into the same set
+    /// 
+    /// See also: [connect_ids](Self::connect_ids)
     fn connect(&mut self, a: I, b: I) -> bool {
         let id_a = self.index_to_id(a);
         let id_b = self.index_to_id(b);
         self.connect_ids(id_a, id_b)
     }
 
+    /// Connect the elements at two IDs into the same set
+    /// 
+    /// See also: [connect](Self::connect)
     fn connect_ids(&mut self, a: Self::Id, b: Self::Id) -> bool;
 }
 
 pub(crate) trait UnionFindStatic<I>: UnionFind<I> {
+    /// Get set ID/size without updating any data
     fn get_set_static(&self, index: I) -> (Self::Id, u32);
+    /// Number of hops to find the set ID for an index (without updating any data)
     fn get_set_hops(&self, index: I) -> usize;
 }
 
 pub(super) trait UnionFindAtomic<I>: UnionFind<I> + UnionFindStatic<I> {
+    /// Connect two indices
+    /// 
+    /// This has the guarauntees of [Relaxed](std::sync::atomic::Ordering::Relaxed) ordering
     fn connect_atomic(&self, a: I, b: I) -> bool {
         let id_a = self.index_to_id(a);
         let id_b = self.index_to_id(b);
         self.connect_ids_atomic(id_a, id_b)
     }
 
+    /// Connect two IDs atomically
+    /// 
+    /// This has the guarauntees of [Relaxed](std::sync::atomic::Ordering::Relaxed) ordering
     fn connect_ids_atomic(&self, a: Self::Id, b: Self::Id) -> bool;
 }
 

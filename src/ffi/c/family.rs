@@ -9,27 +9,27 @@ use libc::{c_int, c_void, c_char};
 
 #[repr(C)]
 pub struct apriltag_family_t {
-    // How many codes are there in this tag family?
+    /// How many codes are there in this tag family?
     pub ncodes: u32,
 
     /// The codes in the family.
-    // Points to ximpl -> codes
+    /// Points to ximpl -> codes
     pub codes: *const u64,
 
     pub width_at_border: c_int,
     pub total_width: c_int,
     pub reversed_border: bool,
 
-    // The bit locations.
+    /// The bit locations.
     pub nbits: u32,
     pub bit_x: *const u32,
     pub bit_y: *const u32,
 
-    // minimum hamming distance between any two codes. (e.g. 36h11 => 11)
+    /// minimum hamming distance between any two codes. (e.g. 36h11 => 11)
     pub h: u32,
 
     /// a human-readable name, e.g., "tag36h11"
-    // Points to ximpl -> name
+    /// (Points to ximpl -> name)
     pub name: *const c_char,
 
     // some detector implementations may preprocess codes in order to
