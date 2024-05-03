@@ -1,9 +1,9 @@
 #![cfg(feature="debug")]
 
-use rand::{thread_rng, rngs::StdRng, SeedableRng};
+use rand::{rngs::StdRng, SeedableRng};
 
 use crate::{util::{ImageY8, image::{ImageWritePNM, pixel::PixelConvert, ImageDimensions}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
-use std::{fs::File, hash::{SipHasher, Hash}, collections::hash_map::DefaultHasher};
+use std::fs::File;
 #[cfg(feature="debug_ps")]
 use crate::util::image::{PostScriptWriter, ImageWritePostscript, VectorPathWriter};
 
