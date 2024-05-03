@@ -237,7 +237,7 @@ pub(crate) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) 
         let mut uf = UnionFind2D::new_concurrent(threshim.width(), threshim.height());
 	    do_unionfind_first_line(&mut uf, threshim);
 		let height = threshim.height();
-		let chunksize = 1 + height / (config.nthreads * 2);
+		let chunksize = 1 + height / (config.nthreads().get() * 2);
         // each task will process [y0, y1). Note that this attaches
         // each cell to the right and down, so row y1 *is* potentially modified.
         //

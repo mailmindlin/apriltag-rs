@@ -194,7 +194,7 @@ pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, 
         do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
         clustermap
     } else {
-        let chunksize = 1 + sz / config.nthreads;
+        let chunksize = 1 + sz / config.nthreads();
         // struct cluster_task *tasks = malloc(sizeof(struct cluster_task)*(sz / chunksize + 1));
 
         (0..sz)
