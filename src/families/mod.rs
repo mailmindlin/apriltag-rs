@@ -7,6 +7,7 @@ mod tag16h5;
 mod tag25h9;
 mod tag36h10;
 mod tag36h11;
+mod tagCircle21h7;
 mod util;
 pub use util::{rotate90, rotations};
 
@@ -14,6 +15,7 @@ pub use tag16h5::tag16h5_create;
 pub use tag25h9::tag25h9_create;
 pub use tag36h10::tag36h10_create;
 pub use tag36h11::tag36h11_create;
+pub use tagCircle21h7::tagCircle21h7_create;
 
 pub(crate) type Code = u64;
 
@@ -110,6 +112,7 @@ impl AprilTagFamily {
             "tag25h9" => tag25h9_create(),
             "tag36h10" => tag36h10_create(),
             "tag36h11" => tag36h11_create(),
+            "tagCircle21h7" => tagCircle21h7_create(),
             _ => return None,
         };
         //TODO: cache references
@@ -117,7 +120,7 @@ impl AprilTagFamily {
     }
 
     pub fn names() -> impl IntoIterator<Item = &'static str> {
-        vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11"]
+        vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11", "tagCircle21h7"]
     }
 
     pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
