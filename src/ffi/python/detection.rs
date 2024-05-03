@@ -1,6 +1,6 @@
 use std::{sync::Arc, ops::{Deref, DerefMut}, cell::RefCell};
 
-use cpython::{PyResult, py_class, PyString, PythonObject, PyList, PyObject, exc, PyErr, Python, PyFloat, ObjectProtocol};
+use cpython::{exc, py_class, PyErr, PyList, PyObject, PyResult, PyString, PythonObject};
 use crate::{
     AprilTagDetection,
     Detections as ATDetections, util::math::mat::Mat33
@@ -53,6 +53,10 @@ py_class!(pub class Detections |py| {
     def __iter__(&self) -> PyResult<DetectionsIter> {
         DetectionsIter::create_instance(py, self.raw(py).clone(), RefCell::new(0))
     }
+
+    def __repr__(&self) -> PyResult<String> {
+        Ok(format!("{:?}", self.raw(py).as_ref()))
+    }
 });
 
 py_class!(pub class DetectionsIter |py| {
@@ -89,17 +93,35 @@ impl Deref for DetectionRef {
     }
 }
 
+impl core::fmt::Debug for DetectionRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v: &AprilTagDetection = &*self;
+        f.debug_struct("Detection")
+            .field("tag_family", &v.family.name)
+            .field("tag_id", &v.id)
+            .field("hamming", &v.hamming)
+            .field("center", &v.center)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Detection {
+    pub(super) fn detection_ref<'a>(&'a self, py: cpython::Python<'a>) -> &'a AprilTagDetection {
+        self.detection(py).deref()
+    }
+}
+
 py_class!(pub class Detection |py| {
     data detection: DetectionRef;
-
-    def __str__(&self) -> PyResult<String> {
-        let det = self.detection(py);
-        Ok(format!("AprilTagDetection({} #{})", &det.family.name, det.id))
-    }
 
     @property def tag_id(&self) -> PyResult<usize> {
         let det = self.detection(py);
         Ok(det.id)
+    }
+
+    @property def family(&self) -> PyResult<super::PyAprilTagFamily> {
+        let det = self.detection(py);
+        super::PyAprilTagFamily::create_instance(py, RefCell::new(det.family.clone()))
     }
 
     @property def tag_family(&self) -> PyResult<PyString> {
@@ -129,31 +151,18 @@ py_class!(pub class Detection |py| {
         Ok(res.to_vec())
     }
 
-    @property def H(&self) -> PyResult<PyObject> {
+    @property def H(&self) -> PyResult<Mat33> {
         let det = self.detection(py);
-        py_mat33(py, &det.H)
+        Ok(det.H)
+    }
+
+    def __str__(&self) -> PyResult<String> {
+        let det = self.detection(py);
+        Ok(format!("AprilTagDetection({} #{})", &det.family.name, det.id))
+    }
+
+    def __repr__(&self) -> PyResult<String> {
+        let det = self.detection(py);
+        Ok(format!("{det:?}"))
     }
 });
-
-fn py_mat33(py: Python, raw: &Mat33) -> PyResult<PyObject> {
-    // List of lists
-    let elem = |idx| PyFloat::new(py, raw[idx]).into_object();
-    let arr = PyList::new(py, &[
-        PyList::new(py, &[elem((0, 0)), elem((0, 1)), elem((0, 2))]).into_object(),
-        PyList::new(py, &[elem((1, 0)), elem((1, 1)), elem((1, 2))]).into_object(),
-        PyList::new(py, &[elem((2, 0)), elem((2, 1)), elem((2, 2))]).into_object(),
-    ]);
-
-    // Try converting it to a numpy matrix object
-    fn np_mat33(py: Python, raw: &PyList) -> PyResult<PyObject> {
-        let np = py.import("numpy")?;
-        let np_matrix = np.get(py, "matrix")?;
-        np_matrix.call(py, (raw, ), None)
-    }
-
-    if let Ok(res) = np_mat33(py, &arr) {
-        Ok(res)
-    } else {
-        Ok(arr.into_object())
-    }
-}

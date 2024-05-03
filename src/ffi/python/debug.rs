@@ -58,6 +58,13 @@ py_class!(pub class TimeProfile |py| {
             .borrow();
         Ok(format!("{data}"))
     }
+
+    def __repr__(&self) -> PyResult<String> {
+        let data = self.data(py)
+            .borrow();
+
+        Ok(format!("{data:?}"))
+    }
 });
 
 py_class!(pub class TimeProfileIter |py| {
