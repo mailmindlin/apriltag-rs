@@ -34,7 +34,7 @@ fn load_image(path: &Path) -> io::Result<ImageRGB8> {
     Ok(result)
 }
 
-#[cfg(feature="dep:opencv")]
+#[cfg(feature="opencv")]
 fn show_opencv(img: ImageRGB8) {
     use opencv::prelude::*;
     use opencv::core::*;
@@ -101,6 +101,6 @@ fn main() {
         }
     }
 
-    #[cfg(feature="dep:opencv")]
+    #[cfg(feature="opencv")]
     show_opencv(img);
 }
