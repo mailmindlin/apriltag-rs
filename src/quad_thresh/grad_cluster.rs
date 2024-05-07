@@ -211,7 +211,7 @@ pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, 
 	}
 }
 
-#[cfg(all(test, feature="foo"))]
+#[cfg(all(test, feature="disabled"))]
 mod test {
 	use crate::quad_thresh::linefit::Pt;
 
