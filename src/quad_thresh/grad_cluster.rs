@@ -66,15 +66,19 @@ type ClusterHasher = RandomState;
 fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32), Id = u32>) {
 	let width = threshim.width();
 	for y in y0..y1 {
+		let mut connected_last = false;
+
 		for x in 1..(width-1) {
 			let v0 = threshim[(x, y)];
 			if v0 == 127 {
+				connected_last = false;
 				continue;
 			}
 
 			// XXX don't query this until we know we need it?
 			let (rep0, size0) = uf.get_set_static((x as _, y as _));
 			if size0 <= (MIN_CLUSTER_SIZE as u32) {
+				connected_last = false;
 				continue;
 			}
 
@@ -98,16 +102,11 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 			// A possible optimization would be to combine entries
 			// within the same cluster.
 
-			#[allow(non_upper_case_globals)]
-			const offsets: [(isize, usize); 4] = [
-				// do 4 connectivity. NB: Arguments must be [-1, 1] or we'll overflow .gx, .gy
-				(1, 0),
-				(0, 1),
-				// do 8 connectivity
-				(-1,1),
-				(1, 1),
-			];
-			for (dx, dy) in offsets {
+			let mut DO_CONN = |dx: isize, dy: usize| {
+				// NB: Arguments must be [-1, 1] or we'll overflow .gx, .gy
+				debug_assert!(-1 <= dx && dx <= 1);
+				debug_assert!(dy <= 1);
+
 				let off_x = (x as isize + dx) as usize;
 				let off_y = y + dy;
 
@@ -118,33 +117,50 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 						let key = ClusterId::new(rep0, rep1);
 						let value: Pt = {
 							let dv = (v1 as i16) - (v0 as i16);
+
 							#[cfg(debug_assertions)]
-							let x = Pt {
-								x: (2 * x as isize + dx).try_into().unwrap(),
-								y: (2 * y + dy).try_into().unwrap(),
-								gx: (dx as i16 * dv),
-								gy: (dy as i16 * dv),
-								slope: 0.,//TODO?
-							};
+							let pt_x = (2 * x as isize + dx).try_into().unwrap();
+							#[cfg(debug_assertions)]
+							let pt_y = (2 * y + dy).try_into().unwrap();
 
 							#[cfg(not(debug_assertions))]
-							let x = Pt {
-								x: (2 * x as isize + dx) as _,
-								y: (2 * y + dy) as _,
+							let pt_x = (2 * x as isize + dx) as _;
+							#[cfg(not(debug_assertions))]
+							let pt_y = (2 * y + dy) as _;
+
+							Pt {
+								x: pt_x,
+								y: pt_y,
 								gx: (dx as i16 * dv),
 								gy: (dy as i16 * dv),
 								slope: 0.,//TODO?
-							};
-
-							x
+							}
 						};
 
 						clustermap.entry(key)
 							.or_default()
 							.push(value);
+						return true;
 					}
 				}
+				false
+			};
+			// do 4 connectivity
+			DO_CONN(1, 0);
+			DO_CONN(0, 1);
+
+			// do 8 connectivity
+			// DO_CONN(-1,1);
+			// DO_CONN(1, 1);
+			
+			if !connected_last {
+				// Checking 1, 1 on the previous x, y, and -1, 1 on the current
+				// x, y result in duplicate points in the final list.  Only
+				// check the potential duplicate if adding this one won't
+				// create a duplicate.
+				DO_CONN(-1, 1);
 			}
+			connected_last = DO_CONN(1, 1);
 		}
 	}
 	#[cfg(feature="extra_debug")]
