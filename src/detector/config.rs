@@ -1,11 +1,12 @@
-use std::{num::{NonZeroU32, NonZeroUsize}, path::PathBuf, cmp::Ordering};
+use std::{fmt::Debug, num::{NonZeroU32, NonZeroUsize}, ops::{Bound, Div, Range, RangeBounds}, path::PathBuf};
 
 use crate::AprilTagQuadThreshParams;
 
+use super::ImageDimensionError;
 
 /// When building the [AprilTagDetector], what kind of acceleration should we use?
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum GpuAccelRequest {
+pub enum AccelerationRequest {
 	/// Do not use GPU acceleration
 	Disabled,
 	/// Attempt to use acceleration if any device is available
@@ -25,9 +26,26 @@ pub enum GpuAccelRequest {
 	RequiredDeviceIdx(usize),
 }
 
-impl GpuAccelRequest {
+impl AccelerationRequest {
+	/// Is acceleration disallowed?
 	pub const fn is_disabled(&self) -> bool {
 		matches!(self, Self::Disabled)
+	}
+
+	/// Are high-powered devices (GPUs) preferred over lower-powered devices?
+	pub const fn prefer_high_power(&self) -> bool {
+		match self {
+			Self::PreferGpu | Self::RequiredGpu => true,
+			_ => false,
+		}
+	}
+
+	/// If no GPU is available, should we fall back to CPU-with-acceleration?
+	pub const fn allow_cpu(&self) -> bool {
+		match self {
+			Self::Prefer | Self::Required => true,
+			_ => false,
+		}
 	}
 	
 	/// Is acceleration required?
@@ -41,7 +59,7 @@ impl GpuAccelRequest {
 	}
 }
 
-impl Default for GpuAccelRequest {
+impl Default for AccelerationRequest {
     fn default() -> Self {
         Self::Prefer
     }
@@ -51,37 +69,99 @@ impl Default for GpuAccelRequest {
 pub enum SourceDimensions {
 	/// Unknown dimensions
 	Dynamic,
+	/// All frames will be exactly this size
 	Exactly {
-		width: NonZeroUsize,
-		height: NonZeroUsize,
+		width: usize,
+		height: usize,
+	},
+	Range {
+		width: Range<Bound<usize>>,
+		height: Range<Bound<usize>>,
 	}
 }
 
 impl SourceDimensions {
-	pub(crate) fn cmp_width(&self, width: usize) -> Option<Ordering> {
-		if width == 0 {
-			return Some(Ordering::Greater);
-		}
+	pub(crate) fn width_range(&self) -> Range<Bound<usize>> {
 		match self {
-			SourceDimensions::Dynamic => None,
-			SourceDimensions::Exactly { width: width1, .. } => Some(width1.get().cmp(&width))
+			SourceDimensions::Dynamic => Range { start: Bound::Unbounded, end: Bound::Unbounded },
+			SourceDimensions::Exactly { width, .. } => Range { start: Bound::Included(*width), end: Bound::Included(*width) },
+			SourceDimensions::Range { width, .. } => width.clone(),
+		}
+	}
+	pub(crate) fn height_range(&self) -> Range<Bound<usize>> {
+		match self {
+			SourceDimensions::Dynamic => Range { start: Bound::Unbounded, end: Bound::Unbounded },
+			SourceDimensions::Exactly { height, .. } => Range { start: Bound::Included(*height), end: Bound::Included(*height) },
+			SourceDimensions::Range { height, .. } => height.clone(),
 		}
 	}
 
-	pub(crate) fn cmp_height(&self, height: usize) -> Option<Ordering> {
-		if height == 0 {
-			return Some(Ordering::Greater);
-		}
+	pub(crate) fn check(&self, width_bounds: impl RangeBounds<usize>, height_bounds: impl RangeBounds<usize>) -> Result<(), ImageDimensionError> {
 		match self {
-			SourceDimensions::Dynamic => None,
-			SourceDimensions::Exactly { height: height1, .. } => Some(height1.get().cmp(&height))
+			Self::Dynamic => {},
+			Self::Exactly { width, height } => {
+				let width = *width;
+				match width_bounds.start_bound() {
+					Bound::Excluded(v) => if &width <= v { return Err(ImageDimensionError::WidthTooSmall { actual: width, minimum: v + 1 }); }
+					Bound::Included(v) => if &width < v { return Err(ImageDimensionError::WidthTooSmall { actual: width, minimum: *v }); }
+					Bound::Unbounded => {}
+				}
+				match width_bounds.end_bound() {
+					Bound::Excluded(v) => if &width >= v { return Err(ImageDimensionError::WidthTooBig { actual: width, maximum: v - 1 }); }
+					Bound::Included(v) => if &width > v { return Err(ImageDimensionError::WidthTooBig { actual: width, maximum: *v }); }
+					Bound::Unbounded => {}
+				}
+
+				let height = *height;
+				match height_bounds.start_bound() {
+					Bound::Excluded(v) => if &height <= v { return Err(ImageDimensionError::HeightTooSmall { actual: height, minimum: v + 1 }); }
+					Bound::Included(v) => if &height < v { return Err(ImageDimensionError::HeightTooSmall { actual: height, minimum: *v }); }
+					Bound::Unbounded => {}
+				}
+				match height_bounds.end_bound() {
+					Bound::Excluded(v) => if &height >= v { return Err(ImageDimensionError::HeightTooBig { actual: height, maximum: v - 1 }); }
+					Bound::Included(v) => if &height > v { return Err(ImageDimensionError::HeightTooBig { actual: height, maximum: *v }); }
+					Bound::Unbounded => {}
+				}
+			}
+			Self::Range { .. } => todo!(),
+		}
+		Ok(())
+	}
+	
+	pub(crate) fn div_ceil(&self, dw: usize, dh: usize) -> Self {
+		match self {
+			Self::Dynamic => Self::Dynamic,
+			Self::Exactly { width, height } => Self::Exactly { width: width.div_ceil(dw), height: height.div(dh) },
+			Self::Range { width, height } => {
+				fn div_bound(bound: &Bound<usize>, divisor: usize) -> Bound<usize> {
+					match bound {
+						Bound::Included(v) => Bound::Included(v.div_ceil(divisor)),
+						Bound::Excluded(v) => Bound::Excluded(v.div_ceil(divisor)),
+						Bound::Unbounded => Bound::Unbounded,
+					}
+				}
+				fn div_range(range: &Range<Bound<usize>>, divisor: usize) -> Range<Bound<usize>> {
+					Range {
+						start: div_bound(&range.start, divisor),
+						end: div_bound(&range.end, divisor),
+					}
+				}
+				Self::Range {
+					width: div_range(width, dw),
+					height: div_range(height, dh),
+				}
+			}
 		}
 	}
 }
 
+/// Configuration for [AprilTagDetector]
 #[derive(Debug, Clone)]
 pub struct DetectorConfig {
 	/// How many threads should be used?
+	/// - Zero results in autodetection
+	/// - One will be single-threaded
 	pub nthreads: usize,
 
 	/// Detection of quads can be done on a lower-resolution image,
@@ -122,7 +202,8 @@ pub struct DetectorConfig {
 	/// Path to write debug images to
 	pub debug_path: Option<PathBuf>,
 
-	pub gpu: GpuAccelRequest,
+	/// What kind of hardware acceleration should we use?
+	pub acceleration: AccelerationRequest,
 	pub allow_concurrency: bool,
 	/// What size frames should we expect?
 	pub source_dimensions: SourceDimensions,
@@ -140,7 +221,7 @@ impl Default for DetectorConfig {
 			debug: false,
 			qtp: AprilTagQuadThreshParams::default(),
 			debug_path: None,
-			gpu: Default::default(),
+			acceleration: Default::default(),
 			allow_concurrency: true,
 			source_dimensions: SourceDimensions::Dynamic,
 		}
@@ -201,7 +282,7 @@ impl DetectorConfig {
 	/// Generate a debug image with the given name.
 	#[cfg(feature="debug")]
 	#[inline]
-	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(std::fs::File) -> std::io::Result<()>) {
+	pub(crate) fn debug_image<E: Debug>(&self, name: &str, callback: impl FnOnce(std::fs::File) -> Result<(), E>) {
 		if self.debug {
 			let path = if let Some(pfx) = &self.debug_path {
 				let mut path = PathBuf::from(pfx);

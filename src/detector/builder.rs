@@ -1,9 +1,7 @@
 use std::{sync::Arc, ops::Deref};
 
-use rayon::ThreadPoolBuildError;
-
-use crate::{AprilTagFamily, quickdecode::QuickDecode, AddFamilyError};
-use super::{AprilTagDetector, DetectorConfig, config::GpuAccelRequest};
+use crate::{AprilTagFamily, quickdecode::QuickDecode, AddFamilyError, DetectorBuildError};
+use super::{AprilTagDetector, DetectorConfig, config::AccelerationRequest};
 
 #[derive(Clone)]
 pub struct DetectorBuilder {
@@ -66,34 +64,21 @@ impl DetectorBuilder {
 	/// This function will work even if the feature-flag `opencl` is not provided
 	pub fn prefer_gpu(#[allow(unused_mut)] mut self) -> Self {
 		#[cfg(feature="opencl")]
-		self.set_gpu_mode(GpuAccelRequest::Prefer);
+		self.set_gpu_mode(AccelerationRequest::Prefer);
 		self
 	}
 
-	pub fn gpu_mode(&self) -> &GpuAccelRequest {
-		&self.config.gpu
+	pub fn gpu_mode(&self) -> &AccelerationRequest {
+		&self.config.acceleration
 	}
 
-	pub fn set_gpu_mode(&mut self, mode: GpuAccelRequest) {
-		self.config.gpu = mode;
+	pub fn set_gpu_mode(&mut self, mode: AccelerationRequest) {
+		self.config.acceleration = mode;
 	}
 
 	/// Clear AprilTag families to detect
 	pub fn clear_families(&mut self) {
 		self.tag_families.clear();
-	}
-
-	/// pre-allocate buffers for compute
-	pub fn static_buffers(mut self, frame_dims: (usize, usize), concurrency: usize) -> Self {
-		let (width, height) = frame_dims;
-		// self.static_buffers = Some((width, height, concurrency));
-		self
-	}
-
-	/// Allow (or not) allocating dynamic buffers
-	pub fn dynamic_buffers(mut self, dynamic_allocation: bool) -> Self {
-		// self.dynamic_buffers = dynamic_allocation;
-		self
 	}
 
 	pub fn remove_family(&mut self, fam: &AprilTagFamily) {
@@ -106,32 +91,4 @@ impl DetectorBuilder {
 	pub fn build(self) -> Result<AprilTagDetector, DetectorBuildError> {
         AprilTagDetector::new(self.config, self.tag_families)
 	}
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum DetectorBuildError {
-	/// There was an error creating the threadpool
-	Threadpool(ThreadPoolBuildError),
-	/// There was an error allocating buffers
-	BufferAllocationFailure,
-	DimensionTooSmall,
-	DimensionTooBig,
-	/// OpenCL was required, but is not available
-	GpuNotAvailable,
-	#[cfg(feature="opencl")]
-	OpenCLError(ocl::Error),
-}
-
-impl From<ThreadPoolBuildError> for DetectorBuildError {
-    fn from(value: ThreadPoolBuildError) -> Self {
-        Self::Threadpool(value)
-    }
-}
-
-#[cfg(feature="opencl")]
-impl From<ocl::Error> for DetectorBuildError {
-    fn from(value: ocl::Error) -> Self {
-        Self::OpenCLError(value)
-    }
 }
