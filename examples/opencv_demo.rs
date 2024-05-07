@@ -1,7 +1,9 @@
+#![cfg(feature="opencv")]
+
 use std::path::PathBuf;
 
 use apriltag_rs::util::ImageY8;
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, GpuAccelRequest};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, AccelerationRequest};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -56,9 +58,9 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
         panic!("No AprilTag families to detect");
     }
     if args.opencl {
-        builder.set_gpu_mode(GpuAccelRequest::Required);
+        builder.set_gpu_mode(AccelerationRequest::Required);
     } else {
-        builder.set_gpu_mode(GpuAccelRequest::Disabled);
+        builder.set_gpu_mode(AccelerationRequest::Disabled);
     }
 
     for family_name in args.family.iter() {
