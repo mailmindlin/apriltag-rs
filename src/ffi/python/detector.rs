@@ -1,18 +1,10 @@
-use std::{sync::Arc, borrow::Cow};
+use std::{borrow::{Borrow, Cow}, sync::Arc};
 
-use cpython::{py_class, PyResult, PyErr, exc, PyObject, PyString, UnsafePyLeaked, Python, PyBool, PythonObject};
+use cpython::{exc, py_class, PyBool, PyErr, PyObject, PyResult, PyString, Python, PythonObject, UnsafePyLeaked};
 use parking_lot::RwLock;
 
 use crate::{
-    AprilTagDetector,
-    DetectorBuilder as AprilTagDetectorBuilder,
-    OpenClMode,
-    DetectorConfig as AprilTagDetectorConfig,
-    AprilTagFamily as ATFamily,
-    quickdecode::AddFamilyError, 
-    util::ImageY8,
-    DetectError,
-    DetectorBuildError, AprilTagQuadThreshParams
+    quickdecode::AddFamilyError, util::ImageY8, AccelerationRequest, AprilTagDetector, AprilTagFamily as ATFamily, AprilTagQuadThreshParams, DetectError, DetectorBuildError, DetectorBuilder as AprilTagDetectorBuilder, DetectorConfig as AprilTagDetectorConfig
 };
 
 use super::shim::readonly;
@@ -159,6 +151,13 @@ py_class!(pub class DetectorConfig |py| {
             }
         }
     }
+
+    def __str__(&self) -> PyResult<String> {
+        self.config(py).read(py, |config| format!("{config:?}"))
+    }
+    def __repr__(&self) -> PyResult<String> {
+        self.__str__(py)
+    }
 });
 
 py_class!(pub class QuadThresholdParams |py| {
@@ -253,18 +252,58 @@ py_class!(pub class DetectorBuilder |py| {
         Self::create_instance(py, builder)
     }
 
-    @property def opencl_mode(&self) -> PyResult<PyObject> {
+    @property def acceleration(&self) -> PyResult<PyObject> {
         let builder = self.builder(py).read();
-        let text = match builder.opencl_mode() {
-            OpenClMode::Disabled => return Ok(py.None()),
-            OpenClMode::Prefer => Cow::Borrowed("prefer"),
-            OpenClMode::Required => Cow::Borrowed("required"),
-            OpenClMode::PreferGpu => Cow::Borrowed("prefer_gpu"),
-            OpenClMode::RequiredGpu => Cow::Borrowed("required_gpu"),
-            OpenClMode::PreferDeviceIdx(idx) => Cow::Owned(format!("prefer_{idx}")),
-            OpenClMode::RequiredDeviceIdx(idx) => Cow::Owned(format!("require_{idx}")),
+        let text = match builder.gpu_mode() {
+            AccelerationRequest::Disabled => return Ok(py.None()),
+            AccelerationRequest::Prefer => Cow::Borrowed("prefer"),
+            AccelerationRequest::Required => Cow::Borrowed("required"),
+            AccelerationRequest::PreferGpu => Cow::Borrowed("prefer_gpu"),
+            AccelerationRequest::RequiredGpu => Cow::Borrowed("required_gpu"),
+            AccelerationRequest::PreferDeviceIdx(idx) => Cow::Owned(format!("prefer_{idx}")),
+            AccelerationRequest::RequiredDeviceIdx(idx) => Cow::Owned(format!("required_{idx}")),
         };
         Ok(PyString::new(py, &text).into_object())
+    }
+
+    @acceleration.setter def set_acceleration(&self, value: Option<PyString>) -> PyResult<()> {
+        let request = match value {
+            None => AccelerationRequest::Disabled,
+            Some(value) => match value.to_string(py)?.borrow() {
+                "disable" => AccelerationRequest::Disabled,
+                "prefer" => AccelerationRequest::Prefer,
+                "required" => AccelerationRequest::Required,
+                "prefer_gpu" => AccelerationRequest::PreferGpu,
+                "required_gpu" => AccelerationRequest::RequiredGpu,
+                value => {
+                    let res = if let Some(idx_text) = value.strip_prefix("prefer_") {
+                        if let Ok(idx) = idx_text.parse::<usize>() {
+                            Some(AccelerationRequest::PreferDeviceIdx(idx))
+                        } else {
+                            None
+                        }
+                    } else if let Some(idx_text) = value.strip_prefix("required_") {
+                        if let Ok(idx) = idx_text.parse::<usize>() {
+                            Some(AccelerationRequest::RequiredDeviceIdx(idx))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    match res {
+                        Some(res) => res,
+                        None => return Err(PyErr::new::<exc::ValueError, _>(py, format!("Unsupported value {} for DetectorBuilder.acceleration", value)))                    }
+                }
+            }
+        };
+        let builder = self.builder(py);
+        py.allow_threads(|| {
+            let mut builder = builder.write();
+            builder.config.acceleration = request;
+        });
+
+        Ok(())
     }
 
     @property def config(&self) -> PyResult<DetectorConfig> {
@@ -292,6 +331,7 @@ py_class!(pub class DetectorBuilder |py| {
         }
     }
 
+    /// Add AprilTag family to detector
     def add_family(&self, family: PyObject, num_bits: Option<usize> = None) -> PyResult<PyObject> {
         // Parse family
         let family = if let Ok(family) = family.extract::<super::PyAprilTagFamily>(py) {
@@ -329,6 +369,13 @@ py_class!(pub class DetectorBuilder |py| {
         }
     }
 
+    /// Remove all registered AprilTag families
+    def clear_families(&self) -> PyResult<PyObject> {
+        let mut builder = self.builder(py).write();
+        builder.clear_families();
+        Ok(py.None())
+    }
+
     def build(&self) -> PyResult<Detector> {
         let builder = self.builder(py)
             .read()
@@ -339,13 +386,20 @@ py_class!(pub class DetectorBuilder |py| {
                 => Detector::create_instance(py, detector),
             Err(DetectorBuildError::BufferAllocationFailure)
                 => Err(PyErr::new::<exc::MemoryError, _>(py, "Unable to allocate buffer(s)")),
-            Err(DetectorBuildError::OpenCLNotAvailable)
-                => Err(PyErr::new::<exc::EnvironmentError, _>(py, "OpenCL was required, but not available")),
+            Err(DetectorBuildError::NoTagFamilies)
+                => Err(PyErr::new::<exc::ValueError, _>(py, "No tag families were provided")),
+            Err(DetectorBuildError::AccelerationNotAvailable)
+                => Err(PyErr::new::<exc::EnvironmentError, _>(py, "Acceleration was required, but not available")),
             #[cfg(feature="opencl")]
             Err(DetectorBuildError::OpenCLError(e))
                 => Err(PyErr::new::<exc::EnvironmentError, _>(py, format!("OpenCL error: {e}"))),
+            #[cfg(feature="wgpu")]
+            Err(DetectorBuildError::WGPU(e))
+                => Err(PyErr::new::<exc::EnvironmentError, _>(py, format!("WGPU error: {e}"))),
             Err(DetectorBuildError::Threadpool(e))
                 => Err(PyErr::new::<exc::RuntimeError, _>(py, format!("Error building threadpool: {e}"))),
+            Err(e)
+                => Err(PyErr::new::<exc::RuntimeError, _>(py, e.to_string())),
         }
     }
 });
@@ -384,8 +438,10 @@ py_class!(pub class Detector |py| {
         match builder.build() {
             Ok(detector) => Self::create_instance(py, detector),
             Err(DetectorBuildError::BufferAllocationFailure) => Err(PyErr::new::<exc::MemoryError, _>(py, "Buffer allocation failure")),
-            Err(DetectorBuildError::OpenCLNotAvailable) => Err(PyErr::new::<exc::RuntimeError, _>(py, "OpenCL not available")),
+            Err(DetectorBuildError::AccelerationNotAvailable) => Err(PyErr::new::<exc::RuntimeError, _>(py, "OpenCL not available")),
             Err(DetectorBuildError::Threadpool(tpbe)) => Err(PyErr::new::<exc::RuntimeError, _>(py, format!("Failed building threadpool: {tpbe}"))),
+            Err(e)
+                => Err(PyErr::new::<exc::RuntimeError, _>(py, e.to_string())),
         }
     }
 
@@ -411,10 +467,12 @@ py_class!(pub class Detector |py| {
         match res {
             Ok(detections) =>
                 super::PyDetections::create_instance(py, Arc::new(detections)),
-            Err(DetectError::AllocError) =>
+            Err(DetectError::ImageAlloc(..)) =>
                 Err(PyErr::new::<exc::MemoryError, _>(py, format!("Unable to allocate buffers"))),
-            Err(DetectError::ImageTooSmall) =>
+            Err(DetectError::BadSourceImageDimensions(..)) =>
                 Err(PyErr::new::<exc::ValueError, _>(py, format!("Source image too small"))),  
+            Err(e)
+                => Err(PyErr::new::<exc::RuntimeError, _>(py, e.to_string())),
         }
     }
 });
