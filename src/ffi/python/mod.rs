@@ -6,7 +6,6 @@ mod shim;
 mod family;
 mod pose;
 mod timeout;
-mod generate_pyi;
 
 use pyo3::{pymodule, PyResult};
 use pyo3::prelude::*;

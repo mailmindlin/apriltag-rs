@@ -22,26 +22,22 @@ impl TimeProfile {
 		self.entries().len()
 	}
 
-	fn as_list(&self) -> Vec<TimeProfileEntry> {
-		self.entries()
-			.iter()
-			.map(|entry| py_entry(self, entry))
+	fn as_list(&self) -> PyResult<Vec<TimeProfileEntry>> {
+		(0..self.entries().len())
+			.map(|idx| py_entry(self, idx))
 			.collect()
 	}
 
 	fn __getitem__(&self, key: usize) -> PyResult<TimeProfileEntry> {
-		match self.entries().get(key) {
-			Some(item) => Ok(py_entry(self, item)),
-			None => Err(PyErr::new::<PyIndexError, _>(format!("Index {key} out of range"))),
-		}
+		py_entry(self, key)
 	}
 
 	fn __str__(&self) -> String {
-		format!("{self}")
+		format!("{self:#}")
 	}
 
 	fn __repr__(&self) -> String {
-		format!("{self:?}")
+		format!("{self:#?}")
 	}
 }
 
@@ -69,30 +65,81 @@ impl TimeProfileIter {
 		let TimeProfileIter { tp, index } = me.deref_mut();
 		let tp = tp.try_borrow(self_.py())?;
 		
-		Ok(match tp.entries().get(*index) {
-			Some(entry) => {
+		match py_entry(&tp, *index) {
+			Ok(entry) => {
 				*index += 1;
-				Some(py_entry(&tp, entry))
+				Ok(Some(entry))
 			},
-			None => None,
-		})
+			Err(_) => Ok(None)
+		}
 	}
 }
 
-fn py_entry(tp: &TimeProfile, entry: &crate::dbg::TimeProfileEntry) -> TimeProfileEntry {
-	TimeProfileEntry {
+fn py_entry(tp: &TimeProfile, key: usize) -> PyResult<TimeProfileEntry> {
+	let entry = match tp.entries().get(key) {
+		Some(entry) => entry,
+		None => return Err(PyErr::new::<PyIndexError, _>(format!("Index {key} out of range"))),
+	};
+
+	let ts = entry.timestamp();
+	let prev_ts = if key == 0 {
+		tp.start()
+	} else {
+		*tp.entries()[key - 1].timestamp()
+	};
+	Ok(TimeProfileEntry {
+		id: key,
 		name: entry.name().into(),
-		duration: entry.timestamp().duration_since(tp.start()).as_secs_f64(),
-	}
+		wall_cum: ts.duration_since(tp.start()).as_secs_f64(),
+		wall_part: ts.duration_since(prev_ts).as_secs_f64(),
+		proc_part: None,
+		proc_cum: None,
+	})
 }
 
 #[pyclass(frozen, get_all, module="apriltag_rs")]
+#[derive(Clone, Debug)]
 pub(super) struct TimeProfileEntry {
+	/// Entry index (starts at 0)
+	id: usize,
+	/// Entry name
 	name: String,
-	duration: f64,
+	/// Partial wall time
+	wall_part: f64,
+	/// Cumulative wall time
+	wall_cum: f64,
+	/// Partial processtime
+	proc_part: Option<f64>,
+	/// Cumulative process time
+	proc_cum: Option<f64>,
+}
+
+impl std::fmt::Display for TimeProfileEntry {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:2} {} {:12.6} ms {:12.6} ms {:3.0}%",
+			self.id,
+			self.name,
+			self.wall_part * 1000.,
+			self.wall_cum * 1000.,
+			0,
+		)?;
+		if let Some(proc_part) = self.proc_part {
+			write!(f, " {:12.6} ms", proc_part * 1000.)?;
+		}
+		
+		if let Some(proc_cum) = self.proc_cum {
+			write!(f, " {:12.6} ms", proc_cum * 1000.)?;
+		}
+		Ok(())
+	}
 }
 
 #[pymethods]
 impl TimeProfileEntry {
-
+	fn __str__(&self) -> String {
+		format!("{self}")
+	}
+	fn __repr__(&self) -> String {
+		format!("{self:?}")
+	}
 }
