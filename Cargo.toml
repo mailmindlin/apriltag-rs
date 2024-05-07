@@ -7,7 +7,7 @@ edition = "2021"
 # crate-type = ["cdylib"]
 
 [features]
-cpython = ["dep:cpython"]
+python = ["dep:pyo3"]
 jni = ["dep:jni"]
 cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
@@ -18,13 +18,13 @@ extra_debug = ["debug", "debug_ps"]
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 opencv=["dep:opencv"]
 # vulkan=["dep:vulkano", "dep:vulkano-shaders"]
-default = [ "debug", "extra_debug", "wgpu", "cpython" ]
+default = [ "debug", "extra_debug", "python" ]
 
 [profile.dev]
-default = ["cpython", "jni", "cffi", "debug", "extra_debug"]
+default = ["python", "jni", "cffi", "debug", "extra_debug"]
 
 [profile.release]
-default = ["cpython", "jni", "cffi"]
+default = ["python", "jni", "cffi"]
 
 
 [dependencies]
@@ -44,11 +44,11 @@ concurrent-queue = "2.5.0"
 async-trait = "0.1.80"
 thiserror = "1.0.49"
 
-# Feature: Python FFI (cpython)
-[dependencies.cpython]
-version = "0.7.1"
+# Feature: Python FFI (pyo3)
+[dependencies.pyo3]
+version = "0.21.2"
 optional = true
-features=["extension-module"]
+features=["extension-module", "experimental-inspect"]
 
 # Feature: Java FFI (jni)
 [dependencies.jni]
