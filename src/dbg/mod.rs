@@ -2,6 +2,7 @@
 mod timeprofile;
 
 pub use timeprofile::{TimeProfile, TimeProfileStatistics};
+pub(crate) use timeprofile::TimeProfileEntry;
 
 /// File names for debug images
 #[cfg(feature="debug")]

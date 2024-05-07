@@ -1,102 +1,98 @@
-use std::{cell::RefCell, ops::{DerefMut, Deref}, time::Duration};
+use std::ops::DerefMut;
 
-use cpython::{py_class, PyResult, UnsafePyLeaked, PyTuple, PyString, PyFloat, PythonObject, PyList, exc, PyErr, Python, PyObject};
-use crate::dbg::TimeProfile as ATTimeProfile;
+use pyo3::{exceptions::PyIndexError, pyclass, pymethods,  Bound, Py, PyErr, PyResult};
 
-fn py_duration(py: Python, value: Duration) -> PyResult<PyObject> {
-    let value_secs = value.as_secs_f64();
-    Ok(PyFloat::new(py, value_secs).into_object())
+pub(super) use crate::dbg::TimeProfile;
+
+#[pymethods]
+impl TimeProfile {
+	#[getter]
+	fn get_total_duration(&self) -> f64 {
+		self.total_duration().as_secs_f64()
+	}
+
+	fn __iter__(slf: Bound<Self>) -> PyResult<TimeProfileIter> {
+		Ok(TimeProfileIter {
+			tp: slf.unbind(),
+			index: 0,
+		})
+	}
+
+	fn __len__(&self) -> usize {
+		self.entries().len()
+	}
+
+	fn as_list(&self) -> Vec<TimeProfileEntry> {
+		self.entries()
+			.iter()
+			.map(|entry| py_entry(self, entry))
+			.collect()
+	}
+
+	fn __getitem__(&self, key: usize) -> PyResult<TimeProfileEntry> {
+		match self.entries().get(key) {
+			Some(item) => Ok(py_entry(self, item)),
+			None => Err(PyErr::new::<PyIndexError, _>(format!("Index {key} out of range"))),
+		}
+	}
+
+	fn __str__(&self) -> String {
+		format!("{self}")
+	}
+
+	fn __repr__(&self) -> String {
+		format!("{self:?}")
+	}
 }
 
-fn py_entry(py: Python, tp: &ATTimeProfile, idx: usize) -> PyResult<PyTuple> {
-    let entry = tp.entries().get(idx)
-        .ok_or_else(|| PyErr::new::<exc::IndexError, _>(py, format!("Index {idx} out of range")))?;
-
-    let start = tp.start();
-    let res = PyTuple::new(py, &[
-        PyString::new(py, entry.name()).into_object(),
-        py_duration(py, entry.timestamp().duration_since(start))?,
-    ]);
-    Ok(res)
+#[pyclass(module="apriltag_rs")]
+pub(super) struct TimeProfileIter {
+	tp: Py<TimeProfile>,
+	index: usize,
 }
 
-py_class!(pub class TimeProfile |py| {
-    @shared data data: ATTimeProfile;
-    
-    def total_duration(&self) -> PyResult<f64> {
-        let data = self.data(py)
-            .borrow();
-        Ok(data.total_duration().as_secs_f64())
-    }
+#[pymethods]
+impl TimeProfileIter {
+	fn __iter__(_self: Bound<Self>) -> Bound<Self> {
+		_self
+	}
 
-    def __iter__(&self) -> PyResult<TimeProfileIter> {
-        let data = self.data(py).leak_immutable();
-        TimeProfileIter::create_instance(py, data, RefCell::new(0))
-    }
+	fn __len__(self_: Bound<Self>) -> PyResult<usize> {
+		let slf = self_.try_borrow()?;
+		let idx = slf.index;
+		let tp = slf.tp.try_borrow(self_.py())?;
+		Ok(tp.entries().len() - idx)
+	}
 
-    def __len__(&self) -> PyResult<usize> {
-        let data = self.data(py).borrow();
-        Ok(data.entries().len())
-    }
+	fn __next__(self_: Bound<Self>) -> PyResult<Option<TimeProfileEntry>> {
+		let mut me = self_.try_borrow_mut()?;
+		let TimeProfileIter { tp, index } = me.deref_mut();
+		let tp = tp.try_borrow(self_.py())?;
+		
+		Ok(match tp.entries().get(*index) {
+			Some(entry) => {
+				*index += 1;
+				Some(py_entry(&tp, entry))
+			},
+			None => None,
+		})
+	}
+}
 
-    def as_list(&self) -> PyResult<PyList> {
-        let data = self.data(py).borrow();
-        let mut res_vec = Vec::with_capacity(data.entries().len());
-        for i in 0..data.entries().len() {
-            res_vec.push(py_entry(py, &data, i)?.into_object());
-        }
-        Ok(PyList::new(py, &res_vec))
-    }
+fn py_entry(tp: &TimeProfile, entry: &crate::dbg::TimeProfileEntry) -> TimeProfileEntry {
+	TimeProfileEntry {
+		name: entry.name().into(),
+		duration: entry.timestamp().duration_since(tp.start()).as_secs_f64(),
+	}
+}
 
-    def __getitem__(&self, key: usize) -> PyResult<PyTuple> {
-        let data = self.data(py).borrow();
-        py_entry(py, &data, key)
-    }
+#[pyclass(frozen, get_all, module="apriltag_rs")]
+pub(super) struct TimeProfileEntry {
+	name: String,
+	duration: f64,
+}
 
-    def __str__(&self) -> PyResult<String> {
-        let data = self.data(py)
-            .borrow();
-        Ok(format!("{data}"))
-    }
+#[pymethods]
+impl TimeProfileEntry {
 
-    def __repr__(&self) -> PyResult<String> {
-        let data = self.data(py)
-            .borrow();
-
-        Ok(format!("{data:?}"))
-    }
-});
-
-py_class!(pub class TimeProfileIter |py| {
-    data tp: UnsafePyLeaked<&'static ATTimeProfile>;
-    data index: RefCell<usize>;
-
-    def __len__(&self) -> PyResult<usize> {
-        let idx = *self.index(py).borrow().deref();
-        let tp = self.tp(py);
-        let tp = unsafe { tp.try_borrow(py) }?;
-        Ok(tp.entries().len() - idx)
-    }
-
-    def __next__(&self) -> PyResult<Option<PyTuple>> {
-        let (key, ts) = {
-            let mut idx_ref = self.index(py).borrow_mut();
-            let idx = idx_ref.deref_mut();
-
-            let tp = self.tp(py);
-            let tp = unsafe { tp.try_borrow(py) }?;
-            
-            let entry = match tp.entries().get(*idx) {
-                Some(entry) => entry,
-                None => return Ok(None),
-            };
-            *idx += 1;
-            let key = PyString::new(py, entry.name());
-            let ts = entry.timestamp().duration_since(tp.start());
-            (key, ts)
-        };
-        let value = PyFloat::new(py, ts.as_secs_f64());
-        let res = PyTuple::new(py, &[key.into_object(), value.into_object()]);
-        Ok(Some(res))
-    }
-});
+}

@@ -1,54 +1,86 @@
-use cpython::{buffer::PyBuffer, exc, FromPyObject, ObjectProtocol, PyErr, PyFloat, PyList, PyObject, PyResult, PyString, Python, PythonObject, ToPyObject};
+use pyo3::{buffer::PyBuffer, exceptions::{PyNotImplementedError, PyTypeError, PyValueError}, types::{PyAnyMethods, PyFloat, PyList, PyString}, Bound, FromPyObject, IntoPy, Py, PyAny, PyErr, PyResult, Python, ToPyObject};
 
 use crate::util::{math::{mat::Mat33, Vec3}, ImageY8};
 
 
-pub(super) fn readonly<T>(py: Python, value: Option<T>, name: &'static str) -> PyResult<T> {
+pub(super) fn readonly<T>(_py: Python, value: Option<T>, name: &'static str) -> PyResult<T> {
     match value {
         Some(value) => Ok(value),
-        None => Err(PyErr::new::<exc::NotImplementedError, _>(py, format!("Cannot delete {name}"))),
+        None => Err(PyErr::new::<PyNotImplementedError, _>(format!("Cannot delete {name}"))),
     }
 }
 
 impl<'s> FromPyObject<'s> for ImageY8 {
-    fn extract(py: Python, obj: &'s PyObject) -> PyResult<Self> {
+    fn extract_bound(obj: &Bound<'s, PyAny>) -> PyResult<Self> {
         //TODO: support other parameter types
-        let img_buf = PyBuffer::get(py, &obj)?;
+        let img_buf = PyBuffer::get_bound(obj)?;
         if img_buf.dimensions() != 2 {
-            return Err(PyErr::new::<exc::ValueError, _>(py, "Expected 2d array"));
+            return Err(PyErr::new::<PyValueError, _>("Expected 2d array"));
         }
         if img_buf.item_size() != std::mem::size_of::<u8>() {
-            return Err(PyErr::new::<exc::TypeError, _>(py, "Expected array of bytes"));
+            return Err(PyErr::new::<PyTypeError, _>("Expected array of bytes"));
         }
 
         let shape = img_buf.shape();
         // Copy image from PyObject
         let mut img = ImageY8::zeroed_packed(shape[1], shape[0]);
-        img_buf.copy_to_slice(py, &mut img.data)?;
+        img_buf.copy_to_slice(obj.py(), &mut img.data)?;
         // let v = img_buf.to_vec::<u8>(py)?;
         // for ((x, y), dst) in img.enumerate_pixels_mut() {
         //     dst.0 = [v[y * width + x]];
         // }
         Ok(img)
     }
+
+	fn type_input() -> pyo3::inspect::types::TypeInfo {
+		use pyo3::inspect::types::{TypeInfo, ModuleName};
+		let t_int = TypeInfo::Class {
+			module: ModuleName::Builtin,
+			name: "int".into(),
+			type_vars: vec![],
+		};
+
+		let mod_np = ModuleName::Module("numpy".into());
+
+		// np.ndarray[tuple[int, int], np.dtype[np.uint8]]
+		TypeInfo::Class {
+			module: mod_np.clone(),
+			name: "ndarray".into(),
+			type_vars: vec![
+				TypeInfo::Tuple(Some(vec![
+					t_int.clone(),
+					t_int,
+				])),
+				TypeInfo::Class {
+					module: mod_np.clone(),
+					name: "dtype".into(),
+					type_vars: vec![
+						TypeInfo::Class {
+							module: mod_np,
+							name: "uint8".into(),
+							type_vars: vec![],
+						}
+					]
+				}
+			]
+		}
+	}
 }
 
 impl ToPyObject for ImageY8 {
-    type ObjectType = PyObject;
-
-    fn to_py_object(&self, py: Python) -> Self::ObjectType {
-        fn np_image(py: Python, img: &ImageY8) -> PyResult<PyObject> {
-            let np = py.import("numpy")?;
-            let np_empty = np.get(py, "empty")?;
-            let np_uint8 = np.get(py, "uint8")?;
-            let result = np_empty.call(py, (
+    fn to_object(&self, py: Python<'_>) -> Py<PyAny> {
+        fn np_image(py: Python, img: &ImageY8) -> PyResult<Py<PyAny>> {
+            let np = py.import_bound("numpy")?;
+            let np_empty = np.get_item("empty")?;
+            let np_uint8 = np.get_item("uint8")?;
+            let result = np_empty.call((
                 (img.width(), img.height()), // Dims
                 np_uint8, // dtype
-                PyString::new(py, "C") // Order
+                PyString::new_bound(py, "C") // Order
             ), None)?;
     
             {
-                let res_buf = PyBuffer::get(py, &result)?;
+                let res_buf = PyBuffer::get_bound(&result)?;
                 assert_eq!(res_buf.dimensions(), 2);
                 assert_eq!(res_buf.shape(), &[img.width(), img.height()]);
                 assert_eq!(res_buf.item_size(), std::mem::size_of::<u8>());
@@ -73,7 +105,7 @@ impl ToPyObject for ImageY8 {
                 }
             }
     
-            Ok(result)
+            Ok(result.to_object(py))
         }
         if let Ok(obj) = np_image(py, &self) {
             obj
@@ -83,57 +115,76 @@ impl ToPyObject for ImageY8 {
     }
 }
 
+impl IntoPy<Py<PyAny>> for ImageY8 {
+	fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+		self.to_object(py)
+	}
+
+	fn type_output() -> pyo3::inspect::types::TypeInfo {
+		Self::type_input()
+	}
+}
 
 impl ToPyObject for Mat33 {
-    type ObjectType = PyObject;
-
-    fn to_py_object(&self, py: Python) -> Self::ObjectType {
+    fn to_object(&self, py: Python) -> Py<PyAny> {
         // List of lists
-        let elem = |idx| PyFloat::new(py, self[idx]).into_object();
-        let arr = PyList::new(py, &[
-            PyList::new(py, &[elem((0, 0)), elem((0, 1)), elem((0, 2))]).into_object(),
-            PyList::new(py, &[elem((1, 0)), elem((1, 1)), elem((1, 2))]).into_object(),
-            PyList::new(py, &[elem((2, 0)), elem((2, 1)), elem((2, 2))]).into_object(),
+        let elem = |idx| PyFloat::new_bound(py, self[idx]).to_object(py);
+        let arr = PyList::new_bound(py, &[
+            PyList::new_bound(py, &[elem((0, 0)), elem((0, 1)), elem((0, 2))]).to_object(py),
+            PyList::new_bound(py, &[elem((1, 0)), elem((1, 1)), elem((1, 2))]).to_object(py),
+            PyList::new_bound(py, &[elem((2, 0)), elem((2, 1)), elem((2, 2))]).to_object(py),
         ]);
 
         // Try converting it to a numpy matrix object
-        fn np_mat33(py: Python, raw: &PyList) -> PyResult<PyObject> {
-            let np = py.import("numpy")?;
-            let np_matrix = np.get(py, "asarray")?;
-            np_matrix.call(py, (raw, ), None)
+        fn np_mat33(py: Python, raw: &Bound<PyList>) -> PyResult<Py<PyAny>> {
+            let np = py.import_bound("numpy")?;
+            let np_matrix = np.get_item("asarray")?;
+            let res = np_matrix.call( (raw, ), None)?;
+			Ok(res.to_object(py))
         }
 
         if let Ok(res) = np_mat33(py, &arr) {
             res
         } else {
-            arr.into_object()
+            arr.to_object(py)
         }
     }
 }
 
-impl ToPyObject for Vec3 {
-    type ObjectType = PyObject;
+impl IntoPy<Py<PyAny>> for Mat33 {
+	fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+		self.to_object(py)
+	}
+}
 
-    fn to_py_object(&self, py: Python) -> Self::ObjectType {
+impl ToPyObject for Vec3 {
+    fn to_object(&self, py: Python) -> Py<PyAny> {
         // List of lists
-        let arr = PyList::new(py, &[
-            PyFloat::new(py, self.0).into_object(),
-            PyFloat::new(py, self.1).into_object(),
-            PyFloat::new(py, self.2).into_object(),
+        let arr = PyList::new_bound(py, &[
+            PyFloat::new_bound(py, self.0).to_object(py),
+            PyFloat::new_bound(py, self.1).to_object(py),
+            PyFloat::new_bound(py, self.2).to_object(py),
         ]);
 
         // Try converting it to a numpy matrix object
-        fn np_vec3(py: Python, raw: &PyList) -> PyResult<PyObject> {
-            let np = py.import("numpy")?;
-            let np_matrix = np.get(py, "asarray")?;
-            let np_f64 = np.get(py, "float64")?;
-            np_matrix.call(py, (raw, np_f64), None)
+        fn np_vec3(py: Python, raw: &Bound<PyList>) -> PyResult<Py<PyAny>> {
+            let np = py.import_bound("numpy")?;
+            let np_matrix = np.get_item("asarray")?;
+            let np_f64 = np.get_item("float64")?;
+            let res = np_matrix.call((raw, np_f64), None)?;
+			Ok(res.to_object(py))
         }
 
         if let Ok(res) = np_vec3(py, &arr) {
             res
         } else {
-            arr.into_object()
+            arr.to_object(py)
         }
     }
+}
+
+impl IntoPy<Py<PyAny>> for Vec3 {
+	fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+		self.to_object(py)
+	}
 }

@@ -68,6 +68,7 @@ impl Display for TimeProfileStatistics {
 }
 
 /// Records 
+#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs"))]
 #[derive(Clone, Debug)]
 pub struct TimeProfile {
     /// Start timestamp

@@ -1,7 +1,7 @@
 #[cfg(feature="jni")]
 pub(crate) mod jni;
 
-#[cfg(feature="cpython")]
+#[cfg(feature="python")]
 pub(crate) mod python;
 
 #[cfg(feature="cffi")]

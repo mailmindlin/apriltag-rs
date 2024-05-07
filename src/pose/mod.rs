@@ -344,6 +344,7 @@ pub struct AprilTagDetectionInfo {
 	pub extrinsics: PoseParams,
 }
 
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
 #[derive(Copy, Clone, Debug)]
 pub struct AprilTagPose {
 	/// Rotation matrix
@@ -352,9 +353,12 @@ pub struct AprilTagPose {
 	pub t: Vec3,
 }
 
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
 #[derive(Copy, Clone, Debug)]
 pub struct AprilTagPoseWithError {
+	/// Mean estimated pose
 	pub pose: AprilTagPose,
+	/// Pose error
 	pub error: f64,
 }
 
@@ -389,6 +393,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
 	AprilTagPose { R, t }
 }
 
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
 #[derive(Copy, Clone, Debug)]
 pub struct OrthogonalIterationResult {
 	/// Best pose solution

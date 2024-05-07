@@ -1,81 +1,89 @@
-use std::{sync::Arc, ops::{Deref, DerefMut}, cell::RefCell};
+use std::{sync::Arc, ops::Deref};
 
-use cpython::{exc, py_class, PyErr, PyList, PyObject, PyResult, PyString, PythonObject};
+use pyo3::{exceptions::{PyIndexError, PyTypeError}, pyclass, pymethods, types::PyAnyMethods, Bound, PyAny, PyErr, PyResult};
 use crate::{
     AprilTagDetection,
     Detections as ATDetections, util::math::mat::Mat33
 };
 
-py_class!(pub class Detections |py| {
-    data raw: Arc<ATDetections>;
+#[pyclass(frozen, module="apriltag_rs")]
+pub(super) struct Detections(pub(super) Arc<ATDetections>);
 
-    @property def nquads(&self) -> PyResult<u32> {
-        let detections = self.raw(py);
-        Ok(detections.nquads)
+#[pymethods]
+impl Detections {
+	#[getter]
+    fn nquads(&self) -> u32 {
+        self.0.nquads
     }
 
-    @property def detections(&self) -> PyResult<PyList> {
-        let detections = self.raw(py);
-        let mut py_objects = vec![];
-        for i in 0..detections.detections.len() {
-            let obj = Detection::create_instance(py, DetectionRef::Indexed(detections.clone(), i))?;
-            py_objects.push(obj.into_object());
+	#[getter]
+    fn detections(&self) -> Vec<Detection> {
+        let mut res = vec![];
+        for i in 0..self.0.detections.len() {
+            res.push(Detection { detection: DetectionRef::Indexed(self.0.clone(), i) });
         }
 
-        Ok(PyList::new(py, &py_objects))
+        res
     }
 
-    @property def time_profile(&self) -> PyResult<super::debug::TimeProfile> {
-        let data = self.raw(py);
-        super::debug::TimeProfile::create_instance(py, data.tp.clone())
+	#[getter]
+    fn time_profile(&self) -> super::debug::TimeProfile {
+        self.0.tp.clone()
     }
 
-    def __len__(&self) -> PyResult<usize> {
-        let data = self.raw(py);
-        Ok(data.detections.len())
+	/// Number of detections
+    fn __len__(&self) -> usize {
+        self.0.detections.len()
     }
 
-    def __getitem__(&self, key: PyObject) -> PyResult<PyObject> {
-        let data = self.raw(py);
-        if let Ok(idx) = key.extract::<isize>(py) {
+    fn __getitem__(&self, key: &Bound<PyAny>) -> PyResult<Detection> {
+        let data = &self.0;
+        if let Ok(idx) = key.extract::<isize>() {
             let idx_res = if idx > 0 { idx } else { data.detections.len() as isize - idx };
             if 0 <= idx_res && (idx_res as usize) < data.detections.len() {
-                let res = Detection::create_instance(py, DetectionRef::Indexed(data.clone(), idx_res as usize))?;
-                Ok(res.into_object())
+                Ok(Detection { detection: DetectionRef::Indexed(data.clone(), idx_res as usize) })
             } else {
-                Err(PyErr::new::<exc::IndexError, _>(py, "index out of range"))
+                Err(PyErr::new::<PyIndexError, _>(format!("index {idx} out of range")))
             }
         } else {
-            Err(PyErr::new::<exc::TypeError, _>(py, "unexpected key type"))
+            Err(PyErr::new::<PyTypeError, _>("unexpected key type"))
         }
     }
 
-    def __iter__(&self) -> PyResult<DetectionsIter> {
-        DetectionsIter::create_instance(py, self.raw(py).clone(), RefCell::new(0))
+    fn __iter__(&self) -> PyResult<DetectionsIter> {
+		Ok(DetectionsIter {
+			detections: self.0.clone(),
+			index: 0,
+		})
     }
 
-    def __repr__(&self) -> PyResult<String> {
-        Ok(format!("{:?}", self.raw(py).as_ref()))
+    fn __repr__(&self) -> String {
+		format!("{:?}", self.0.as_ref())
     }
-});
+}
 
-py_class!(pub class DetectionsIter |py| {
-    data detections: Arc<ATDetections>;
-    data index: RefCell<usize>;
-    
-    def __next__(&self) -> PyResult<Option<Detection>> {
-        let detections = self.detections(py);
-        let mut index = self.index(py).borrow_mut();
-        let index = index.deref_mut();
+#[pyclass(module="apriltag_rs")]
+pub(super) struct DetectionsIter {
+	detections: Arc<ATDetections>,
+	index: usize,
+}
+
+#[pymethods]
+impl DetectionsIter {
+	fn __next__(&mut self) -> PyResult<Option<Detection>> {
+        let detections = &self.detections;
+        let index = &mut self.index;
         if *index >= detections.detections.len() {
             Ok(None)
         } else {
-            let result = Detection::create_instance(py, DetectionRef::Indexed(detections.clone(), *index))?;
+			let result = Detection {
+				detection: DetectionRef::Indexed(detections.clone(), *index),
+			};
             *index += 1;
             Ok(Some(result))
         }
     }
-});
+}
 
 pub enum DetectionRef {
     // Owned(Box<ApriltagDetection>),
@@ -105,64 +113,72 @@ impl core::fmt::Debug for DetectionRef {
     }
 }
 
-impl Detection {
-    pub(super) fn detection_ref<'a>(&'a self, py: cpython::Python<'a>) -> &'a AprilTagDetection {
-        self.detection(py).deref()
-    }
+// impl Detection {
+//     pub(super) fn detection_ref<'a>(&'a self, py: Python<'a>) -> &'a AprilTagDetection {
+//         self.detection(py).deref()
+//     }
+// }
+
+#[pyclass(frozen, module="apriltag_rs")]
+pub(super) struct Detection {
+	pub(super) detection: DetectionRef,
 }
 
-py_class!(pub class Detection |py| {
-    data detection: DetectionRef;
-
-    @property def tag_id(&self) -> PyResult<usize> {
-        let det = self.detection(py);
-        Ok(det.id)
+#[pymethods]
+impl Detection {
+	#[getter]
+    fn tag_id(&self) -> usize {
+        self.detection.id
     }
 
-    @property def family(&self) -> PyResult<super::PyAprilTagFamily> {
-        let det = self.detection(py);
-        super::PyAprilTagFamily::create_instance(py, RefCell::new(det.family.clone()))
+    #[getter]
+    fn family(&self) -> PyResult<super::PyAprilTagFamily> {
+        let det = &self.detection;
+        Ok(super::PyAprilTagFamily {
+			family: det.family.clone()
+		})
     }
 
-    @property def tag_family(&self) -> PyResult<PyString> {
-        let det = self.detection(py);
-        let name = PyString::new(py, &det.family.name);
-        Ok(name)
+    #[getter]
+    fn tag_family(&self) -> String {
+        self.detection.family.name.clone().into_owned()
     }
 
-    @property def hamming(&self) -> PyResult<usize> {
-        let det = self.detection(py);
-        Ok(det.hamming as usize)
+    #[getter]
+    fn hamming(&self) -> u16 {
+        self.detection.hamming
     }
 
-    @property def decision_margin(&self) -> PyResult<f32> {
-        let det = self.detection(py);
-        Ok(det.decision_margin)
+    #[getter]
+    fn decision_margin(&self) -> f32 {
+        self.detection.decision_margin
     }
 
-    @property def center(&self) -> PyResult<(f64, f64)> {
-        let det = self.detection(py);
+    #[getter]
+    fn center(&self) -> PyResult<(f64, f64)> {
+        let det = &self.detection;
         Ok((det.center.x(), det.center.y()))
     }
 
-    @property def corners(&self) -> PyResult<Vec<(f64, f64)>> {
-        let det = self.detection(py);
+    #[getter]
+    fn corners(&self) -> PyResult<Vec<(f64, f64)>> {
+        let det = &self.detection;
         let res = det.corners.as_array().map(|p| (p[0], p[1]));
         Ok(res.to_vec())
     }
 
-    @property def H(&self) -> PyResult<Mat33> {
-        let det = self.detection(py);
-        Ok(det.H)
+    #[getter]
+    fn H(&self) -> Mat33 {
+        self.detection.H
     }
 
-    def __str__(&self) -> PyResult<String> {
-        let det = self.detection(py);
+    fn __str__(&self) -> PyResult<String> {
+        let det = &self.detection;
         Ok(format!("AprilTagDetection({} #{})", &det.family.name, det.id))
     }
 
-    def __repr__(&self) -> PyResult<String> {
-        let det = self.detection(py);
+    fn __repr__(&self) -> PyResult<String> {
+        let det = &self.detection;
         Ok(format!("{det:?}"))
     }
-});
+}

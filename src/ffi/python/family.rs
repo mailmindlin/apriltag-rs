@@ -1,70 +1,75 @@
-use std::{cell::RefCell, sync::Arc, borrow::Cow};
+use std::{sync::Arc, borrow::Cow};
 
-use cpython::{py_class, PyString, PyResult, PyObject, PythonObject, exc, PyErr, Python};
+use pyo3::{exceptions::{PyNotImplementedError, PyValueError}, pyclass, pymethods, Bound, PyErr, PyResult};
+
 use crate::{AprilTagFamily as ATFamily, util::ImageY8};
 
-py_class!(pub class AprilTagFamily |py| {
-    data family: RefCell<Arc<ATFamily>>;
+#[pyclass(module="apriltag_rs")]
+pub(super) struct AprilTagFamily {
+	pub(super) family: Arc<ATFamily>,
+}
 
-    @staticmethod def names() -> PyResult<Vec<String>> {
+#[pymethods]
+impl AprilTagFamily {
+	#[staticmethod]
+    fn names() -> PyResult<Vec<String>> {
         Ok(ATFamily::names().into_iter().map(|s| String::from(s)).collect())
     }
 
     /// Create AprilTag family for name
-    @staticmethod def for_name(name: PyString) -> PyResult<PyObject> {
-        let name = name.to_string(py)?;
-        let family = match ATFamily::for_name(&name) {
-            Some(family) => family,
-            None => return Err(PyErr::new::<exc::ValueError, _>(py, format!("Unknown AprilTag family '{name}'"))),
-        };
-        let x = Self::create_instance(py, RefCell::new(family))?;
-        Ok(x.into_object())
+	#[staticmethod]
+    pub(super) fn for_name(name: &str) -> PyResult<Self> {
+        match ATFamily::for_name(&name) {
+            Some(family) => Ok(Self { family }),
+            None => Err(PyErr::new::<PyValueError, _>(format!("Unknown AprilTag family '{name}'"))),
+        }
     }
 
-    @property def width_at_border(&self) -> PyResult<u32> {
-        let family = self.family(py).borrow();
-        Ok(family.width_at_border)
+    #[getter]
+	fn width_at_border(&self) -> PyResult<u32> {
+        Ok(self.family.width_at_border)
     }
 
-    @property def total_width(&self) -> PyResult<u32> {
-        let family = self.family(py).borrow();
-        Ok(family.total_width)
+    #[getter]
+	fn total_width(&self) -> PyResult<u32> {
+        Ok(self.family.total_width)
     }
 
-    @property def reversed_border(&self) -> PyResult<bool> {
-        let family = self.family(py).borrow();
-        Ok(family.reversed_border)
+    #[getter]
+	fn reversed_border(&self) -> bool {
+        self.family.reversed_border
     }
 
-    @property def min_hamming(&self) -> PyResult<u32> {
-        let family = self.family(py).borrow();
-        Ok(family.min_hamming)
+    #[getter]
+	fn min_hamming(&self) -> u32 {
+        self.family.min_hamming
     }
 
     /// Human-readable name for family
-    @property def name(&self) -> PyResult<PyString> {
-        let family = self.family(py).borrow();
-        Ok(PyString::new(py, &family.name))
+    #[getter]
+	fn name(&self) -> String {
+		self.family.name.clone().into_owned()
     }
 
     /// The bit locations
-    @property def bits(&self) -> PyResult<Vec<(u32, u32)>> {
-        let family = self.family(py).borrow();
-        Ok(family.bits.clone())
+    #[getter]
+	fn bits(&self) -> PyResult<Vec<(u32, u32)>> {
+        Ok(self.family.bits.clone())
     }
 
-    @property def codes(&self) -> PyResult<Vec<u64>> {
-        let family = self.family(py).borrow();
-        Ok(family.codes.clone())
+    #[getter]
+	fn codes(&self) -> PyResult<Vec<u64>> {
+        Ok(self.family.codes.clone())
     }
 
-    @codes.setter def set_codes(&self, value: Option<Vec<u64>>) -> PyResult<()> {
+	#[setter]
+    fn set_codes(&mut self, value: Option<Vec<u64>>) -> PyResult<()> {
         let value = match value {
             Some(value) => value,
-            None => return Err(PyErr::new::<exc::NotImplementedError, _>(py, "Cannot delete AprilTagFamily.codes")),
+            None => return Err(PyErr::new::<PyNotImplementedError, _>("Cannot delete AprilTagFamily.codes")),
         };
 
-        let mut family = self.family(py).borrow_mut();
+        let family = &mut self.family;
 
         // Create mutated family
         let mut new_family = family.as_ref().clone();
@@ -77,24 +82,23 @@ py_class!(pub class AprilTagFamily |py| {
         Ok(())
     }
 
-    def to_image(&self, idx: usize) -> PyResult<ImageY8> {
-        let family = self.family(py).borrow();
-        let img = family.to_image(idx);
+    fn to_image(&self, idx: usize) -> PyResult<ImageY8> {
+        let img = self.family.to_image(idx);
 
         Ok(img)
     }
 
-    def __str__(&self) -> PyResult<String> {
-        Ok(format!("AprilTagFamily {{ name = '{}' .. }}", self.family(py).borrow().name))
+    fn __str__(&self) -> String {
+        format!("AprilTagFamily {{ name = '{}' .. }}", self.family.name)
     }
 
-    def __repr__(&self) -> PyResult<String> {
-        self.__str__(py)
+    fn __repr__(&self) -> String {
+        self.__str__()
     }
-});
+}
 
 impl AprilTagFamily {
-    pub(super) fn raw_family(&self, py: Python) -> Arc<ATFamily> {
-        self.family(py).borrow().clone()
+    pub(super) fn raw_family(self_: &Bound<Self>) -> PyResult<Arc<ATFamily>> {
+        Ok(self_.try_borrow()?.family.clone())
     }
 }

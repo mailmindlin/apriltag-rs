@@ -1,112 +1,111 @@
-use cpython::{exc, py_class, PyErr, PyObject, PyResult, PythonObject};
+use pyo3::{marker::Ungil, pyclass, pymethods, types::PyList, Bound, FromPyObject, IntoPy, Py, PyAny, PyResult};
 
-use crate::{pose, util::math::{mat::Mat33, Vec3}};
+use crate::{pose, AprilTagDetection};
+pub(super) use crate::pose::{AprilTagPose, OrthogonalIterationResult, AprilTagPoseWithError};
 
-py_class!(pub class PoseEstimator |py| {
-	data config: pose::PoseParams;
-	def __new__(_cls, cx: f64, cy: f64, fx: f64, fy: f64, tagsize: f64) -> PyResult<Self> {
-		Self::create_instance(py, pose::PoseParams {
-			cx, cy, fx, fy, tagsize
+#[pyclass(frozen, module="apriltag_rs")]
+pub(super) struct PoseEstimator {
+	config: pose::PoseParams,
+}
+
+#[derive(FromPyObject)]
+enum DetectionOrDetections<'py> {
+    Detection(Bound<'py, super::PyDetection>),
+	Detections(Bound<'py, super::PyDetections>),
+}
+
+impl<'py> DetectionOrDetections<'py> {
+	fn map<R: Ungil + Send, F>(&self, callback: F) -> PyResult<Py<PyAny>>
+		where
+			Vec<R>: Ungil,
+			F: Fn(&AprilTagDetection) -> R,
+			F: Send + Ungil,
+			R: IntoPy<Py<PyAny>>,
+	{
+		let obj = match self {
+			Self::Detection(det) => {
+				let dr: &AprilTagDetection = &det.get().detection;
+				let res = det.py().allow_threads(move || callback(dr));
+				res.into_py(det.py())
+			},
+			Self::Detections(dets) => {
+				let dets_list = &dets.get().0.detections;
+				let py = dets.py();
+				let res = py.allow_threads(move || {
+					dets_list
+						.iter()
+						.map(|it| callback(it))
+						.collect::<Vec<_>>()
+				});
+				let items = res.into_iter()
+					.map(|it| it.into_py(py));
+				PyList::new_bound(dets.py(), items).unbind().into_any()
+			},
+		};
+		Ok(obj)
+	}
+}
+
+#[pymethods]
+impl PoseEstimator {
+	#[new]
+	fn __new__(cx: f64, cy: f64, fx: f64, fy: f64, tagsize: f64) -> PyResult<Self> {
+		Ok(Self {
+			config: pose::PoseParams {
+				cx, cy, fx, fy, tagsize
+			}
 		})
 	}
 
-	def estimate_pose_for_tag_homography(&self, detection: PyObject) -> PyResult<PyObject> {
-		if let Ok(detection) = detection.extract::<super::PyDetection>(py) {
+	fn estimate_pose_for_tag_homography(&self, detection: DetectionOrDetections) -> PyResult<Py<PyAny>> {
+		let config = &self.config;
+		detection.map(|detection| {
 			// Estimate single pose
-			let config = self.config(py);
-			let at_detection = detection.detection_ref(py);
-			let pose = py.allow_threads(|| pose::estimate_pose_for_tag_homography(at_detection, config));
-			Ok(AprilTagPose::create_instance(py, pose)?.into_object())
-		// } else if let Ok(detections) = detection.extract::<super::PyDetections>(py) {
-			// Multiple poses
-
-		} else {
-			Err(PyErr::new::<exc::ValueError, _>(py, format!("Unknown argument type")))
-		}
+			pose::estimate_pose_for_tag_homography(detection, config)
+		})
 	}
 
-	def estimate_tag_pose_orthogonal_iteration(&self, detection: &super::PyDetection, n_iters: usize = 50) -> PyResult<PyObject> {
-		// Estimate single pose
-		let config = self.config(py);
-		let at_detection = detection.detection_ref(py);
-		let pose = py.allow_threads(|| pose::estimate_tag_pose_orthogonal_iteration(at_detection, config, n_iters));
-		Ok(OrthogonalIterationResult::create_instance(py, pose)?.into_object())
+	#[pyo3(signature=(detection, n_iters = 50))]
+	fn estimate_tag_pose_orthogonal_iteration(&self, detection: DetectionOrDetections, n_iters: usize) -> PyResult<Py<PyAny>> {
+		let config = &self.config;
+		detection.map(|detection| {
+			pose::estimate_tag_pose_orthogonal_iteration(detection, config, n_iters)
+		})
 	}
 
 	/// Estimate tag pose, returning best option
-	def estimate_tag_pose(&self, detection: &super::PyDetection) -> PyResult<AprilTagPoseWithError> {
-		let config = self.config(py);
-		let at_detection = detection.detection_ref(py);
-		let pose = py.allow_threads(|| pose::estimate_tag_pose(at_detection, config));
-		AprilTagPoseWithError::create_instance(py, pose)
+	fn estimate_tag_pose(&self, detection: DetectionOrDetections) -> PyResult<Py<PyAny>> {
+		let config = &self.config;
+		detection.map(|detection| {
+			pose::estimate_tag_pose(detection, config)
+		})
 	}
-});
+}
 
-py_class!(pub class OrthogonalIterationResult |py| {
-	data inner: pose::OrthogonalIterationResult;
-
-	/// Best pose solution
-	@property
-	def solution1(&self) -> PyResult<AprilTagPoseWithError> {
-		let solution1 = self.inner(py).solution1;
-		AprilTagPoseWithError::create_instance(py, solution1)
-	}
-
-	/// Second-best pose solution
-	@property
-    def solution2(&self) -> PyResult<Option<AprilTagPoseWithError>> {
-        match self.inner(py).solution2 {
-			Some(solution2) => Ok(Some(AprilTagPoseWithError::create_instance(py, solution2)?)),
-			None => Ok(None),
-		}
-    }
-
-	def __len__(&self) -> PyResult<usize> {
-		let len = if self.inner(py).solution2.is_some() { 2 } else { 1 };
-		Ok(len)
+#[pymethods]
+impl OrthogonalIterationResult {
+	fn __len__(&self) -> usize {
+		let len = if self.solution2.is_some() { 2 } else { 1 };
+		len
 	}
 
 	//TODO: iter
 
-	def __repr__(&self) -> PyResult<String> {
-		Ok(format!("{:?}", self.inner(py)))
+	fn __repr__(&self) -> String {
+		format!("{self:?}")
 	}
-});
+}
 
-py_class!(pub class AprilTagPoseWithError |py| {
-	data inner: pose::AprilTagPoseWithError;
-	/// Get mean estimated pose
-	@property
-	def pose(&self) -> PyResult<AprilTagPose> {
-		AprilTagPose::create_instance(py, self.inner(py).pose)
+#[pymethods]
+impl AprilTagPoseWithError {
+	fn __repr__(&self) -> String {
+		format!("{self:?}")
 	}
+}
 
-	/// Get pose error
-	@property
-	def error(&self) -> PyResult<f64> {
-		Ok(self.inner(py).error)
+#[pymethods]
+impl AprilTagPose {
+	fn __repr__(&self) -> String {
+		format!("{self:?}")
 	}
-
-	def __repr__(&self) -> PyResult<String> {
-		Ok(format!("{:?}", self.inner(py)))
-	}
-});
-
-py_class!(pub class AprilTagPose |py| {
-	data inner: pose::AprilTagPose;
-	/// 3x3 rotation matrix
-	@property
-	def R(&self) -> PyResult<Mat33> {
-		Ok(self.inner(py).R)
-	}
-
-	/// Translation vector
-	@property
-	def t(&self) -> PyResult<Vec3> {
-		Ok(self.inner(py).t)
-	}
-
-	def __repr__(&self) -> PyResult<String> {
-		Ok(format!("{:?}", self.inner(py)))
-	}
-});
+}

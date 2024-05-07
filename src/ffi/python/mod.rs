@@ -5,56 +5,66 @@ mod detector;
 mod shim;
 mod family;
 mod pose;
+mod timeout;
+mod generate_pyi;
 
-use cpython::py_module_initializer;
+use pyo3::{pymodule, PyResult};
+use pyo3::prelude::*;
 
-pub use debug::{
+use debug::{
     TimeProfile as PyTimeProfile,
     TimeProfileIter,
+	TimeProfileEntry,
 };
-pub use detection::{
+use detection::{
     Detections as PyDetections,
     Detection as PyDetection,
     DetectionsIter as PyDetectionsIter,
 };
-pub use detector::{
+use detector::{
     DetectorConfig as PyDetectorConfig,
     QuadThresholdParams as PyQuadThesholdParams,
     DetectorBuilder as PyDetectorBuilder,
     Detector as PyDetector,
 };
-pub use pose::{
+use pose::{
     PoseEstimator as PyPoseEstimator,
     OrthogonalIterationResult as PyOrthogonalIterationResult,
     AprilTagPoseWithError as PyAprilTagPoseWithError,
     AprilTagPose as PyAprilTagPose,
 };
-pub use family::AprilTagFamily as PyAprilTagFamily;
+use family::AprilTagFamily as PyAprilTagFamily;
 
+#[pymodule]
+#[pyo3(name = "_native")]
+fn apriltag_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // ? -https://github.com/PyO3/maturin/issues/475
+	m.add("__doc__", "This module is implemented in Rust.")?;
 
-py_module_initializer!(apriltag_rs_native, |py, m| {
-    m.add(py, "__doc__", "This module is implemented in Rust.")?;
-    // m.add(py, "sum_as_string", py_fn!(py, sum_as_string_py(a: i64, b:i64)))?;
-    m.add_class::<PyTimeProfile>(py)?;
-    m.add_class::<TimeProfileIter>(py)?;
-
-    // Detections
-    m.add_class::<PyDetections>(py)?;
-    m.add_class::<PyDetectionsIter>(py)?;
-    m.add_class::<PyDetection>(py)?;
+	// TimeProfile
+    m.add_class::<PyTimeProfile>()?;
+	m.add_class::<TimeProfileEntry>()?;
+	m.add_class::<TimeProfileIter>()?;
 
     // Detector
-    m.add_class::<PyDetectorConfig>(py)?;
-    m.add_class::<PyQuadThesholdParams>(py)?;
-    m.add_class::<PyDetectorBuilder>(py)?;
-    m.add_class::<PyDetector>(py)?;
+    m.add_class::<PyDetectorConfig>()?;
+    m.add_class::<PyQuadThesholdParams>()?;
+    m.add_class::<PyDetectorBuilder>()?;
+    m.add_class::<PyDetector>()?;
 
-    m.add_class::<PyAprilTagFamily>(py)?;
+	// Detections
+    m.add_class::<PyDetections>()?;
+    m.add_class::<PyDetectionsIter>()?;
+    m.add_class::<PyDetection>()?;
 
-    m.add_class::<PyPoseEstimator>(py)?;
-    m.add_class::<PyOrthogonalIterationResult>(py)?;
-    m.add_class::<PyAprilTagPoseWithError>(py)?;
-    m.add_class::<PyAprilTagPose>(py)?;
+	// Family
+    m.add_class::<PyAprilTagFamily>()?;
+
+	// Pose
+    m.add_class::<PyPoseEstimator>()?;
+    m.add_class::<PyOrthogonalIterationResult>()?;
+    m.add_class::<PyAprilTagPoseWithError>()?;
+    m.add_class::<PyAprilTagPose>()?;
 
     Ok(())
-});
+}
