@@ -308,6 +308,13 @@ impl DetectorConfig {
 
 	/// Should the algorithm be run on a single thread?
 	pub(crate) const fn single_thread(&self) -> bool {
-		self.nthreads <= 1
+		self.nthreads == 1
+	}
+
+	pub(crate) fn nthreads(&self) -> NonZeroUsize {
+		match NonZeroUsize::new(self.nthreads) {
+			Some(v) => v,
+			None => NonZeroUsize::new(rayon::max_num_threads()).expect("rayon::max_num_threads() is zero"),
+		}
 	}
 }
