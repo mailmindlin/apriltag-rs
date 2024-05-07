@@ -6,9 +6,10 @@ setup(
     version="1.0",
     rust_extensions=[
         RustExtension(
-            target="apriltag_rs.apriltag_rs",
-            features=["cpython"],
-            binding=Binding.RustCPython
+            target="apriltag_rs.apriltag_rs_native",
+            features=["cpython", "debug", "wgpu"],
+            binding=Binding.RustCPython,
+            debug=True,
         )
     ],
     packages=["apriltag_rs"],
