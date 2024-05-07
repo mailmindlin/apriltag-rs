@@ -1,8 +1,6 @@
-use std::alloc::AllocError;
-
 use crate::pose::{self, AprilTagDetectionInfo, AprilTagPose, PoseParams};
 
-use super::{matd_ptr, apriltag_detection_t, FFIConvertError, shim::{InPtr, OutPtr, cffi_wrapper, ReadPtr}};
+use super::{apriltag_detection_t, matd_ptr, shim::{cffi_wrapper, param, InPtr, OutPtr, ReadPtr}, FFIConvertError};
 
 
 #[repr(C)]
@@ -41,7 +39,7 @@ pub unsafe extern "C" fn estimate_pose_for_tag_homography<'a>(info: InPtr<'a, ap
         let res = pose::estimate_pose_for_tag_homography(&value.detection, &value.extrinsics);
         drop(info);
 
-        pose.maybe_try_write(res)?;
+        pose.maybe_try_write("pose", res)?;
 
         Ok(())
     })
@@ -58,14 +56,15 @@ pub unsafe extern "C" fn estimate_tag_pose_orthogonal_iteration<'a>(
 ) {
     cffi_wrapper(|| {
         let info: AprilTagDetectionInfo = info.try_read("info")?;
-        let result = pose::estimate_tag_pose_orthogonal_iteration(&info.detection, &info.extrinsics, nIters as usize);
+        let nIters: usize = param::try_read(nIters, "nIters")?;
+        let result = pose::estimate_tag_pose_orthogonal_iteration(&info.detection, &info.extrinsics, nIters);
 
         // Write back to out-params
         err1.maybe_write(result.solution1.error);
-        pose1.maybe_try_write(result.solution1.pose)?;
+        pose1.maybe_try_write("pose1", result.solution1.pose)?;
         if let Some(solution2) = result.solution2 {
             err2.maybe_write(solution2.error);
-            pose2.maybe_try_write(solution2.pose)?;
+            pose2.maybe_try_write("pose2", solution2.pose)?;
         } else {
             err2.maybe_write(f64::INFINITY);
         }
@@ -80,7 +79,7 @@ pub struct apriltag_pose_t {
 }
 
 impl TryFrom<AprilTagPose> for apriltag_pose_t {
-    type Error = AllocError;
+    type Error = FFIConvertError;
     fn try_from(value: AprilTagPose) -> Result<Self, Self::Error> {
         let R = matd_ptr::new(3, 3, value.R.data())?;
         let t = matd_ptr::new(1, 3, &[value.t.0, value.t.1, value.t.2])?;
@@ -93,7 +92,7 @@ pub unsafe extern "C" fn estimate_tag_pose<'a>(info: InPtr<'a, apriltag_detectio
     cffi_wrapper(|| {
         let info: AprilTagDetectionInfo = info.try_read("info")?;
         let solution = pose::estimate_tag_pose(&info.detection, &info.extrinsics);
-        pose.maybe_try_write(solution.pose)?;
+        pose.maybe_try_write("pose", solution.pose)?;
         Ok(solution.error)
     })
 }

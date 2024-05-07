@@ -8,7 +8,7 @@ mod matd;
 mod debug;
 mod shim;
 
-use std::{ffi::CString, num::TryFromIntError};
+use std::{alloc::AllocError, array::TryFromSliceError, ffi::CString, num::TryFromIntError};
 
 use libc::c_char;
 
@@ -53,11 +53,29 @@ pub use debug::{
 };
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum FFIConvertError {
+    #[error("Invalid conversion from null pointer")]
     NullPointer,
+    #[error("Field overflow")]
     FieldOverflow,
+    #[error("Allocation failure")]
+    AllocError(#[from] AllocError),
+    #[error("{0}")]
     Other(String),
+}
+
+impl FFIConvertError {
+    fn check_value<S, R>(value: S) -> Result<R, Self> where R: TryFrom<S>, FFIConvertError: From<<R as TryFrom<S>>::Error> {
+        let res = <R as TryFrom<S>>::try_from(value)?;
+        Ok(res)
+    }
+}
+
+impl From<TryFromSliceError> for FFIConvertError {
+    fn from(_value: TryFromSliceError) -> Self {
+        Self::FieldOverflow
+    }
 }
 
 impl From<TryFromIntError> for FFIConvertError {

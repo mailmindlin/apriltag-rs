@@ -1,8 +1,10 @@
 use core::slice;
-use std::{sync::Arc, alloc::AllocError, ptr, ops::Deref, ffi::CStr};
+use std::ptr::NonNull;
+use std::{sync::Arc, ops::Deref, ffi::CStr};
 
 use crate::AprilTagFamily;
 use super::super::util::{drop_array, AtomicManagedPtr};
+use super::shim::{cffi_wrapper, CFFIError};
 use super::{drop_str, FFIConvertError};
 
 use libc::{c_int, c_void, c_char};
@@ -39,14 +41,16 @@ pub struct apriltag_family_t {
 }
 
 impl apriltag_family_t {
-    pub(super) fn wrap(base: Arc<AprilTagFamily>) -> Result<Arc<Self>, AllocError> {
-        let ncodes: u32 = base.codes.len().try_into().expect("ncodes overflow");
+    pub(super) fn wrap(base: Arc<AprilTagFamily>) -> Result<Arc<Self>, FFIConvertError> {
+        let ncodes: u32 = FFIConvertError::check_value(base.codes.len())?;
         let codes = base.codes.deref().as_ptr();
 
         let (bit_x, bit_y) = base.split_bits();
         debug_assert_eq!(bit_x.len(), bit_y.len());
 
-        Arc::try_new(apriltag_family_t {
+        let name = base.name.as_ptr() as *const c_char;
+
+        let res = Arc::try_new(apriltag_family_t {
             ncodes,
             codes,
             width_at_border: base.width_at_border.try_into().expect("width_at_border overflow"),
@@ -59,9 +63,10 @@ impl apriltag_family_t {
 
             h: base.min_hamming.try_into().expect("h overflow"),
             // name: base.name.as_ptr() as *const c_char,//TODO: fixme
-            name: ptr::null(),
+            name,
             ximpl: AtomicManagedPtr::from(base),
-        })
+        })?;
+        Ok(res)
     }
 
     pub(super) fn as_arc(&self) -> Arc<AprilTagFamily> {
@@ -77,56 +82,69 @@ impl apriltag_family_t {
 impl Drop for apriltag_family_t {
     fn drop(&mut self) {
         if self.ximpl.is_null() {
+            // Drop unmanaged data
             drop_str(&mut self.name);
             drop_array(&mut self.codes, self.ncodes as usize);
         } else {
-            self.ximpl.take();
+            drop(self.ximpl.take());
         }
+        // Drop bit arrays
         drop_array(&mut self.bit_x, self.nbits as usize);
         drop_array(&mut self.bit_y, self.nbits as usize);
         assert!(self.ximpl.is_null());
     }
 }
 
-fn ffi_tag_create(raw: AprilTagFamily) -> *const apriltag_family_t {
+fn ffi_tag_create(raw: AprilTagFamily) -> Result<Option<NonNull<apriltag_family_t>>, CFFIError> {
     let arc = Arc::new(raw);
-    let wrapped = apriltag_family_t::wrap(arc).unwrap();
-    Arc::into_raw(wrapped)
+    let wrapped = apriltag_family_t::wrap(arc)?;
+    let ptr_wrapped = Arc::into_raw(wrapped);
+    Ok(NonNull::new(ptr_wrapped as *mut apriltag_family_t))
 }
 
 unsafe fn ffi_tag_destroy(fam: *const apriltag_family_t) {
     if !fam.is_null() {
-        Arc::from_raw(fam);
+        let value = Arc::from_raw(fam);
+        drop(value);
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn tag16h5_create() -> *const apriltag_family_t {
-    ffi_tag_create(crate::families::tag16h5_create())
+pub unsafe extern "C" fn tag16h5_create() -> Option<NonNull<apriltag_family_t>> {
+    cffi_wrapper(|| {
+        ffi_tag_create(crate::families::tag16h5_create())
+    })
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn tag16h5_destroy(fam: *const apriltag_family_t) {
     ffi_tag_destroy(fam)
 }
 #[no_mangle]
-pub unsafe extern "C" fn tag25h9_create() -> *const apriltag_family_t {
-    ffi_tag_create(crate::families::tag16h5_create())
+pub unsafe extern "C" fn tag25h9_create() -> Option<NonNull<apriltag_family_t>> {
+    cffi_wrapper(|| {
+        ffi_tag_create(crate::families::tag25h9_create())
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn tag25h9_destroy(fam: *const apriltag_family_t) {
     ffi_tag_destroy(fam)
 }
 #[no_mangle]
-pub unsafe extern "C" fn tag36h10_create() -> *const apriltag_family_t {
-    ffi_tag_create(crate::families::tag16h5_create())
+pub unsafe extern "C" fn tag36h10_create() -> Option<NonNull<apriltag_family_t>> {
+    cffi_wrapper(|| {
+        ffi_tag_create(crate::families::tag36h10_create())
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn tag36h10_destroy(fam: *const apriltag_family_t) {
     ffi_tag_destroy(fam)
 }
 #[no_mangle]
-pub unsafe extern "C" fn tag36h11_create() -> *const apriltag_family_t {
-    ffi_tag_create(crate::families::tag16h5_create())
+pub unsafe extern "C" fn tag36h11_create() -> Option<NonNull<apriltag_family_t>> {
+    cffi_wrapper(|| {
+        ffi_tag_create(crate::families::tag36h11_create())
+    })
 }
 #[no_mangle]
 pub unsafe extern "C" fn tag36h11_destroy(fam: *const apriltag_family_t) {

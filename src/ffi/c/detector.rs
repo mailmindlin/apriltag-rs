@@ -1,12 +1,11 @@
 #![allow(non_camel_case_types)]
-use core::slice;
-use std::{ffi::c_float, sync::Arc, ops::Deref, collections::HashMap};
+use std::{collections::HashMap, ffi::c_float, sync::{Arc, RwLock}};
 use crate::{AprilTagDetector, util::{image::ImageY8, geom::{Point2D, quad::Quadrilateral}, math::mat::Mat33}, detector::{DetectorBuilder, DetectorBuildError}, AprilTagQuadThreshParams, AprilTagFamily, ffi::util::AtomicManagedPtr, AprilTagDetection};
 use errno::{set_errno, Errno};
 use libc::{c_int, c_double};
 
-use parking_lot::RwLock;
-use super::{zarray::ZArray, img_u8_t::image_u8_t, family::apriltag_family_t, matd_ptr, timeprofile_t, FFIConvertError};
+// use parking_lot::RwLock;
+use super::{family::apriltag_family_t, img_u8_t::image_u8_t, matd_ptr, shim::{cffi_wrapper, param, CFFIError, InPtr, ReadPtr}, timeprofile_t, zarray::ZArray, FFIConvertError};
 use super::super::util::{drop_boxed_mut, ManagedPtr};
 
 enum LazyDetector {
@@ -59,11 +58,11 @@ struct ExtraData {
 }
 
 impl ExtraData {
-    fn update(&self, callback: impl FnOnce(&mut DetectorBuilder) -> ()) {
-        let mut detector_wlock = self.detector.write();
+    fn update<R>(&self, callback: impl FnOnce(&mut DetectorBuilder) -> R) -> R {
+        let mut detector_wlock = self.detector.write().unwrap();//TODO: fixme
 
         let builder = detector_wlock.as_builder();
-        callback(builder);
+        callback(builder)
     }
 
     fn detector<'a, R>(&'a self, callback: impl FnOnce(&AprilTagDetector) -> R) -> Result<R, DetectorBuildError> {
@@ -158,7 +157,7 @@ impl apriltag_detector_t {
             },
         }
     }
-    fn update(&mut self, callback: impl FnOnce(&mut DetectorBuilder) -> ()) {
+    fn update<R>(&self, callback: impl FnOnce(&mut DetectorBuilder) -> R) -> R {
         self.wp.update(|builder| {
             builder.config.nthreads = self.nthreads as _;
             builder.config.quad_decimate = self.quad_decimate;
@@ -168,8 +167,8 @@ impl apriltag_detector_t {
             builder.config.debug = self.debug;
             builder.config.qtp = self.qtp;
 
-            callback(builder);
-        });
+            callback(builder)
+        })
     }
 }
 
@@ -218,23 +217,22 @@ impl TryFrom<&apriltag_detection_t> for AprilTagDetection {
             .ok_or(FFIConvertError::NullPointer)?
             .as_arc();
 
-        if value.H.ncols().cloned() != Some(3) && value.H.nrows().cloned() != Some(3) {
+        let id = FFIConvertError::check_value(value.id)?;
+        let hamming = FFIConvertError::check_value(value.hamming)?;
+        let decision_margin = value.decision_margin;
+
+        if value.H.ncols() != 3 && value.H.nrows() != 3 {
             return Err(FFIConvertError::FieldOverflow);
         }
-        let H = match value.H.data() {
-            Some(ptr) => {
-                let slice = unsafe { slice::from_raw_parts(ptr, 9) };
-                let arr = <[f64; 9]>::try_from(slice)
-                    .unwrap();
-                Mat33::of(arr)
-            },
-            None => return Err(FFIConvertError::NullPointer),
+        let H = {
+            let data = <[f64; 9]>::try_from(value.H.data())?;
+            Mat33::of(data)
         };
         Ok(Self {
             family,
-            id: value.id as _,
-            hamming: value.hamming as _,
-            decision_margin: value.decision_margin,
+            id,
+            hamming,
+            decision_margin,
             H,
             center: Point2D::of(value.c[0], value.c[1]),
             corners: Quadrilateral::from_array(&value.p),
@@ -245,29 +243,34 @@ impl TryFrom<&apriltag_detection_t> for AprilTagDetection {
 /// don't forget to add a family!
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detector_create() -> ManagedPtr<Box<apriltag_detector_t>> {
-    ManagedPtr::from(Box::new(apriltag_detector_t::new()))
+    cffi_wrapper(|| {
+        let detector = apriltag_detector_t::new();
+        let boxed = Box::new(detector);
+        let managed = ManagedPtr::from(boxed);
+        Ok(managed)
+    })
 }
 
 /// add a family to the apriltag detector. caller still "owns" the family.
 /// a single instance should only be provided to one apriltag detector instance.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: *mut apriltag_detector_t, fam: ManagedPtr<Arc<apriltag_family_t>>, bits_corrected: c_int) {
-    let detector = td.as_mut()
-        .expect("Null parameter: td");
-    let fam = fam.borrow()
-        .expect("Null parameter: fam");
-    let bits_corrected = bits_corrected
-        .try_into()
-        .expect("Invalid value for bits_corrected");
-
-    detector.update(|b| b.add_family_bits(fam.as_arc(), bits_corrected).expect("Error adding family"));
+pub unsafe extern "C" fn apriltag_detector_add_family_bits(td: InPtr<apriltag_detector_t>, fam: ManagedPtr<Arc<apriltag_family_t>>, bits_corrected: c_int) {
+    cffi_wrapper(|| {
+        let fam = fam.borrow().ok_or(CFFIError::NullArgument("fam"))?;
+        let detector = td.try_ref("td")?;
+        
+        let bits_corrected = param::try_read(bits_corrected, "bits_corrected")?;
+    
+        detector.update(|b| b.add_family_bits(fam.as_arc(), bits_corrected))?;
+        Ok(())
+    });
 }
 
 /// Tunable, but really, 2 is a good choice. Values of >=3
 /// consume prohibitively large amounts of memory, and otherwise
 /// you want the largest value possible.
 #[no_mangle]
-pub unsafe extern "C" fn apriltag_detector_add_family(td: *mut apriltag_detector_t, fam: ManagedPtr<Arc<apriltag_family_t>>) {
+pub unsafe extern "C" fn apriltag_detector_add_family(td: InPtr<apriltag_detector_t>, fam: ManagedPtr<Arc<apriltag_family_t>>) {
     apriltag_detector_add_family_bits(td, fam, 2)
 }
 

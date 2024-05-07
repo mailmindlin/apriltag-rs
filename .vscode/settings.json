@@ -4,5 +4,7 @@
     },
     "files.watcherExclude": {
         "**/target/**": true
-    }
+    },
+    "editor.insertSpaces": false,
+    "editor.detectIndentation": false
 }
