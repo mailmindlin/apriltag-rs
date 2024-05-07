@@ -67,7 +67,6 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &impl UnionFindStatic
     use rand::{rngs::StdRng, SeedableRng};
 
     let mut d = ImageBuffer::<Rgb<u8>>::zeroed(w, h);
-    let mut rng = StdRng::seed_from_u64(325);
 
     let mut colors = calloc::<Option<Rgb<u8>>>(d.num_pixels());
     for ((x, y), dst) in d.enumerate_pixels_mut() {
