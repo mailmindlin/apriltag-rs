@@ -7,14 +7,14 @@ mod arm;
 #[const_trait]
 pub(crate) trait Vec2Builder: Sized {
     /// Create new zero vector
-    fn zero() -> Self {
-        Self::dup(0.)
-    }
+    fn zero() -> Self;
+    //     Self::dup(0.)
+    // }
 
     /// Create vector with both x and y having the same value
-    fn dup(value: f64) -> Self {
-        Self::of(value, value)
-    }
+    fn dup(value: f64) -> Self;
+    //     Self::of(value, value)
+    // }
 
     /// Create vector with values
     fn of(x: f64, y: f64) -> Self;
