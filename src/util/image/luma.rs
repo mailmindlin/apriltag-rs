@@ -91,6 +91,10 @@ fn convolve(src: &[u8], dst: &mut [u8], krn: &[u8], need_copy: bool) {
     for i in 0..(src.len() - krn.len()) {
         let mut acc = 0;
 
+        // Bias with 255/2 for better rounding (not correct wrt. libapriltag)
+        #[cfg(not(feature="compare_reference"))]
+        { acc += 127; }
+
         for j in 0..krn.len() {
             acc += krn[j] as u32 * src[i + j] as u32;
         }
@@ -283,7 +287,13 @@ pub(crate) fn quad_sigma_kernel(quad_sigma: f64, kernel_size: usize) -> Option<V
 	let kernel = dk.into_iter()
 		.map(|x| {
 			let x_norm = x / acc;
-			(x_norm * 255.) as u8 //TODO: round?
+            let x_scaled = x_norm * 255.;
+
+            // Not to spec of libapriltag, but it makes the math work out a bit nicer
+            #[cfg(not(feature="compare_reference"))]
+            let x_scaled = x_scaled.round();
+            
+            x_scaled as u8
 		})
 		.collect::<Vec<_>>();
     // kernel.fill(1u8);
