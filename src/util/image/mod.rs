@@ -6,9 +6,9 @@ pub mod pixel;
 mod index;
 mod rows;
 mod pixels;
-mod svg;
+// mod svg;
 
-use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, alloc::AllocError, fmt::{Display, LowerHex, Debug}};
+use std::{ops::{RangeBounds, Deref, Range, DerefMut}, mem::MaybeUninit, marker::PhantomData, alloc::AllocError, fmt::{LowerHex, Debug}};
 pub use self::pixel::{Pixel, Primitive};
 pub use rgb::Rgb;
 pub use luma::Luma;
@@ -16,6 +16,7 @@ pub use ps::{PostScriptWriter, ImageWritePostscript};
 pub(crate) use ps::VectorPathWriter;
 pub use pnm::ImageWritePNM;
 pub use index::ImageDimensions;
+use thiserror::Error;
 use self::{pnm::PNM, rows::{Row, Rows, RowMut, RowsMut}, pixels::{Pixels, EnumeratePixels, PixelsMut, EnumeratePixelsMut}, pixel::DefaultAlignment};
 
 use super::{mem::{SafeZero, calloc, try_calloc}, geom::Point2D};
@@ -165,15 +166,10 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Error)]
 pub enum ImageAllocError {
-	Alloc(AllocError),
-}
-
-impl From<AllocError> for ImageAllocError {
-    fn from(value: AllocError) -> Self {
-        Self::Alloc(value)
-    }
+	#[error("Unable to allocate image")]
+	Alloc(#[from] AllocError),
 }
 
 
