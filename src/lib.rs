@@ -25,6 +25,8 @@ mod pose;
 mod dbg;
 mod detection;
 mod ocl;
+// #[cfg(feature="vulkan")]
+// mod vulkan;
 mod wgpu;
 
 pub use util::Image;
