@@ -121,10 +121,9 @@ fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Det
             if !quiet {
                 println!("Found {} tags", detections.detections.len());
                 for (i, det) in detections.detections.iter().enumerate() {
-                    println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
+                    println!("detection {:2}: id ({:>9})-{:4}, hamming {}, margin {:8.3}",
                         i,
-                        det.family.bits.len(),
-                        det.family.min_hamming,
+                        det.family.name,
                         det.id,
                         det.hamming,
                         det.decision_margin
@@ -292,7 +291,7 @@ fn main() {
             }
             let detections_gpu = detect_with(&detector_gpu, &im, quiet);
             if !quiet {
-                print!("{}", detections_gpu.tp);
+                print!("{:#}", detections_gpu.tp);
             }
 
             println!("==== CPU ====");
@@ -308,7 +307,7 @@ fn main() {
             }
 
             if !quiet {
-                print!("{}", detections.tp);
+                print!("{:#}", detections.tp);
                 acc.add(&detections.tp);
             }
 
