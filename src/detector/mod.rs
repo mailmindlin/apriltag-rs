@@ -11,7 +11,9 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::{TimeProfile, debug_images}, Detections, detection::reconcile_detections, wgpu::WGPUDetector};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::{TimeProfile, debug_images}, Detections, detection::reconcile_detections};
+#[cfg(feature="wgpu")]
+use crate::wgpu::WGPUDetector;
 
 use self::config::QuadDecimateMode;
 
