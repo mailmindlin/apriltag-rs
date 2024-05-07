@@ -131,6 +131,7 @@ impl WGPUDetector {
 		self.context.upload_image(downloadable, row_alignment, image)
 	}
 
+	/// Generate preprocessing
 	fn apply_preprocess(&self, config: &DetectorConfig, tp: &mut TimeProfile, gpu_src: GpuTextureY8, debug: &mut DebugImageGenerator, cpass: ComputePass, queries: &mut GpuTimestampQueries) -> Result<(GpuTextureY8, GpuTextureY8), WgpuDetectError> {
 		let gpu_last = gpu_src;
 		let downloads = DebugTargets::new(self, config);
@@ -224,7 +225,7 @@ impl Preprocessor for WGPUDetector {
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("AprilTag wgpu preprocess") });
 		let mut queries = self.context.make_queries(32);
 		let (gpu_quad, gpu_threshim) = {
-			let cpass = encoder.begin_compute_pass(&queries.make_cpd("apriltag cp"));
+			let cpass = encoder.begin_compute_pass(&queries.make_cpd("apriltag preprocess"));
 			self.apply_preprocess(config, tp, gpu_src, &mut debug, cpass, &mut queries)?
 		};
 		queries.resolve(&mut encoder);

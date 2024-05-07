@@ -75,11 +75,6 @@ pub struct AprilTagFamily {
 
 	/// A human-readable name, e.g., "tag36h11"
 	pub name: Cow<'static, str>,
-
-	// some detector implementations may preprocess codes in order to
-	// accelerate decoding.  They put their data here. (Do not use the
-	// same apriltag_family instance in more than one implementation)
-	// _impl: u32,
 }
 
 impl PartialOrd for AprilTagFamily {
