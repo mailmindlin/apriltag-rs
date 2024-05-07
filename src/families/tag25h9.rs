@@ -78,16 +78,16 @@ pub fn tag25h9_create() -> AprilTagFamily {
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature="compare_reference")]
-    #[test]
-    fn compare_25h9() {
-        let tag = super::tag25h9_create();
+	#[cfg(feature="compare_reference")]
+	#[test]
+	fn compare_25h9() {
+		let tag = super::tag25h9_create();
 
-        unsafe {
-            let tag_sys = apriltag_sys::tag25h9_create();
-            let ts = tag_sys.as_ref().unwrap();
-            tag.assert_similar(ts);
-            apriltag_sys::tag25h9_destroy(tag_sys);
-        };
-    }
+		unsafe {
+			let tag_sys = apriltag_sys::tag25h9_create();
+			let ts = tag_sys.as_ref().unwrap();
+			tag.assert_similar(ts);
+			apriltag_sys::tag25h9_destroy(tag_sys);
+		};
+	}
 }

@@ -40,7 +40,7 @@ pub struct ImageBuffer<P: Pixel, Container = DC<P>> {
 }
 
 impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> Debug for ImageBuffer<P, Container> where P::Subpixel: LowerHex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("ImageBuffer")
 			.field("dims", &self.dims)
 			.field("pix", &self.pix)
@@ -62,7 +62,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> Debug for ImageBuffer<P
 			}
 		}
 		Ok(())
-    }
+	}
 }
 
 /// Make [ImageRef] [Copy]
@@ -70,7 +70,7 @@ impl<'a, P: Pixel> Copy for ImageBuffer<P, &'a SubpixelArray<P>> where P: Copy {
 }
 
 impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuffer<P, Container> where <P as Pixel>::Subpixel: PartialEq {
-    fn eq(&self, other: &Self) -> bool {
+	fn eq(&self, other: &Self) -> bool {
 		if self.dims.width != other.dims.width {
 			return false;
 		}
@@ -84,7 +84,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuff
 			}
 		}
 		true
-    }
+	}
 }
 
 /// Convert owned [ImageBuffer] to [ImageRef]
@@ -107,9 +107,9 @@ impl<P: Pixel, Container> ImageBuffer<P, Container> {
 
 	/// Get image dimensions
 	#[inline(always)]
-    pub const fn dimensions(&self) -> &ImageDimensions {
-        &self.dims
-    }
+	pub const fn dimensions(&self) -> &ImageDimensions {
+		&self.dims
+	}
 
 	/// Image width (in pixels)
 	#[inline]
@@ -292,9 +292,9 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 	}
 
 	pub fn row(&self, row: usize) -> Row<P> {
-        let idxs = index::row_idxs::<P>(self.dimensions(), row);
-        Row(&self.data[idxs])
-    }
+		let idxs = index::row_idxs::<P>(self.dimensions(), row);
+		Row(&self.data[idxs])
+	}
 
 	pub fn window(&self, x: usize, y: usize, rx: usize, ry: usize) -> ImageBuffer<P, &[P::Subpixel]> {
 		let left = x.saturating_sub(rx);
@@ -306,30 +306,30 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 		self.slice(left..=right, top..=bottom)
 	}
 
-    pub fn slice(&self, x: impl RangeBounds<usize>, y: impl RangeBounds<usize>) -> ImageBuffer<P, &[P::Subpixel]> {
-        let (dims, idxs) = index::slice_idxs::<P>(&self.dims, x, y);
-        ImageBuffer {
+	pub fn slice(&self, x: impl RangeBounds<usize>, y: impl RangeBounds<usize>) -> ImageBuffer<P, &[P::Subpixel]> {
+		let (dims, idxs) = index::slice_idxs::<P>(&self.dims, x, y);
+		ImageBuffer {
 			dims,
-            data: &self.data[idxs],
+			data: &self.data[idxs],
 			pix: PhantomData,
-        }
-    }
+		}
+	}
 
 	/// Iterate through rows
 	pub fn rows(&self) -> Rows<P> {
-        Rows {
-            buf: &self.data,
-            dims: &self.dims,
-        }
-    }
+		Rows {
+			buf: &self.data,
+			dims: &self.dims,
+		}
+	}
 
 	/// Iterate through pixels
 	pub fn pixels(&self) -> Pixels<P> {
-        Pixels {
+		Pixels {
 			buf: &self.data,
-            dims: &self.dims,
+			dims: &self.dims,
 		}
-    }
+	}
 
 	/// Iterate through pixels, with indices
 	pub fn enumerate_pixels(&self) -> EnumeratePixels<P> {
@@ -354,7 +354,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 				dst.write(update(src));
 			}
 		} else {
-            for ((x, y), v) in self.enumerate_pixels() {
+			for ((x, y), v) in self.enumerate_pixels() {
 				result[(x,y)].write(update(v).to_value());
 			}
 		}
@@ -390,23 +390,23 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 	}
 
 	pub fn row_mut(&mut self, row: usize) -> RowMut<P> {
-        let row_idxs = index::row_idxs::<P>(self.dimensions(), row);
-        RowMut(&mut self.data[row_idxs])
-    }
+		let row_idxs = index::row_idxs::<P>(self.dimensions(), row);
+		RowMut(&mut self.data[row_idxs])
+	}
 
 	pub fn rows_mut(&mut self) -> RowsMut<P> {
-        RowsMut {
+		RowsMut {
 			dims: &self.dims,
 			buf: &mut self.data,
 		}
-    }
+	}
 
 	pub fn pixels_mut(&mut self) -> PixelsMut<P> {
-        PixelsMut {
+		PixelsMut {
 			dims: &self.dims,
 			buf: &mut self.data,
 		}
-    }
+	}
 
 	pub fn enumerate_pixels_mut(&mut self) -> EnumeratePixelsMut<P> {
 		EnumeratePixelsMut::new(&mut self.data, &self.dims)
@@ -482,7 +482,7 @@ impl<P: Pixel> ImageBuffer<MaybeUninit<P>, Box<SubpixelArray<MaybeUninit<P>>>> w
 
 #[cfg(test)]
 mod test {
-    use super::{ImageY8, ImageRGB8};
+	use super::{ImageY8, ImageRGB8};
 
 	#[test]
 	fn alloc_zeroed() {

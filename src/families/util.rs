@@ -31,22 +31,22 @@ pub const fn rotate90(w: Code, num_bits: u64) -> Code {
 	wr*/
 
 	// Odd/even
-    let (p, l) = if num_bits % 4 == 1 {
+	let (p, l) = if num_bits % 4 == 1 {
 		(num_bits - 1, 1)
 	} else {
 		(num_bits, 0)
 	};
 
-    let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
-    w & (1u64 << num_bits) - 1
+	let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
+	w & (1u64 << num_bits) - 1
 }
 
 pub const fn rotations(code: u64, num_bits: u64) -> [u64; 4] {
-    let r0 = code;
-    let r1 = rotate90(code, num_bits);
-    let r2 = rotate90(r1, num_bits);
-    let r3 = rotate90(r2, num_bits);
-    [ r0, r1, r2, r3 ]
+	let r0 = code;
+	let r1 = rotate90(code, num_bits);
+	let r2 = rotate90(r1, num_bits);
+	let r3 = rotate90(r2, num_bits);
+	[ r0, r1, r2, r3 ]
 }
 
 
