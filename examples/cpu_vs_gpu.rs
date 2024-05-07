@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all, panic::AssertUnwindSafe};
+use std::{path::{PathBuf, Path}, time::Duration, io, panic::AssertUnwindSafe};
 
 use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8, image::Pixel}, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
@@ -40,21 +40,19 @@ struct Args {
 
     #[arg(long)]
     debug_path: Option<PathBuf>,
-    #[arg(long, default_value_t=false)]
-    opencl: bool,
     input_files: Vec<PathBuf>,
 }
 
-fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
+fn build_detector(args: &Args, gpu: bool) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
-    if args.opencl {
-        builder.set_gpu_mode(apriltag_rs::GpuAccelRequest::Required)
+    if gpu {
+        builder.set_gpu_mode(apriltag_rs::AccelerationRequest::Required)
     } else {
-        builder.set_gpu_mode(apriltag_rs::GpuAccelRequest::Disabled)
+        builder.set_gpu_mode(apriltag_rs::AccelerationRequest::Disabled)
     }
 
     if args.family.len() == 0 {
-        panic!("No AprilTag families to detect");
+        panic!("No AprilTag families to detect. Use --family [family name]");
     }
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
@@ -76,18 +74,23 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     builder.config.nthreads = args.threads;
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
-    if let Some(dbp) = path_override {
-        builder.config.debug_path = Some(PathBuf::from(format!("./debug/{dbp}")));
-    } else if let Some(path) = &args.debug_path {
-        builder.config.debug_path = Some(path.to_owned());
-    }
 
-    if let Some(path) = builder.config.debug_path.as_ref() {
-        if !path.exists() {
-            create_dir_all(path).unwrap();
+    {
+        let mut debug_path = match &args.debug_path {
+            Some(p) => p.to_owned(),
+            None => PathBuf::from("./debug"),
+        };
+        if gpu {
+            debug_path.push("gpu");
+        } else {
+            debug_path.push("cpu");
+        };
+        if !debug_path.exists() {
+            std::fs::create_dir_all(&debug_path)
+                .expect("Unable to create debug dir");
         }
+        builder.config.debug_path = Some(debug_path);
     }
-    
 
     builder.build()
         .expect("Error building detector")
@@ -115,8 +118,8 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
 fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Detections {
     match std::panic::catch_unwind(AssertUnwindSafe(|| detector.detect(image))) {
         Ok(Ok(detections)) => {
-            println!("Found {} tags", detections.detections.len());
             if !quiet {
+                println!("Found {} tags", detections.detections.len());
                 for (i, det) in detections.detections.iter().enumerate() {
                     println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
                         i,
@@ -131,10 +134,12 @@ fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Det
             detections
         },
         Ok(Err(e)) => {
+            eprintln!("Error (converting images)");
             convert_images(detector);
             panic!("Error detecting AprilTags: {e:?}");
         }
         Err(e) => {
+            eprintln!("Error (converting images)");
             convert_images(detector);
             std::panic::resume_unwind(e);
         },
@@ -142,23 +147,36 @@ fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Det
 }
 
 fn convert_images(det: &AprilTagDetector) {
-    let dbp = if let Some(dbp) = det.params.debug_path.as_ref() { dbp } else { return; };
-    std::fs::read_dir(dbp).unwrap().par_bridge().for_each(|path| {
-        let path = path.unwrap();
-        if !path.file_type().unwrap().is_file() {
+    let debug_path = match &det.params.debug_path {
+        Some(dbp) => dbp.as_path(),
+        None => return,
+    };
+    let rd = match std::fs::read_dir(debug_path) {
+        Ok(rd) => rd,
+        Err(e) => {
+            eprintln!("Image conversion: Unable to read dir {}: {e:?}", debug_path.display());
             return;
         }
-        if !path.file_name().to_str().unwrap().ends_with(".pnm") {
-            return;
-        }
-        let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
-        let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
-        for ((x, y), value) in img.enumerate_pixels() {
-            *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
-        }
-        buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
-            .unwrap();
-    });
+    };
+
+    rd
+        .par_bridge()
+        .for_each(|path| {
+            let path = path.unwrap();
+            if !path.file_type().unwrap().is_file() {
+                return;
+            }
+            if !path.file_name().to_str().unwrap().ends_with(".pnm") {
+                return;
+            }
+            let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
+            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
+            for ((x, y), value) in img.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
+            }
+            buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
+                .unwrap();
+        });
 }
 
 fn compare_images(path_cpu: &PathBuf, path_gpu: PathBuf) {
@@ -219,22 +237,22 @@ fn compare_images(path_cpu: &PathBuf, path_gpu: PathBuf) {
             for ((x, y), value) in img_gpu.enumerate_pixels() {
                 *buf.get_pixel_mut(x as u32, y as u32 + 2 * h) = Rgb(value.0);
             }
-            let dst =PathBuf::from(format!("./debug/{}", entry_name.to_string_lossy()));
+            let dst = PathBuf::from(format!("./debug/{}", entry_name.to_string_lossy()));
             let dst = dst.with_extension("png");
             buf.save_with_format(dst, image::ImageFormat::Png).unwrap();
         });
 }
 
+const WARMUP_ITERS: usize = 0;
+
 fn main() {
-    let mut args = Args::parse();
+    let args = Args::parse();
     if args.debug {
         println!("Arguments:");
         println!(" - threads: {}", args.threads);
     }
-    args.opencl = false;
-    let detector = build_detector(&args, Some("cpu"));
-    args.opencl = true;
-    let detector_gpu = build_detector(&args, Some("gpu"));
+    let detector = build_detector(&args, false);
+    let detector_gpu = build_detector(&args, true);
 
     let quiet = args.quiet;
     let mut acc = TimeProfileStatistics::default();
@@ -269,12 +287,18 @@ fn main() {
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
             println!("==== GPU ====");
+            for _ in 0..WARMUP_ITERS {
+                detect_with(&detector_gpu, &im, true);
+            }
             let detections_gpu = detect_with(&detector_gpu, &im, quiet);
             if !quiet {
                 print!("{}", detections_gpu.tp);
             }
 
             println!("==== CPU ====");
+            for _ in 0..WARMUP_ITERS {
+                detect_with(&detector, &im, true);
+            }
             let detections = detect_with(&detector, &im, quiet);
             
 
@@ -318,13 +342,15 @@ fn main() {
         println!();
     }
 
+    println!("==== Done ====");
+
     if args.iters > 1 {
-        acc.display();
+        println!("{acc}");
     }
 
-    for det in [&detector, &detector_gpu] {
-        convert_images(det);
-    }
+    [&detector, &detector_gpu]
+        .into_par_iter()
+        .for_each(convert_images);
 
     if let Some(path_cpu) = detector.params.debug_path.as_ref() {
         let path_gpu = detector_gpu.params.debug_path.unwrap();
