@@ -1,7 +1,7 @@
 // #[cfg(not(target_arch="aarch64"))]
 mod reference;
 
-#[cfg(any(target_arch="aarch64", target_arch="armv7", target_arch="armv7"))]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 mod arm;
 
 #[const_trait]
