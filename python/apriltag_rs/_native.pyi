@@ -4,7 +4,7 @@ import numpy as np
 
 AprilTagFamilyName = Literal['tag16h5', 'tag25h9', 'tag36h10', 'tag36h11', 'tagCircle21h7']
 
-class AprilTagFamily:
+class AprilTagFamily1:
     @staticmethod
     def names() -> list[AprilTagFamilyName]:
         "Get known names of AprilTag families"
@@ -192,6 +192,7 @@ class Detector:
 		"Get configuration for this detector"
 	
 	def detect(self, image: np.ndarray[tuple[int, int], np.uint8]) -> Detections:
+		"Detect AprilTags in image"
 		...
 
 class DetectorBuilder:
@@ -210,11 +211,11 @@ class DetectorBuilder:
 		"What kind of hardware acceleration should we use?"
 	
 	@acceleration.setter
-	def acceleration(self, value: Literal["prefer", "prefer_gpu", "required", "required_gpu"] | str | None):
+	def acceleration(self, value: Literal["prefer", "prefer_gpu", "required", "required_gpu"] | None):
 		...
 
 	def add_family(self, family: Union[AprilTagFamily, AprilTagFamilyName], hamming_bits: Optional[int] = 2):
 		...
 	
 	def build(self) -> 'Detector':
-		return self._inner.build()
+		...

@@ -1,8 +1,7 @@
-from . import apriltag_rs_native as raw
 from typing import Optional, Sequence, Union, Literal, TYPE_CHECKING
 import numpy as np
 
-from .apriltag_rs_native import (
+from ._native import (
 	AprilTagFamily,
 	DetectorConfig,
 	Detection,
@@ -11,10 +10,12 @@ from .apriltag_rs_native import (
 	AprilTagPose,
 	AprilTagPoseWithError,
 	PoseEstimator,
+	DetectorBuilder as _DetectorBuilder,
+	Detector as _Detector,
 )
 
 if TYPE_CHECKING:
-	from .apriltag_rs_native import AprilTagFamilyName
+	from ._native import AprilTagFamilyName
 else:
 	AprilTagFamilyName = str
 
@@ -29,7 +30,7 @@ class DetectorBuilder:
 		debug: Optional[bool] = None,
 		camera_params: Optional[Sequence[float]] = None,
 	):
-		self._inner = raw.DetectorBuilder()
+		self._inner = _DetectorBuilder()
 		if families is not None:
 			for family in families:
 				self.add_family()
@@ -67,7 +68,11 @@ class DetectorBuilder:
 		)
 	
 	def build(self) -> 'Detector':
-		return self._inner.build()
+		"Build detector"
+		return Detector(self._inner.build())
+
+	def __repr__(self) -> str:
+		return repr(self._inner)
 
 # Wrap around raw.Detector()
 class Detector:
@@ -75,7 +80,7 @@ class Detector:
 	def builder() -> DetectorBuilder:
 		return DetectorBuilder()
 	
-	def __init__(self, *,
+	def __init__(self, detector: _Detector | None = None, /, *,
 			families: Optional[Sequence[Union[str, AprilTagFamily, tuple[str, int], tuple[AprilTagFamily, int]]]] = None,
 			nthreads: Optional[int] = None,
 			quad_decimate: Optional[float] = None,
@@ -85,11 +90,14 @@ class Detector:
 			debug: Optional[bool] = None,
 			camera_params: Optional[Sequence[float]] = None,
 	):
+		if detector is not None:
+			self._inner = detector
+			return
 		builder = self.builder()
 		if nthreads is not None:
 			builder.config.nthreads = nthreads
 		
-		self._inner = raw.Detector(
+		self._inner = _Detector(
 			nthreads=nthreads,
 			quad_decimate=quad_decimate,
 			quad_sigma=quad_sigma,
@@ -113,6 +121,10 @@ class Detector:
 		return self._inner.config
 	
 	def detect(self, image: np.ndarray[np.uint8]) -> Detections:
+		"Detect AprilTags in image"
 		assert len(image.shape) == 2
 		assert image.dtype == np.uint8
 		return self._inner.detect(image)
+	
+	def __repr__(self):
+		return 'py' + repr(self._inner)
