@@ -1,64 +1,45 @@
 mod builder;
 pub(crate) mod config;
 mod debug;
+mod error;
 
-pub use config::{DetectorConfig, GpuAccelRequest};
-pub use builder::{DetectorBuilder, DetectorBuildError};
+pub use config::{DetectorConfig, AccelerationRequest};
+pub use builder::DetectorBuilder;
+pub use error::{DetectError, DetectorBuildError, ImageDimensionError};
 
 use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageAllocError, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections, wgpu::WGPUDetector};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::{TimeProfile, debug_images}, Detections, detection::reconcile_detections, wgpu::WGPUDetector};
 
 use self::config::QuadDecimateMode;
-
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub enum DetectError {
-	/// Input image was too small
-	ImageTooSmall,
-	/// Input image was too large
-	ImageTooBig,
-	/// Buffer allocation error
-	BufferAlloc,
-	ImageAlloc(ImageAllocError),
-	OpenCLError,
-}
 
 pub(crate) trait Preprocessor {
 	fn preprocess(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, ImageY8), DetectError>;
 	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError>;
 }
 
-impl From<ImageAllocError> for DetectError {
-    fn from(value: ImageAllocError) -> Self {
-        Self::ImageAlloc(value)
-    }
-}
-
-enum GpuAccelerator {
+enum HardwareAccelerator {
+	/// No acceleration
 	None,
+	/// OpenCL acceleration
 	#[cfg(feature="opencl")]
 	OpenCL(Box<crate::ocl::OpenCLDetector>),
+	/// WebGPU acceleration
 	#[cfg(feature="wgpu")]
 	WebGPU(Box<WGPUDetector>),
 }
 
 pub struct AprilTagDetector {
 	pub params: DetectorConfig,
-
-	///////////////////////////////////////////////////////////////
-	// Internal variables below
-
-	// Not freed on apriltag_destroy; a tag family can be shared
-	// between multiple users. The user should ultimately destroy the
-	// tag family passed into the constructor.
+	/// We wrap our [QuickDecode]s in an [Arc] so they can be shared between detectors
 	pub(crate) tag_families: Vec<Arc<QuickDecode>>,
 
-	// Used to manage multi-threading.
-	pub(crate) wp: ThreadPool,
-	gpu: GpuAccelerator,
+	/// Used to manage multi-threading.
+	wp: Option<ThreadPool>,
+	/// Accelerator
+	gpu: HardwareAccelerator,
 }
 
 pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
@@ -135,6 +116,54 @@ pub fn quad_sigma_cpu(img: &mut ImageY8, quad_sigma_v: f32) {
 	quad_sigma(img, quad_sigma_v)
 }
 
+fn make_accelerator(params: &DetectorConfig) -> Result<HardwareAccelerator, DetectorBuildError> {
+	if params.acceleration.is_disabled() {
+		return Ok(HardwareAccelerator::None);
+	}
+
+	let mut gpu_err = None;
+
+	// Try using WGPU
+	#[cfg(feature="wgpu")]
+	{
+		println!("trying to build WGPU: {:?}", params.acceleration);
+		match WGPUDetector::new(&params) {
+			Ok(det) => {
+				return Ok(HardwareAccelerator::WebGPU(Box::new(det)));
+			},
+			Err(DetectorBuildError::AccelerationNotAvailable) => {},
+			Err(e) => {
+				eprintln!("WGPU init error: {e:?}");
+				gpu_err = Some(e);
+			}
+		}
+	}
+
+	// Try using OpenCL
+	#[cfg(feature="opencl")]
+	{
+		println!("trying to build OpenCL");
+		match crate::ocl::OpenCLDetector::new(&params) {
+			Ok(det) => {
+				return Ok(HardwareAccelerator::OpenCL(Box::new(det)));
+			},
+			Err(DetectorBuildError::AccelerationNotAvailable) => {},
+			Err(e) => {
+				eprintln!("OpenCL init error: {e:?}");
+				gpu_err = Some(e);
+			}
+		}
+	}
+
+	if !params.acceleration.is_required() {
+		Ok(HardwareAccelerator::None)
+	} else if let Some(gpu_err) = gpu_err {
+		// Forward error from device
+		Err(gpu_err)
+	} else {
+		Err(DetectorBuildError::AccelerationNotAvailable)
+	}
+}
 
 impl AprilTagDetector {
 	/// Create a new builder
@@ -143,62 +172,31 @@ impl AprilTagDetector {
 	}
 
 	pub fn has_gpu(&self) -> bool {
-		!matches!(self.gpu, GpuAccelerator::None)
+		!matches!(self.gpu, HardwareAccelerator::None)
 	}
 
 	fn new(params: DetectorConfig, tag_families: Vec<Arc<QuickDecode>>) -> Result<AprilTagDetector, DetectorBuildError> {
-		let wp = {
-			let tpb = ThreadPoolBuilder::new()
-				.num_threads(params.nthreads);
+		if tag_families.is_empty() {
+			return Err(DetectorBuildError::NoTagFamilies);
+		}
 
-			match tpb.build() {
-				Ok(wp) => wp,
-				Err(e) => return Err(DetectorBuildError::Threadpool(e)),
+		// Build threadpool
+		let wp = if params.nthreads == 1 {
+			None
+		} else {
+			let mut tpb = ThreadPoolBuilder::new();
+
+			if params.nthreads != 0 {
+				tpb = tpb.num_threads(params.nthreads);
+			} else {
+				//TODO: auto-detect number of CPUs?
 			}
+
+			Some(tpb.build()?)
 		};
 
-		let gpu = {
-			let mut gpu = GpuAccelerator::None;
-			let mut gpu_err = None;
-
-			#[cfg(feature="opencl")]
-			if !params.gpu.is_disabled() && matches!(gpu, GpuAccelerator::None) {
-				println!("trying to build OpenCL");
-				match crate::ocl::OpenCLDetector::new(&params) {
-					Ok(det) => {
-						gpu = GpuAccelerator::OpenCL(Box::new(det));
-					},
-					Err(DetectorBuildError::GpuNotAvailable) => {},
-					Err(e) => {
-						eprintln!("GPU init error: {e:?}");
-						gpu_err = Some(e);
-					}
-				}
-			}
-
-			#[cfg(feature="wgpu")]
-			if (!params.gpu.is_disabled()) && matches!(gpu, GpuAccelerator::None) {
-				println!("trying to build WGPU: {:?}", params.gpu);
-				match WGPUDetector::new(&params) {
-					Ok(det) => {
-						gpu = GpuAccelerator::WebGPU(Box::new(det));
-					},
-					Err(DetectorBuildError::GpuNotAvailable) => {},
-					Err(e) => {
-						eprintln!("GPU init error: {e:?}");
-						gpu_err = Some(e);
-					}
-				}
-			}
-
-			if params.gpu.is_required() && matches!(gpu, GpuAccelerator::None) {
-				match gpu_err {
-					Some(err) => return Err(err),
-					None => return Err(DetectorBuildError::GpuNotAvailable),
-				}
-			}
-			gpu
-		};
+		// Initialize accelerator
+		let gpu = make_accelerator(&params)?;
 
 		Ok(Self {
 			params,
@@ -209,6 +207,9 @@ impl AprilTagDetector {
 	}
 
 	fn preprocess_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, ImageY8), DetectError> {
+		#[cfg(feature="debug")]
+		self.params.debug_image(debug_images::SOURCE, |mut f| im_orig.write_pnm(&mut f));
+
 		///////////////////////////////////////////////////////////
 		// Step 1. Detect quads according to requested image decimation
 		// and blurring parameters.
@@ -228,6 +229,9 @@ impl AprilTagDetector {
 				quad_im
 			}
 		};
+
+		#[cfg(feature="debug")]
+		self.params.debug_image(debug_images::DECIMATE, |mut f| quad_im.write_pnm(&mut f));
 
 		quad_sigma(&mut quad_im, self.params.quad_sigma);
 
@@ -268,21 +272,13 @@ impl AprilTagDetector {
 				}
 			},
 			#[cfg(feature="wgpu")]
-			GpuAccelerator::WebGPU(wgpu) => {
-				match wgpu.preprocess(&self.params, tp, im_orig) {
-					Ok((quad_im, threshim)) => {
-						let mut uf = connected_components(&self.params, &threshim);
-						tp.stamp("unionfind");
-
-						// make segmentation image.
-						#[cfg(feature="debug")]
-						debug_unionfind(&self.params, tp, threshim.dimensions(), &mut uf);
-
-						let clusters = gradient_clusters(&self.params, &threshim.as_ref(), uf);
+			HardwareAccelerator::WebGPU(wgpu) => {
+				match wgpu.cluster(&self.params, tp, im_orig) {
+					Ok((quad_im, clusters)) => {
 						return Ok((quad_im, clusters));
 					},
 					Err(e) => {
-						if self.params.gpu.is_required() {
+						if self.params.acceleration.is_required() {
 							return Err(e);
 						} else {
 							// Swallow
@@ -291,7 +287,7 @@ impl AprilTagDetector {
 					}
 				}
 			}
-			GpuAccelerator::None => {},
+			HardwareAccelerator::None => {},
 		}
 
 		#[cfg(feature="debug")]
@@ -312,7 +308,14 @@ impl AprilTagDetector {
 	}
 
 	pub fn detect<Container: AsRef<[u8]>>(&self, im: &ImageBuffer<Luma<u8>, Container>) -> Result<Detections, DetectError> {
-		self.detect_inner(&im.as_ref())
+		let im_ref = im.as_ref();
+		if let Some(wp) = self.wp.as_ref() {
+			wp.install(|| {
+				self.detect_inner(&im_ref)
+			})
+		} else {
+			self.detect_inner(&im_ref)
+		}
 	}
 
 	/// Detect AprilTags
@@ -388,16 +391,14 @@ impl AprilTagDetector {
 			};
 
 			let detections = if quads.len() > 999 && !self.params.single_thread() {
-				self.wp.install(|| {
-					#[cfg(feature="debug")]
-					let quad_iter = quads.par_iter_mut();
-					#[cfg(not(feature="debug"))]
-					let quad_iter = quads.into_par_iter();
+				#[cfg(feature="debug")]
+				let quad_iter = quads.par_iter_mut();
+				#[cfg(not(feature="debug"))]
+				let quad_iter = quads.into_par_iter();
 
-					quad_iter
-						.flat_map(|#[allow(unused_mut)] mut quad| quad.decode_task(info))
-						.collect::<Vec<_>>()
-				})
+				quad_iter
+					.flat_map(|#[allow(unused_mut)] mut quad| quad.decode_task(info))
+					.collect::<Vec<_>>()
 			} else {
 				#[cfg(feature="debug")]
 				let quad_iter = quads.iter_mut();
