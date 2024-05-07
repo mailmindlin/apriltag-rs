@@ -3,14 +3,15 @@ use std::cmp::Ordering;
 use crate::util::mem::SafeZero;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(C)]
 pub(crate) struct Pt {
+    pub slope: f32,
     // Note: these represent 2*actual value.
     pub x: u16,
     pub y: u16,
     // pub theta: f32,
     pub gx: i16,
     pub gy: i16,
-    pub slope: f32,
 }
 
 impl SafeZero for Pt {}
