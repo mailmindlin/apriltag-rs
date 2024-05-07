@@ -4,7 +4,7 @@ import numpy as np
 
 AprilTagFamilyName = Literal['tag16h5', 'tag25h9', 'tag36h10', 'tag36h11', 'tagCircle21h7']
 
-class AprilTagFamily1:
+class AprilTagFamily:
     @staticmethod
     def names() -> list[AprilTagFamilyName]:
         "Get known names of AprilTag families"
@@ -149,6 +149,7 @@ class Detection:
     def __repr__(self) -> str: ...
 
 class TimeProfile:
+    @property
     def total_duration(self) -> float: ...
     def as_list(self) -> list[tuple[float, str]]: ...
     def __len__(self) -> int: ...
