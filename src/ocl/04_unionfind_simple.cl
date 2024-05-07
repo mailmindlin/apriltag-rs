@@ -1,36 +1,67 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 
+uchar threshim_get_pixel(__global const uchar *image, size_t stride, size_t x, size_t y) {
+	#ifdef THRESHIM_DENSE
+		//TODO
+		#error "threshim_dense not supported"
+	#else
+		return image[y * stride + x];
+	#endif
+}
+
 #define MAX_LOOPS 999
-// #pragma OPENCL EXTENSION cl_khr_local_int32_base_atomics : enable
-// #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+#define INVALID_PIXEL 127
 
 bool invalid_pixel(uchar pix) {
-	return (pix == 127);
+	return (pix == INVALID_PIXEL);
 }
+
 bool should_merge_pixels(uchar a, uchar b) {
 	return a == b;
 }
 
-uint uf_element(uint uf_width, uint x, uint y) {
+/** UnionFind element ID */
+typedef uint uf_element_t;
+
+/**
+ * Computes the UnionFind element id for some coordinates
+ */
+uf_element_t uf_element(uint uf_width, uint x, uint y) {
 	return (y * uf_width) + x;
 }
 
-#define atomic_load(p) (atomic_add((p), 0))
-#define uf_parent(uf, element) ((uf)[(element) * 2 + 0])
-#define uf_size(uf, element) ((uf)[(element) * 2 + 1])
 
-bool uf_setparent(volatile __global uint *uf, uint element, uint cur_parent, uint new_parent) {
-	return atomic_cmpxchg(&uf_parent(uf, element), cur_parent, new_parent) == cur_parent;
+#ifdef OPENCL_VERSION_2
+	typedef volatile __global atomic_uint *unionfind_t;
+	#define ocl_atomic_load_acquire(p) (atomic_load_explicit((p), memory_order_acquire))
+	#define ocl_atomic_cmpxchg_lf(ptr, expected, desired) (atomic_compare_exchange_weak_explicit((ptr), (expected), (desired), memory_order_acq_rel, memory_order_acquire))
+#else
+	// Make do with OpenCL 1.2 relaxed atomics
+	typedef volatile __global uint *unionfind_t;
+	#define ocl_atomic_load_acquire(p) (atomic_add((p), 0))
+	#define ocl_atomic_cmpxchg_lf(ptr, expected, desired) (atomic_cmpxchg((ptr), (expected), (desired)))
+#endif
+
+
+#define uf_parent(uf, element) (&(uf)[(element) * 2 + 0])
+#define uf_size(uf, element) (&(uf)[(element) * 2 + 1])
+
+uf_element_t uf_get_parent(unionfind_t uf, uf_element_t element) {
+	return ocl_atomic_load_acquire(uf_parent(uf, element));
+}
+
+bool uf_set_parent(unionfind_t uf, uf_element_t element, uf_element_t cur_parent, uf_element_t new_parent) {
+	return atomic_cmpxchg(uf_parent(uf, element), cur_parent, new_parent) == cur_parent;
 }
 
 // Get UnionFind group for id
-uint uf_representative(volatile __global uint *uf, uint element) {
-	uint parent = atomic_load(&uf_parent(uf, element));
+uf_element_t uf_representative(unionfind_t uf, uf_element_t element) {
+	uf_element_t parent = uf_get_parent(uf, element);
 	uint i = 0;
 	while (element != parent && i++ < MAX_LOOPS) {
-		uint grandparent = atomic_load(&uf_parent(uf, parent));
-		uint old_parent = atomic_cmpxchg(&uf_parent(uf, element), parent, grandparent);
+		uint grandparent = uf_get_parent(uf, element);
+		uint old_parent = ocl_atomic_cmpxchg_lf(uf_parent(uf, element), parent, grandparent);
 		if (old_parent == parent) {
 			// CMPXCHG success
 			element = parent;
@@ -38,11 +69,11 @@ uint uf_representative(volatile __global uint *uf, uint element) {
 		} else {
 			parent = old_parent;
 		}
-		barrier(CLK_LOCAL_MEM_FENCE);
+		// barrier(CLK_LOCAL_MEM_FENCE);
 	}
 	return element;
 }
-bool uf_connect(volatile __global uint *uf, uint a, uint b) {
+bool uf_connect(unionfind_t uf, uf_element_t a, uf_element_t b) {
 	for (int i = 0; i < MAX_LOOPS; i++) {
 		a = uf_representative(uf, a);
 		b = uf_representative(uf, b);
@@ -63,21 +94,17 @@ bool uf_connect(volatile __global uint *uf, uint a, uint b) {
 		// read and so are probably in cache. Con: it might end up being
 		// wasted effort -- the tree might be grafted onto another tree in
 		// a moment!
-		volatile __global uint *pa_size = &uf_size(uf, a);
-		volatile __global uint *pb_size = &uf_size(uf, b);
-		// uint a_size = atomic_load(pa_size);
-		// uint b_size = atomic_load(pb_size);
+		uint a_size = ocl_atomic_load_acquire(uf_size(uf, a));
+		uint b_size = ocl_atomic_load_acquire(uf_size(uf, b));
 
-		if (atomic_load(pa_size) < atomic_load(pb_size)) {
-			if (uf_setparent(uf, b, b, a)) {
-				barrier(CLK_LOCAL_MEM_FENCE);
-				atomic_add(pa_size, atomic_load(pb_size));
+		if (a_size < b_size) {
+			if (uf_set_parent(uf, b, b, a)) {
+				atomic_add(uf_size(uf, a), b_size);
 				return true;
 			}
 		} else {
-			if (uf_setparent(uf, a, a, b)) {
-				barrier(CLK_LOCAL_MEM_FENCE);
-				atomic_add(pb_size, atomic_load(pa_size));
+			if (uf_set_parent(uf, a, a, b)) {
+				atomic_add(uf_size(uf, b), a_size);
 				return true;
 			}
 		}
@@ -91,58 +118,56 @@ __kernel void k04_unionfind_init(
 ) {
 	size_t x = get_global_id(0);
 	size_t y = get_global_id(1);
-	const uint idx = uf_element(width_src, x, y);
-	uf_parent(uf_data, idx) = idx;
-	uf_size(uf_data, idx) = 1;
+	const uf_element_t idx = uf_element(width_src, x, y);
+	*uf_parent(uf_data, idx) = idx;
+	*uf_size(uf_data, idx) = 1;
 }
 
 __kernel void k04_unionfind_test(
-	volatile __global uint *uf,
+	unionfind_t uf,
 	__private const uint width_src
 ) {
-	size_t x = get_global_id(0);
-	size_t y = get_global_id(1);
+	const size_t x = get_global_id(0);
+	const size_t y = get_global_id(1);
 	const uint idx = uf_element(width_src, x, y);
 	if ((x != 0)) {
 		// atomic_add(uf_parent(uf, idx), 1);
-		const uint idx_left = uf_element(width_src, x - 1, y);
+		const uf_element_t idx_left = uf_element(width_src, x - 1, y);
 		uf_connect(uf, idx, idx_left);
 		// uf_setparent(uf, idx, idx, idx_left);
-	} else {
-		// uf_size(uf, idx) = 999;
 	}
 }
 
-void smooth_uf(volatile __global uint *uf_data, uint current) {
+void smooth_uf(unionfind_t uf, uf_element_t current) {
 	for (int i = 0; i < 1; i++) {
-		uint parent = atomic_load(&uf_parent(uf_data, current));
-		uint grandparent = atomic_load(&uf_parent(uf_data, parent));
+		uf_element_t parent = uf_get_parent(uf, current);
+		uf_element_t grandparent = uf_get_parent(uf, parent);
 		for (int j = 0; j < 2; j++) {
-			grandparent = atomic_load(&uf_parent(uf_data, grandparent));
+			grandparent = uf_get_parent(uf, parent);
 		}
 		if (parent == grandparent)
 			break;
-		if (uf_setparent(uf_data, current, parent, grandparent)) {
+		if (uf_set_parent(uf, current, parent, grandparent)) {
 			current = grandparent;
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 }
 
-__kernel void k04_unionfind_flatten(volatile __global uint *uf_data, __private const uint width) {
+__kernel void k04_unionfind_flatten(unionfind_t uf_data, __private const uint width) {
 	const size_t x = get_global_id(0);
 	const size_t y = get_global_id(1);
 	
-	uint idx = uf_element(width, x, y);
+	uf_element_t idx = uf_element(width, x, y);
 	for (int i = 0; i < 1; i++) {
-		uint parent = atomic_load(&uf_parent(uf_data, idx));
+		const uf_element_t parent = uf_get_parent(uf_data, idx);
 		if (parent != idx) {
 			uint grandparent = parent;
-			for (int j = 0; j < 5; j++) {
-				grandparent = atomic_load(&uf_parent(uf_data, grandparent));
-			}
+			for (int j = 0; j < 5; j++)
+				grandparent = uf_get_parent(uf_data, grandparent);
+			
 			if (parent != grandparent) {
-				if (uf_setparent(uf_data, idx, parent, grandparent))
+				if (uf_set_parent(uf_data, idx, parent, grandparent))
 					idx = grandparent;
 			}
 		}
@@ -154,47 +179,47 @@ __kernel void k04_connected_components(
 	__private const uint stride_src,
 	__private const uint width_src,
 	__private const uint height_src,
-	volatile __global uint *uf_data,
+	unionfind_t uf_data,
 	__global uint *d
 ) {
 	const size_t x = get_global_id(0) + 1;
 	const size_t y = get_global_id(1);
-	const uint idx = uf_element(width_src, x, y);
+	const uf_element_t idx = uf_element(width_src, x, y);
 	if (get_global_id(0) == 0 && y == 0) {
 		d[0] = get_local_size(0);
 		d[1] = get_local_size(1);
 	}
 
-	const uchar value = (x >= width_src-1) || (y >= height_src) ? 127 : src[y * stride_src + x];
+	const uchar value = (x >= width_src-1) || (y >= height_src) ? INVALID_PIXEL : threshim_get_pixel(src, stride_src, x, y);
 	if (!invalid_pixel(value)) {
 		// Left
 		if (x > 0) {
-			uchar left = src[y * stride_src + x - 1];
+			uchar left = threshim_get_pixel(src, stride_src, x - 1, y);
 			if (should_merge_pixels(left, value)) {
-				uint idx_l = uf_element(width_src, x - 1, y);
+				uf_element_t idx_l = uf_element(width_src, x - 1, y);
 				uf_connect(uf_data, idx, idx_l);
 			}
 		}
 		if (y > 0) {
 			// Up
-			uchar pix_up = src[(y-1) * stride_src + x];
+			uchar pix_up = threshim_get_pixel(src, stride_src, x, y - 1);
 			if (should_merge_pixels(value, pix_up)) {
-				uint idx_up = uf_element(width_src, x, y - 1);
+				uf_element_t idx_up = uf_element(width_src, x, y - 1);
 				uf_connect(uf_data, idx, idx_up);
 			}
 			if (value == 255) {
 				// Up-left
 				if (x > 0) {
-					uchar pix_ul = src[(y-1) * stride_src + x - 1];
+					uchar pix_ul = threshim_get_pixel(src, stride_src, x - 1, y - 1);
 					if (should_merge_pixels(value, pix_ul)) {
-						uint idx_ul = uf_element(width_src, x - 1, y - 1);
+						uf_element_t idx_ul = uf_element(width_src, x - 1, y - 1);
 						uf_connect(uf_data, idx, idx_ul);
 					}
 				}
 				// Up-right
-				uchar pix_ur = src[(y-1) * stride_src + x + 1];
+				uchar pix_ur = threshim_get_pixel(src, stride_src, x + 1, y - 1);
 				if (should_merge_pixels(value, pix_ur)) {
-					uint idx_ur = uf_element(width_src, x + 1, y - 1);
+					uf_element_t idx_ur = uf_element(width_src, x + 1, y - 1);
 					uf_connect(uf_data, idx, idx_ur);
 				}
 			}
@@ -210,7 +235,7 @@ __kernel void k04_connected_components_row(
 	__private const uint stride_src,
 	__private const uint width_src,
 	__private const uint height_src,
-	volatile __global uint *uf_data,
+	unionfind_t uf_data,
 	__global uint *d
 ) {
 	const size_t y = get_global_id(0);
@@ -234,31 +259,31 @@ __kernel void k04_connected_components_row(
         uchar v_m1_0 = v;
         v = row[x];
 
-		const uint idx = uf_element(width_src, x, y);
+		const uf_element_t idx = uf_element(width_src, x, y);
 
 		if (!invalid_pixel(v)) {
 			// Left
 			if (should_merge_pixels(v_m1_0, v)) {
-				uint idx_l = uf_element(width_src, x - 1, y);
+				uf_element_t idx_l = uf_element(width_src, x - 1, y);
 				uf_connect(uf_data, idx, idx_l);
 			}
 			if (y > 0) {
 				// Up
 				if (should_merge_pixels(v, v_0_m1)) {
-					uint idx_up = uf_element(width_src, x, y - 1);
+					uf_element_t idx_up = uf_element(width_src, x, y - 1);
 					uf_connect(uf_data, idx, idx_up);
 				}
 				if (v == 255) {
 					// Up-left
 					if (x > 0) {
 						if (should_merge_pixels(v, v_m1_m1)) {
-							uint idx_ul = uf_element(width_src, x - 1, y - 1);
+							uf_element_t idx_ul = uf_element(width_src, x - 1, y - 1);
 							uf_connect(uf_data, idx, idx_ul);
 						}
 					}
 					// Up-right
 					if (should_merge_pixels(v, v_1_m1)) {
-						uint idx_ur = uf_element(width_src, x + 1, y - 1);
+						uf_element_t idx_ur = uf_element(width_src, x + 1, y - 1);
 						uf_connect(uf_data, idx, idx_ur);
 					}
 				}
@@ -272,7 +297,7 @@ __kernel void k04_connected_components_row(
 
 __kernel void k04_print_uf(
 	__private const uint width_src,
-	__global const uint *uf,
+	__global uint *uf,
 	__private uint stride_dst,
 	__global uchar *dst,
 	__private uint stride_dst2,
@@ -283,8 +308,8 @@ __kernel void k04_print_uf(
 	const uint element = uf_element(width_src, x, y);
 
 	uint rep0 = uf_representative(uf, element);
-	uint parent = uf_parent(uf, element);
-	uint size = uf_size(uf, element);
+	uint parent = *uf_parent(uf, element);
+	uint size = *uf_size(uf, element);
 	uint c = clamp(rep0 % 255, (uint) 0, (uint) 255);
 	dst[y * stride_dst + x] = (uchar) c;
 	dst2[y * stride_dst + x] = size == 0 ? 0 : 255;
