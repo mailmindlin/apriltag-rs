@@ -284,7 +284,7 @@ impl AprilTagDetector {
 							return Err(e);
 						} else {
 							// Swallow
-							eprintln!("OpenCL error: {e:?}");
+							eprintln!("WGPU error: {e:?}");
 						}
 					}
 				}
