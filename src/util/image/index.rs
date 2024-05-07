@@ -21,14 +21,17 @@ impl ImageDimensions {
 }
 
 impl Dimensions2D<usize> for ImageDimensions {
+    #[inline]
 	fn width(&self) -> usize {
 		self.width
 	}
 
+    #[inline]
 	fn height(&self) -> usize {
 		self.height
 	}
 
+    #[inline]
 	fn contains(&self, index: &Index2D<usize>) -> bool {
 		index.x < self.width && index.y < self.height
 	}
@@ -151,7 +154,7 @@ impl<P: Pixel, Container: Deref<Target = [<P as Pixel>::Subpixel]>> Index<(usize
             Some(idx) => idx,
             None => panic!("Range index ({x}, {y}) out of range for image size ({}, {})", self.width(), self.height()),
         };
-        // #[cfg(not(debug_assertions))]
+        #[cfg(not(debug_assertions))]
         let idx = self.pixel_idxs(x, y);
 		let slice = &self.data[idx];
 		<P as Pixel>::slice_to_value(slice)

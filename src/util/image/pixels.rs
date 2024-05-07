@@ -319,7 +319,7 @@ mod test {
 	fn enumerate_pixels_test() {
 		let mut img = ImageY8::zeroed_with_stride(323, 150, 384);
 		
-		let mut it = img.enumerate_pixels_mut().into_iter();
+		let it = img.enumerate_pixels_mut().into_iter();
 		it.count();
 	}
 }
