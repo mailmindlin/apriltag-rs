@@ -83,7 +83,11 @@ fn debug_segmentation(mut f: File, w: usize, h: usize, uf: &impl UnionFindStatic
             if let Some(color) = color_ref {
                 *color
             } else {
-                let color = rng.gen_color_rgb(50u8);
+                // Deterministic color from position
+                let color = {
+                    let mut rng = StdRng::seed_from_u64((y * w + x) as _);
+                    rng.gen_color_rgb(50u8)
+                };
                 *color_ref = Some(color);
                 color
             }
@@ -138,9 +142,20 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &grad_cluster::Clus
     });
 
     let mut d = ImageRGB8::zeroed(w, h);
-    let mut rng = StdRng::seed_from_u64(128);
     for cluster in clusters1.into_iter() {
-        let color = rng.gen_color_rgb(50u8);
+        // Deterministically generate color from value for better comparison
+        let color = {
+            let mut min_x = u16::MAX;
+            let mut min_y = u16::MAX;
+            for p in cluster {
+                min_x = min_x.min(p.x);
+                min_y = min_y.min(p.y);
+            }
+            // This is effectively a hash
+            let mut rng = StdRng::seed_from_u64((min_y as u64) * (w as u64) + (min_x as u64));
+            rng.gen_color_rgb(50u8)
+        };
+
         for p in cluster {
             let x = (p.x / 2) as usize;
             let y = (p.y / 2) as usize;
@@ -152,8 +167,8 @@ fn debug_clusters(mut f: File, w: usize, h: usize, clusters: &grad_cluster::Clus
 }
 
 #[cfg(feature="debug_ps")]
-fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()> {
-    use crate::util::image::{ImageWritePostscript, VectorPathWriter};
+fn debug_lines(mut f: File, im: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
+    use crate::util::image::{ImageWritePostscript, VectorPathWriter, PostScriptWriter};
 
     let mut ps = PostScriptWriter::new(&mut f)?;
 
@@ -169,7 +184,7 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
 
     im.write_postscript(&mut ps)?;
 
-    let mut rng = thread_rng();
+    let mut rng = rand::thread_rng();
 
     for q in quads.iter() {
         ps.setrgbcolor(&rng.gen_color_rgb(100))?;
@@ -188,7 +203,7 @@ fn debug_lines(mut f: File, im: &ImageY8, quads: &[Quad]) -> std::io::Result<()>
 }
 
 #[cfg(feature="debug")]
-pub(crate) fn debug_unionfind(config: &DetectorConfig, tp: &mut TimeProfile, dims: &ImageDimensions, uf: &mut impl UnionFindStatic<(u32, u32), Id = u32>) {
+pub(crate) fn debug_unionfind(config: &DetectorConfig, tp: &mut TimeProfile, dims: &ImageDimensions, uf: &impl UnionFindStatic<(u32, u32), Id = u32>) {
     if !config.generate_debug_image() {
         return;
     }
@@ -215,6 +230,7 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
     }
 
     #[cfg(feature="debug_ps")]
+    td.params.debug_image(debug_images::LINES, |f| debug_lines(f, ImageY8::clone_packed(&im), &quads));
 
     tp.stamp("fit quads to clusters");
 
