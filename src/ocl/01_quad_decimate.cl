@@ -8,10 +8,11 @@ static uchar downsample_32(uchar a, uchar b, uchar c, uchar d) {
 __kernel void k01_filter_quad_decimate_32(
     __global const uchar *src,
     __private int stride_src,
+	__private const uint src_width,
     __global uchar *dst,
 	__private const int dst_stride
 ) {
-    const size_t x = get_global_id(0);
+    const size_t x = min(get_global_id(0), (size_t) src_width);
     const size_t y = get_global_id(1);
 
 	// Input is 3x3
@@ -43,11 +44,12 @@ __kernel void k01_filter_quad_decimate_32(
 __kernel void k01_filter_quad_decimate(
     __global const uchar *src,
     __private uint src_stride,
+	__private const uint src_width,
     __global uchar *dst,
 	__private const uint dst_stride,
 	__private const uint factor
 ) {
-    const size_t x = get_global_id(0);
+    const size_t x = min(get_global_id(0), (size_t) src_width);
     const size_t y = get_global_id(1);
 
 	size_t src_idx = (y * factor * src_stride) + (x * factor);
