@@ -2,9 +2,9 @@ use std::{num::NonZeroU64, mem::size_of};
 
 use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
-use crate::{detector::quad_sigma_kernel, wgpu::buffer::GpuImageLike};
+use crate::{detector::quad_sigma_kernel, wgpu::util::GpuImageLike, DetectorBuildError};
 
-use super::{GpuStageContext, GpuStage, GpuContext, WGPUError, util::{DataStore, ProgramBuilder}, buffer::GpuTexture};
+use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
 const PROG_QUAD_SIGMA: &str = include_str!("./shader/02_quad_sigma_img.wgsl");
 
@@ -16,10 +16,14 @@ pub(super) struct GpuQuadSigma {
 }
 
 impl GpuQuadSigma {
-	pub fn new(context: &GpuContext, quad_sigma: f32) -> Option<Self> {
+	pub async fn new(context: &GpuContext, quad_sigma: f32) -> Result<Option<Self>, DetectorBuildError> {
 		let local_dims = (64, 1);
 		let filter_buf = {
-			let kernel_u8 = quad_sigma_kernel(quad_sigma)?;
+			let kernel_u8 = match quad_sigma_kernel(quad_sigma) {
+				Some(kernel) => kernel,
+				None => return Ok(None)
+			};
+
 			let mut kernel_u32 = vec![];
 			for v in kernel_u8 {
 				kernel_u32.push(v);
@@ -28,7 +32,11 @@ impl GpuQuadSigma {
 				kernel_u32.push(0u8);
 			}
 			
-			context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("quad_sigma_filter"), contents: &kernel_u32, usage: BufferUsages::STORAGE })
+			context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+				label: Some("quad_sigma_filter"),
+				contents: &kernel_u32,
+				usage: BufferUsages::STORAGE //TODO: uniform?
+			})
 		};
 
 		let cs_module = {
@@ -36,7 +44,7 @@ impl GpuQuadSigma {
 			program.set_u32("wg_width", local_dims.0);
 			program.set_u32("wg_height", local_dims.1);
 			program.append(PROG_QUAD_SIGMA);
-			program.build(&context.device)
+			program.build(&context.device).await?
 		};
 
 		let const_bgl = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -110,32 +118,31 @@ impl GpuQuadSigma {
 			push_constant_ranges: &[],
 		});
 
-		let compute_pipeline = context.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+		let compute_pipeline = cs_module.create_compute_pipeline(ComputePipelineDescriptor {
 			label: Some("quad_sigma compute_pipeline"),
 			layout: Some(&pipeline_layout),
-			module: &cs_module,
 			entry_point,
-		});
+		}).await?;
 
-		Some(Self {
+		Ok(Some(Self {
 			local_dims,
 			bg_layout: param_bgl,
 			compute_pipeline,
 			const_bg,
-		})
+		}))
 	}
 }
 
 impl GpuStage for GpuQuadSigma {
-	type Source = GpuTexture;
+	type Source = GpuTextureY8;
 	type Data = wgpu::BindGroup;
-	type Output = GpuTexture;
+	type Output = GpuTextureY8;
 
     fn src_alignment(&self) -> usize {
         size_of::<u32>()
     }
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WGPUError> {
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		// Create output buffer
 		let dst = ctx.dst_texture(src.width(), src.height());
 
@@ -155,6 +162,7 @@ impl GpuStage for GpuQuadSigma {
 		});
 
 		// let mut cpass = ctx.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("quad_sigma:cp") });
+
 		ctx.cpass.set_pipeline(&self.compute_pipeline);
 
 		ctx.cpass.set_bind_group(0, &self.const_bg, &[]);

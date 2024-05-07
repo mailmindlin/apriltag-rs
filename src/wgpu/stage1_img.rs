@@ -1,10 +1,10 @@
 use std::{mem::size_of, num::NonZeroU32};
 
-use wgpu::{ComputePipelineDescriptor, BindGroupEntry};
+use wgpu::BindGroupEntry;
 
-use crate::{detector::config::QuadDecimateMode, wgpu::{buffer::GpuImageLike, util::ProgramBuilder}, DetectorConfig, DetectorBuildError};
+use crate::{detector::config::QuadDecimateMode, wgpu::util::{ProgramBuilder, GpuImageLike}, DetectorConfig, DetectorBuildError, util::image::Luma};
 
-use super::{GpuStageContext, util::DataStore, buffer::{GpuStage, GpuTexture}, GpuContext, WGPUError};
+use super::{util::{ComputePipelineDescriptor, DataStore, GpuStage, GpuTextureY8}, GpuContext, GpuStageContext, WgpuDetectError};
 
 const PROG_QUAD_DECIMATE_32: &str = include_str!("./shader/01_quad_decimate_img_32.wgsl");
 const PROG_QUAD_DECIMATE_F: &str = include_str!("./shader/01_quad_decimate_img_f.wgsl");
@@ -24,20 +24,18 @@ pub(super) enum GpuQuadDecimate {
 }
 
 impl GpuQuadDecimate {
-	pub(super) fn new(context: &GpuContext, config: &DetectorConfig) -> Result<Option<Self>, DetectorBuildError> {
-		match config.quad_decimate_mode() {
-			None => Ok(None),
-			Some(QuadDecimateMode::Scaled(factor)) => Ok(Some(Self::new_factor(context, factor)?)),
-			Some(QuadDecimateMode::ThreeHalves) => Ok(Some(Self::new_32(context, config)?)),
-		}
+	pub(super) async fn new(context: &GpuContext, config: &DetectorConfig) -> Result<Option<Self>, DetectorBuildError> {
+		let res = match config.quad_decimate_mode() {
+			None => return Ok(None),
+			Some(QuadDecimateMode::Scaled(factor)) => Self::new_factor(context, factor).await,
+			Some(QuadDecimateMode::ThreeHalves) => Self::new_32(context, config).await,
+		};
+		Ok(Some(res?))
 	}
 
-	fn new_32(context: &GpuContext, config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
-		if config.source_dimensions.cmp_width(3) == Some(std::cmp::Ordering::Less) {
-			return Err(DetectorBuildError::DimensionTooSmall);
-		}
-		if config.source_dimensions.cmp_height(3) == Some(std::cmp::Ordering::Less) {
-			return Err(DetectorBuildError::DimensionTooSmall);
+	async fn new_32(context: &GpuContext, config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
+		if let Err(e) = config.source_dimensions.check(3.., 3..) {
+			return Err(DetectorBuildError::InvalidSourceDimensions(e));
 		}
 
 		let local_dims = (64, 1);
@@ -47,7 +45,7 @@ impl GpuQuadDecimate {
 			builder.set_u32("wg_height", local_dims.1);
 
 			builder.append(PROG_QUAD_DECIMATE_32);
-			builder.build(&context.device)
+			builder.build(&context.device).await?
 		};
 
 		let args_bgl = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -84,12 +82,11 @@ impl GpuQuadDecimate {
 			push_constant_ranges: &[],
 		});
 
-		let compute_pipeline = context.device.create_compute_pipeline(&ComputePipelineDescriptor {
+		let compute_pipeline = cs_module.create_compute_pipeline(ComputePipelineDescriptor {
 			label: Some("quad_decimate->compute_pipeline"),
 			layout: Some(&pipeline_layout),
-			module: &cs_module,
 			entry_point: "main",
-		});
+		}).await?;
 
 		Ok(Self::ThreeHalves {
 			local_dims,
@@ -98,7 +95,7 @@ impl GpuQuadDecimate {
 		})
 	}
 
-	pub(super) fn new_factor(context: &GpuContext, factor: NonZeroU32) -> Result<Self, DetectorBuildError> {
+	pub(super) async fn new_factor(context: &GpuContext, factor: NonZeroU32) -> Result<Self, DetectorBuildError> {
 		let local_dims = (64, 1);
 		let cs_module = {
 			let mut builder = ProgramBuilder::new("01_quad_decimate");
@@ -106,7 +103,7 @@ impl GpuQuadDecimate {
 			builder.set_u32("wg_height", local_dims.1);
 			builder.set_u32("factor", factor.get());
 			builder.append(PROG_QUAD_DECIMATE_F);
-			builder.build(&context.device)
+			builder.build(&context.device).await?
 		};
 
 		let args_bgl = context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -143,12 +140,11 @@ impl GpuQuadDecimate {
 			push_constant_ranges: &[],
 		});
 
-		let compute_pipeline = context.device.create_compute_pipeline(&ComputePipelineDescriptor {
+		let compute_pipeline = cs_module.create_compute_pipeline(ComputePipelineDescriptor {
 			label: Some("quad_decimate->compute_pipeline"),
 			layout: Some(&pipeline_layout),
-			module: &cs_module,
 			entry_point: "main",
-		});
+		}).await?;
 
 		Ok(Self::Factor {
 			factor,
@@ -160,8 +156,8 @@ impl GpuQuadDecimate {
 }
 
 impl GpuStage for GpuQuadDecimate {
-    type Source = GpuTexture;
-    type Output = GpuTexture;
+    type Source = GpuTextureY8;
+    type Output = GpuTextureY8;
 	type Data = wgpu::BindGroup;
 	fn src_alignment(&self) -> usize {
 		match self {
@@ -170,7 +166,7 @@ impl GpuStage for GpuQuadDecimate {
 		}
 	}
 
-	fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WGPUError> {
+	fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		let (dst, local_width, local_height) = match self {
 			Self::Factor { factor, local_dims, args_bgl, compute_pipeline } => {
 				let factor = factor.get() as usize;
@@ -180,7 +176,7 @@ impl GpuStage for GpuQuadDecimate {
 				assert!((swidth - 1) * factor <= src.width());
 				assert!((sheight - 1) * factor <= src.height());
 
-				let dst = ctx.dst_texture(swidth, sheight);
+				let dst = ctx.dst_texture::<Luma<u8>>(swidth, sheight);
 
 				let args_bg = ctx.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
 					label: Some("quad_decimate->args_bg"),
@@ -246,8 +242,8 @@ impl GpuStage for GpuQuadDecimate {
 
 		let wg_x = dst.width().div_ceil(local_width) as u32;
 		let wg_y = dst.height().div_ceil(local_height) as u32;
-		#[cfg(feature="extra_debug")]
-		println!("Dispatch local=({local_width}, {local_height}) wg=({wg_x}, {wg_y}) global=({swidth}, {sheight})");
+		// #[cfg(feature="extra_debug")]
+		// println!("Dispatch local=({local_width}, {local_height}) wg=({wg_x}, {wg_y}) global=({swidth}, {sheight})");
 		ctx.cpass.dispatch_workgroups(wg_x, wg_y, 1);
 
 		#[cfg(feature="debug")]
