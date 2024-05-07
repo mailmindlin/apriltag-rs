@@ -24,7 +24,7 @@ pub use detector::{
 pub use family::AprilTagFamily as PyAprilTagFamily;
 
 
-py_module_initializer!(apriltag_rs, |py, m| {
+py_module_initializer!(apriltag_rs_native, |py, m| {
     m.add(py, "__doc__", "This module is implemented in Rust.")?;
     // m.add(py, "sum_as_string", py_fn!(py, sum_as_string_py(a: i64, b:i64)))?;
     m.add_class::<PyTimeProfile>(py)?;
