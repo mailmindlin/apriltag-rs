@@ -32,37 +32,37 @@ impl Entry {
 }
 
 impl UnionFindStatic<UnionFindId> for UnionFindReference {
-    fn get_set_static(&self, index: UnionFindId) -> (UnionFindId, u32) {
-        let repid = self.find_representative(index);
+	fn get_set_static(&self, index: UnionFindId) -> (UnionFindId, u32) {
+		let repid = self.find_representative(index);
 		let size = self.data[repid as usize].size;
 		(repid, size)
-    }
+	}
 
-    fn get_set_hops(&self, index: UnionFindId) -> usize {
-        let mut root = index;
+	fn get_set_hops(&self, index: UnionFindId) -> usize {
+		let mut root = index;
 		let mut result = 1;
 		while self.data[root as usize].parent != root {
 			result += 1;
 			root = self.data[root as usize].parent;
 		}
 		result
-    }
+	}
 }
 
 impl UnionFind<UnionFindId> for UnionFindReference {
 	type Id = u32;
-    fn get_set(&mut self, index: UnionFindId) -> (UnionFindId, u32) {
-        let repid = self.get_representative(index);
+	fn get_set(&mut self, index: UnionFindId) -> (UnionFindId, u32) {
+		let repid = self.get_representative(index);
 		let size = self.data[repid as usize].size;
 		(repid, size)
-    }
+	}
 
 	#[inline(always)]
 	fn connect(&mut self, a: UnionFindId, b: UnionFindId) -> bool {
 		self.connect_ids(a, b)
 	}
 
-    fn connect_ids(&mut self, a: UnionFindId, b: UnionFindId) -> bool {
+	fn connect_ids(&mut self, a: UnionFindId, b: UnionFindId) -> bool {
 		let a = self.get_representative(a);
 		let b = self.get_representative(b);
 
@@ -93,12 +93,12 @@ impl UnionFind<UnionFindId> for UnionFindReference {
 			self.data[b as usize].size += a_size;
 		}
 		true
-    }
+	}
 
 	#[inline(always)]
-    fn index_to_id(&self, idx: UnionFindId) -> UnionFindId {
-        idx
-    }
+	fn index_to_id(&self, idx: UnionFindId) -> UnionFindId {
+		idx
+	}
 }
 
 
@@ -145,7 +145,7 @@ impl UnionFindReference {
 		root
 	}
 
-    // Get UnionFind group for id
+	// Get UnionFind group for id
 	fn get_representative(&mut self, mut element: UnionFindId) -> UnionFindId {
 		// chase down the root
 		let root = self.find_representative(element);

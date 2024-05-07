@@ -23,47 +23,47 @@ pub(super) struct OclCore {
 
 impl OclCore {
 	fn temp_buffer<E: OclPrm>(&self, dims: &ImageDimensions, read: bool) -> Result<OclBuffer<E>, OclError> {
-        let read = read | true;
-        let flags = {
-            let flags = MemFlags::new()
-                .read_write();
-            if read {
-                // We want to read from this buffer for post-processing debug
-                flags.host_read_only()
-                    .alloc_host_ptr()
-            } else {
-                flags.host_no_access()
-            }
-        };
+		let read = read | true;
+		let flags = {
+			let flags = MemFlags::new()
+				.read_write();
+			if read {
+				// We want to read from this buffer for post-processing debug
+				flags.host_read_only()
+					.alloc_host_ptr()
+			} else {
+				flags.host_no_access()
+			}
+		};
 
-        OclBuffer::<E>::builder()
-            .context(&self.context)
-            .flags(flags)
-            .len((dims.stride, dims.height))
-            .build()
-    }
+		OclBuffer::<E>::builder()
+			.context(&self.context)
+			.flags(flags)
+			.len((dims.stride, dims.height))
+			.build()
+	}
 
-    pub(super) fn temp_bufferstate<E: OclPrm>(&self, dims: &ImageDimensions, read: bool) -> Result<OclBufferState<E>, OclError> {
-        let buf = self.temp_buffer(dims, read)?;
-        Ok(OclBufferState { buf, dims: *dims, event: None })
-    }
+	pub(super) fn temp_bufferstate<E: OclPrm>(&self, dims: &ImageDimensions, read: bool) -> Result<OclBufferState<E>, OclError> {
+		let buf = self.temp_buffer(dims, read)?;
+		Ok(OclBufferState { buf, dims: *dims, event: None })
+	}
 
 	pub(super) fn mapped_buffer<E: OclPrm + SafeZero>(&self, dims: ImageDimensions) -> Result<OclBufferMapped<E>, OclError> {
 		let backing = calloc::<E>(dims.stride * dims.height);
 
-        let flags = {
-            let flags = MemFlags::new()
-                .read_write();
+		let flags = {
+			let flags = MemFlags::new()
+				.read_write();
 			// We want to read from this buffer for post-processing debug
 			flags.host_read_only()
 				.alloc_host_ptr()
-        };
+		};
 
-        let buf = OclBuffer::<E>::builder()
-            .context(&self.context)
-            .flags(flags)
-            .len((dims.stride, dims.height))
-            .build()?;
+		let buf = OclBuffer::<E>::builder()
+			.context(&self.context)
+			.flags(flags)
+			.len((dims.stride, dims.height))
+			.build()?;
 		Ok(OclBufferMapped {
 			buf,
 			dims,
@@ -72,75 +72,75 @@ impl OclCore {
 		})
 	}
 
-    /// Create new temporary image
-    fn temp_img<P: Pixel>(&self, dims: &ImageDimensions, read: bool) -> Result<OclImageState<'static, P>, OclError> where <P as Pixel>::Subpixel: SafeZero + OclPrm {
-        let read = read | true;
-        let flags = {
-            let flags = MemFlags::new()
-                .read_write();
-            if read {
-                // We want to read from this buffer for post-processing debug
-                flags.host_read_only()
-            } else {
-                flags.host_no_access()
-            }
-        };
+	/// Create new temporary image
+	fn temp_img<P: Pixel>(&self, dims: &ImageDimensions, read: bool) -> Result<OclImageState<'static, P>, OclError> where <P as Pixel>::Subpixel: SafeZero + OclPrm {
+		let read = read | true;
+		let flags = {
+			let flags = MemFlags::new()
+				.read_write();
+			if read {
+				// We want to read from this buffer for post-processing debug
+				flags.host_read_only()
+			} else {
+				flags.host_no_access()
+			}
+		};
 
-        // assert!(dims.stride % P::size_bytes() == 0);
+		// assert!(dims.stride % P::size_bytes() == 0);
 
-        let builder = OclBuffer::<<P as Pixel>::Subpixel>::builder()
-            .context(&self.context)
-            .flags(flags)
-            .len((dims.stride, dims.height));
+		let builder = OclBuffer::<<P as Pixel>::Subpixel>::builder()
+			.context(&self.context)
+			.flags(flags)
+			.len((dims.stride, dims.height));
 
-        if read {
-            let image = ImageBuffer::<P>::zeroed_with_stride(dims.width, dims.height, dims.stride);
-            let buf = unsafe { builder.use_host_slice(image.data.deref()) }
-                .build()?;
-            Ok(OclImageState { buffer: OclBufferState { buf, dims: *dims, event: None }, backing: OclImageBacking::Buffer(image) })
-        } else {
-            let buf = builder.build()?;
-            Ok(OclImageState { buffer: OclBufferState { buf, dims: *dims, event: None }, backing: OclImageBacking::None })
-        }
-    }
+		if read {
+			let image = ImageBuffer::<P>::zeroed_with_stride(dims.width, dims.height, dims.stride);
+			let buf = unsafe { builder.use_host_slice(image.data.deref()) }
+				.build()?;
+			Ok(OclImageState { buffer: OclBufferState { buf, dims: *dims, event: None }, backing: OclImageBacking::Buffer(image) })
+		} else {
+			let buf = builder.build()?;
+			Ok(OclImageState { buffer: OclBufferState { buf, dims: *dims, event: None }, backing: OclImageBacking::None })
+		}
+	}
 	
 	/// Upload source image to OpenCL device
-    pub(super) fn upload_image<'a>(&self, download: bool, tp: &mut TimeProfile, image: ImageRefY8<'a>) -> Result<OclImageState<'a>, OclError> {
-        tp.stamp("Buffer start");
-        let cl_src = {
-            let flags = {
-                let flags = MemFlags::new()
-                    .read_only();
-                if download {
-                    // Host read/write
-                    flags
-                } else {
-                    flags.host_write_only()
-                }
-            };
+	pub(super) fn upload_image<'a>(&self, download: bool, tp: &mut TimeProfile, image: ImageRefY8<'a>) -> Result<OclImageState<'a>, OclError> {
+		tp.stamp("Buffer start");
+		let cl_src = {
+			let flags = {
+				let flags = MemFlags::new()
+					.read_only();
+				if download {
+					// Host read/write
+					flags
+				} else {
+					flags.host_write_only()
+				}
+			};
 
-            let builder = OclBuffer::<u8>::builder()
-                .queue(self.queue_write.clone())
-                .len((image.stride(), image.height()))
-                .flags(flags)
-                .copy_host_slice(image.data.deref());
-            
-            // let builder = unsafe { builder.use_host_slice(&image.data) };
-            builder.build()?
-        };
-        
-        //TODO: Async quues
-        tp.stamp("Buffer upload");
+			let builder = OclBuffer::<u8>::builder()
+				.queue(self.queue_write.clone())
+				.len((image.stride(), image.height()))
+				.flags(flags)
+				.copy_host_slice(image.data.deref());
+			
+			// let builder = unsafe { builder.use_host_slice(&image.data) };
+			builder.build()?
+		};
+		
+		//TODO: Async quues
+		tp.stamp("Buffer upload");
 
-        Ok(OclImageState {
-            buffer: OclBufferState {
-                buf: cl_src,
-                dims: *image.dimensions(),
-                event: None,
-            },
-            backing: OclImageBacking::None
-        })
-    }
+		Ok(OclImageState {
+			buffer: OclBufferState {
+				buf: cl_src,
+				dims: *image.dimensions(),
+				event: None,
+			},
+			backing: OclImageBacking::None
+		})
+	}
 	pub(super) fn fetch_ocl_buffer<E: OclPrm + SafeZero>(&self, image: &impl OclBufferLike<E>) -> Result<Box<[E]>, std::io::Error> {
 		let buf_flags = image.buf().flags().expect("Get imagebuf flags");
 
@@ -212,12 +212,12 @@ impl<E: OclPrm> OclAwaitable for OclBufferMapped<E> {
 	}
 }
 impl<E: OclPrm> OclBufferLike<E> for OclBufferMapped<E> {
-    fn buf(&self) -> &OclBuffer<E> {
-        &self.buf
-    }
-    fn event_mut(&mut self) -> &mut Option<OclEvent> {
-        &mut self.event
-    }
+	fn buf(&self) -> &OclBuffer<E> {
+		&self.buf
+	}
+	fn event_mut(&mut self) -> &mut Option<OclEvent> {
+		&mut self.event
+	}
 }
 impl<E: OclPrm> OclBufferMapped<E> {
 	pub(super) fn with_event(self, event: OclEvent) -> Self {
@@ -255,12 +255,12 @@ impl<E: OclPrm> OclAwaitable for OclBufferState<E> {
 	}
 }
 impl<E: OclPrm> OclBufferLike<E> for OclBufferState<E> {
-    fn buf(&self) -> &OclBuffer<E> {
-        &self.buf
-    }
-    fn event_mut(&mut self) -> &mut Option<OclEvent> {
-        &mut self.event
-    }
+	fn buf(&self) -> &OclBuffer<E> {
+		&self.buf
+	}
+	fn event_mut(&mut self) -> &mut Option<OclEvent> {
+		&mut self.event
+	}
 }
 impl<E: OclPrm> OclBufferState<E> {
 	pub(super) fn with_event(&self, event: OclEvent) -> Self {
