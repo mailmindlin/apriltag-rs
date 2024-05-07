@@ -1,5 +1,5 @@
 from . import apriltag_rs_native as raw
-from typing import Optional, Sequence, Union, Literal
+from typing import Optional, Sequence, Union, Literal, TYPE_CHECKING
 import numpy as np
 
 from .apriltag_rs_native import (
@@ -12,6 +12,11 @@ from .apriltag_rs_native import (
 	AprilTagPoseWithError,
 	PoseEstimator,
 )
+
+if TYPE_CHECKING:
+	from .apriltag_rs_native import AprilTagFamilyName
+else:
+	AprilTagFamilyName = str
 
 class DetectorBuilder:
 	def __init__(self, *,
@@ -49,7 +54,7 @@ class DetectorBuilder:
 	def acceleration(self, value: Literal["prefer", "prefer_gpu", "required", "required_gpu"] | str | None):
 		self._inner.acceleration = value
 
-	def add_family(self, family: Union[AprilTagFamily, str], hamming_bits: Optional[int] = 2):
+	def add_family(self, family: Union[AprilTagFamily, AprilTagFamilyName], hamming_bits: Optional[int] = 2):
 		if isinstance(family, str):
 			family = AprilTagFamily.for_name(family)
 		

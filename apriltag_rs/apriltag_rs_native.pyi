@@ -1,12 +1,6 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Literal, Iterator, Union, Optional
-from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal, Iterator, Union, Optional, Any, Iterable
 import numpy as np
-
-if TYPE_CHECKING:
-    import numpy.typing as npt
-
-_IntegerType = int | np.integer
 
 AprilTagFamilyName = Literal['tag16h5', 'tag25h9', 'tag36h10', 'tag36h11', 'tagCircle21h7']
 
@@ -140,6 +134,8 @@ class DetectorConfig:
         ...
     
     def __repr__(self) -> str: ...
+
+    def as_dict(self) -> dict[str, Any]: ...
 
 class Detection:
     tag_id: int
