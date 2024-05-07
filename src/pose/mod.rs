@@ -329,6 +329,7 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 	}
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct PoseParams {
 	/// Tag size (meters?)
 	pub tagsize: f64,

@@ -80,6 +80,10 @@ impl PoseEstimator {
 			pose::estimate_tag_pose(detection, config)
 		})
 	}
+
+	fn __repr__(&self) -> String {
+		format!("{:?}", &self.config)
+	}
 }
 
 #[pymethods]
