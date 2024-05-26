@@ -551,7 +551,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		ptsort(&mut cluster);
 
 		// remove duplicate points. (A byproduct of our segmentation system.)
-		if true {
+		if false {
 			// let old = cluster.clone();
 			let mut i = 0;
 			cluster.dedup_by(|u, v| {
@@ -576,7 +576,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		}
 	}
 
-	if cluster.len() < MIN_CLUSTER_SIZE {
+	if false && cluster.len() < MIN_CLUSTER_SIZE {
 		#[cfg(feature="extra_debug")]
 		println!(" R fit_quad: \tIgnored (small2)");
 		return None;
@@ -1225,10 +1225,10 @@ pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Clusters, im: &ImageRef
 	// a cluster should contain only boundary points around the
 	// tag. it cannot be bigger than the whole screen. (Reject
 	// large connected blobs that will be prohibitively slow to
-	// fit quads to.) A typical point along an edge is added three
-	// times (because it has 3 neighbors). The maximum perimeter
-	// is 2w+2h.
-	let max_cluster_pixels = 3*(2*im.width()+2*im.height());
+	// fit quads to.) A typical point along an edge is added two
+	// times (because it has 2 unique neighbors). The maximum
+	// perimeter is 2w+2h.
+	let max_cluster_pixels = 2*(2*im.width()+2*im.height());
 	// println!("fqp: {fqp:?} cluster_pixels: {min_cluster_pixels}..{max_cluster_pixels}");
 
 	#[cfg(feature="compare_reference")]

@@ -125,6 +125,7 @@ impl AprilTagFamily {
 		vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11", "tagCircle21h7"]
 	}
 
+	#[cfg(feature="compare_reference")]
 	pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
 		let mut bit_x = Vec::with_capacity(self.bits.len());
 		let mut bit_y = Vec::with_capacity(self.bits.len());
