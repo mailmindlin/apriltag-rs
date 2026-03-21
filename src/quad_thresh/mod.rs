@@ -4,9 +4,13 @@ mod quadfit;
 mod grad_cluster;
 pub(super) mod threshold;
 pub(super) use grad_cluster::{gradient_clusters, Clusters};
-use std::{fs::File, f64::consts as f64c};
+#[cfg(feature="debug")]
+use std::fs::File;
+use std::f64::consts as f64c;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::{TimeProfile, debug_images}, DetectorConfig};
+use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
+#[cfg(feature="debug")]
+use crate::dbg::debug_images;
 
 use self::{unionfind::connected_components, quadfit::fit_quads};
 

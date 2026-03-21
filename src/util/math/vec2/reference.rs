@@ -7,7 +7,7 @@ use super::{Vec2Builder, FMA};
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vec2(f64, f64);
 
-impl const Vec2Builder for Vec2 {
+impl Vec2Builder for Vec2 {
     #[inline]
     fn zero() -> Self {
         Self(0.,0.)

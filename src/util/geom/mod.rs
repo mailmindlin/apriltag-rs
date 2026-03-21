@@ -4,6 +4,6 @@ mod line2d;
 pub mod quad;
 
 pub(crate) use poly2d::Poly2D;
-pub(crate) use point2d::Point2D;
+pub use point2d::Point2D;
 pub(crate) use line2d::{Line2D, LineSegment2D};
-pub(crate) use quad::Quadrilateral;
+pub use quad::Quadrilateral;

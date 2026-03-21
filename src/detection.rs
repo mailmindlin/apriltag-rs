@@ -1,6 +1,6 @@
 use std::{sync::Arc, cmp::Ordering};
 
-use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::mat::Mat33}, TimeProfile};
+use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::Mat33}, TimeProfile};
 
 /// Represents the detection of a tag.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,8 +31,7 @@ pub struct AprilTagDetection {
 
 	/// The 3x3 homography matrix describing the projection from an
 	/// "ideal" tag (with corners at (-1,-1), (1,-1), (1,1), and (-1,
-	/// 1)) to pixels in the image. This matrix will be freed by
-	/// apriltag_detection_destroy.
+	/// 1)) to pixels in the image.
 	pub H: Mat33,
 
 	/// The center of the detection in image pixel coordinates.

@@ -1,9 +1,11 @@
 mod vec2;
 mod vec3;
-pub(crate) use vec2::{Vec2, Vec2Builder, FMA};
-pub(crate) use vec3::Vec3;
+pub use vec2::Vec2;
+pub(crate) use vec2::{Vec2Builder, FMA};
+pub use vec3::Vec3;
 
-pub mod mat;
+pub(crate) mod mat;
+pub use mat::Mat33;
 pub(crate) mod poly;
 
 use std::f64::consts::{TAU, PI};
