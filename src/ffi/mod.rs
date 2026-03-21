@@ -4,7 +4,9 @@ pub(crate) mod jni;
 #[cfg(feature="python")]
 pub(crate) mod python;
 
-#[cfg(feature="cffi")]
-pub(crate) mod c;
+#[cfg(all(feature="cffi", not(feature="cbindgen")))]
+mod c;
+#[cfg(all(feature="cbindgen"))]
+pub mod c;
 
 mod util;
