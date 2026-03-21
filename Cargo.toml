@@ -34,7 +34,6 @@ rayon = "1.11.0"
 datasize = "0.2.15"
 clap = { version = "4.6.0", features=["derive"] }
 parking_lot = "0.12.5"
-raw-parts = "2.2.2"
 hashbrown = { version = "0.16.1", features = ["rayon"] }
 futures = "0.3.32"
 proc-macro2 = "1.0.106"

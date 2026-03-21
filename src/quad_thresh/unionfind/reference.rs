@@ -1,7 +1,3 @@
-use std::sync::atomic::AtomicU32;
-
-use raw_parts::RawParts;
-
 use super::{UnionFind, UnionFindId, atomic::UnionFindConcurrent, UnionFindStatic};
 
 pub(super) struct UnionFindReference {
@@ -106,21 +102,17 @@ impl UnionFindReference {
 	pub fn from_concurrent(src: UnionFindConcurrent) -> Self {
 		use super::atomic::Entry as AtomicEntry;
 		// Check that the layouts of Entry and AtomicEntry are the same
-		{
-			assert_eq!(std::mem::size_of::<AtomicEntry>(), std::mem::size_of::<Entry>());
-			assert_eq!(std::mem::align_of::<AtomicEntry>(), std::mem::align_of::<Entry>());
-			
-			let E_A: AtomicEntry = AtomicEntry { parent: AtomicU32::new(0), size: AtomicU32::new(0) };
-			let E_S: Entry = Entry { parent: 0, size: 0 };
-			fn ptrdif<T, U>(a: *const T, b: *const U) -> isize {
-				unsafe { a.byte_offset_from(b) }
-			}
-			assert_eq!(ptrdif(&E_A, &E_A.parent), ptrdif(&E_S, &E_S.parent), "Parent align mismatch");
-			assert_eq!(ptrdif(&E_A, &E_A.size), ptrdif(&E_S, &E_S.size));
+		const {
+			use std::mem::{size_of, align_of, offset_of};
+			assert!(size_of::<AtomicEntry>() == size_of::<Entry>());
+			assert!(align_of::<AtomicEntry>() == align_of::<Entry>());
+			assert!(offset_of!(AtomicEntry, parent) == offset_of!(Entry, parent));
+			assert!(offset_of!(AtomicEntry, size) == offset_of!(Entry, size));
 		}
 
-		let RawParts { ptr, length, capacity } = RawParts::from_vec(src.data);
-		let ptr: *mut Entry = unsafe { std::mem::transmute(ptr) };
+		let (ptr, length, capacity) = src.data.into_raw_parts();
+		// Safety: above layout checks
+		let ptr = ptr as *mut Entry;
 		Self {
 			data: unsafe { Vec::from_raw_parts(ptr, length, capacity) }.into_boxed_slice()
 		}
