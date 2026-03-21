@@ -53,7 +53,7 @@ impl AprilTagFamily {
 
     /// The bit locations
     #[getter]
-	fn bits(&self) -> PyResult<Vec<(u32, u32)>> {
+	fn bits(&self) -> PyResult<Vec<(i8, i8)>> {
         Ok(self.family.bits.clone())
     }
 

@@ -7,18 +7,57 @@ edition = "2021"
 # crate-type = ["cdylib"]
 
 [features]
+# Python FFI bindings
 python = ["dep:pyo3"]
+# JNI FFI bindings
 jni = ["dep:jni"]
+# C FFI Bindings (we try to match libapriltag)
 cffi = ["dep:libc", "dep:nix", "dep:errno"]
 debug = []
 debug_ps = ["debug"]
 opencl = ["dep:ocl"]
 wgpu = ["dep:wgpu"]
 extra_debug = ["debug", "debug_ps"]
+# Compare to apriltag-sys
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 opencv=["dep:opencv"]
+
+# Enable specific tag families
+tag16h5 = []
+tag25h9 = []
+tag36h10 = []
+tag36h11 = []
+tagCircle21h7 = []
+tagCustom48h12 = []
+tagCircle49h12 = []
+tagStandard41h12 = []
+tagStandard52h13 = []
+# Commonly used tag families
+default-families = [
+	"tag16h5",
+	"tag25h9",
+	"tag36h10",
+	"tag36h11",
+]
+# Enable all tag families (this may be slow)
+all-families = [
+	"tag16h5",
+	"tag25h9",
+	"tag36h10",
+	"tag36h11",
+	"tagCircle21h7",
+	"tagCustom48h12",
+	"tagCircle49h12",
+	"tagStandard41h12",
+	"tagStandard52h13",
+]
+
 # vulkan=["dep:vulkano", "dep:vulkano-shaders"]
-default = [ "debug", "extra_debug", "python" ]
+default = [
+	"debug", "extra_debug",
+	"default-families",
+	"python",
+]
 
 [profile.dev]
 default = ["python", "jni", "cffi", "debug", "extra_debug"]
@@ -101,4 +140,4 @@ optional = true
 
 [[example]]
 name = "opencv_demo"
-required_features = ["opencv"]
+required-features = ["opencv"]

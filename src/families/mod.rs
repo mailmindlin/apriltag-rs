@@ -2,20 +2,61 @@ use std::{sync::Arc, borrow::Cow};
 
 use crate::util::image::{ImageBuffer, Luma, ImageY8};
 
+macro_rules! impl_tag {
+	($name:literal) => {
+		pub(super) const NAME_C: &str = $name;
+		pub(super) static NAME_S: &str = NAME_C;
+	};
+}
+use {impl_tag};
 
-mod tag16h5;
-mod tag25h9;
-mod tag36h10;
-mod tag36h11;
-mod tagCircle21h7;
+macro_rules! tag_families {
+	{$($feat:literal => $name:ident :: $ctor:ident),* ,} => {
+		$(
+			#[cfg(feature=$feat)]
+			mod $name;
+			#[cfg(feature=$feat)]
+			pub use $name :: $ctor;
+		)*
+
+		impl AprilTagFamily {
+			pub fn for_name(name: &str) -> Option<Arc<AprilTagFamily>> {
+				let res = match name {
+					$(
+						#[cfg(feature=$feat)]
+						$name::NAME_C => $name::$ctor (),
+					)*
+					_ => return None,
+				};
+				//TODO: cache references
+				Some(Arc::new(res))
+			}
+
+
+			pub fn names() -> impl IntoIterator<Item = &'static str> {
+				[
+					$(
+						#[cfg(feature=$feat)]
+						$name :: NAME_S
+					),*
+				]
+			}
+		}
+	};
+}
+tag_families!{
+	"tag16h5" => tag16h5::tag16h5_create,
+	"tag25h9" => tag25h9::tag25h9_create,
+	"tag36h10" => tag36h10::tag36h10_create,
+	"tag36h11" => tag36h11::tag36h11_create,
+	"tagCircle21h7" => tagCircle21h7::tagCircle21h7_create,
+	"tagCustom48h12" => tagCustom48h12::tagCustom48h12_create,
+	"tagCircle49h12" => tagCircle49h12::tagCircle49h12_create,
+	"tagStandard41h12" => tagStandard41h12::tagStandard41h12_create,
+	"tagStandard52h13" => tagStandard52h13::tagStandard52h13_create,
+}
 mod util;
 pub use util::{rotate90, rotations};
-
-pub use tag16h5::tag16h5_create;
-pub use tag25h9::tag25h9_create;
-pub use tag36h10::tag36h10_create;
-pub use tag36h11::tag36h11_create;
-pub use tagCircle21h7::tagCircle21h7_create;
 
 pub(crate) type Code = u64;
 
@@ -62,7 +103,7 @@ pub struct AprilTagFamily {
 	pub codes: Vec<u64>,
 
 	/// The bit locations.
-	pub bits: Vec<(u32, u32)>,
+	pub bits: Vec<(i8, i8)>,
 
 	pub width_at_border: u32,
 
@@ -114,23 +155,6 @@ impl Ord for AprilTagFamily {
 }
 
 impl AprilTagFamily {
-	pub fn for_name(name: &str) -> Option<Arc<AprilTagFamily>> {
-		let res = match name {
-			"tag16h5" => tag16h5_create(),
-			"tag25h9" => tag25h9_create(),
-			"tag36h10" => tag36h10_create(),
-			"tag36h11" => tag36h11_create(),
-			"tagCircle21h7" => tagCircle21h7_create(),
-			_ => return None,
-		};
-		//TODO: cache references
-		Some(Arc::new(res))
-	}
-
-	pub fn names() -> impl IntoIterator<Item = &'static str> {
-		vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11", "tagCircle21h7"]
-	}
-
 	#[cfg(feature="compare_reference")]
 	pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
 		let mut bit_x = Vec::with_capacity(self.bits.len());

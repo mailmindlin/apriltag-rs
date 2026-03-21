@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use super::AprilTagFamily;
 
+super::impl_tag!("tagStandard41h12");
 pub fn tagStandard41h12_create() -> AprilTagFamily {
 	AprilTagFamily {
 		bits: vec![
@@ -2168,7 +2169,7 @@ pub fn tagStandard41h12_create() -> AprilTagFamily {
 		total_width: 10,
 		reversed_border: false,
 		min_hamming: 12,
-		name: Cow::Borrowed("tagStandard41h12"),
+		name: Cow::Borrowed(NAME_S),
 	}
 }
 
