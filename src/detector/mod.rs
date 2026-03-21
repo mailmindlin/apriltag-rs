@@ -11,7 +11,9 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::{TimeProfile, debug_images}, Detections, detection::reconcile_detections};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections};
+#[cfg(feature="debug")]
+use crate::{quad_thresh::debug_unionfind, dbg::debug_images};
 #[cfg(feature="wgpu")]
 use crate::wgpu::WGPUDetector;
 
@@ -297,7 +299,7 @@ impl AprilTagDetector {
 
 		// CPU
 		let (quad_im, threshim) = self.preprocess_image(tp, im_orig)?;
-		let mut uf = connected_components(&self.params, &threshim);
+		let uf = connected_components(&self.params, &threshim);
 		tp.stamp("unionfind");
 
 		// make segmentation image.
