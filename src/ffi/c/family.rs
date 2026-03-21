@@ -109,47 +109,33 @@ unsafe fn ffi_tag_destroy(fam: *const apriltag_family_t) {
 	}
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn tag16h5_create() -> Option<NonNull<apriltag_family_t>> {
-	cffi_wrapper(|| {
-		ffi_tag_create(crate::families::tag16h5_create())
-	})
+macro_rules! tag_family_ffi {
+	($feat:literal: $ctor:ident => $dtor:ident) => {
+		#[no_mangle]
+		pub unsafe extern "C" fn $ctor() -> Option<NonNull<apriltag_family_t>> {
+			#[cfg(feature=$feat)]
+			let result = cffi_wrapper(|| {
+				ffi_tag_create(crate::families::$ctor())
+			});
+			#[cfg(not(feature=$feat))]
+			let result = None;
+			result
+		}
+		#[no_mangle]
+		pub unsafe extern "C" fn $dtor(fam: *const apriltag_family_t) {
+			ffi_tag_destroy(fam)
+		}
+	};
 }
-
-#[no_mangle]
-pub unsafe extern "C" fn tag16h5_destroy(fam: *const apriltag_family_t) {
-	ffi_tag_destroy(fam)
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag25h9_create() -> Option<NonNull<apriltag_family_t>> {
-	cffi_wrapper(|| {
-		ffi_tag_create(crate::families::tag25h9_create())
-	})
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag25h9_destroy(fam: *const apriltag_family_t) {
-	ffi_tag_destroy(fam)
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag36h10_create() -> Option<NonNull<apriltag_family_t>> {
-	cffi_wrapper(|| {
-		ffi_tag_create(crate::families::tag36h10_create())
-	})
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag36h10_destroy(fam: *const apriltag_family_t) {
-	ffi_tag_destroy(fam)
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag36h11_create() -> Option<NonNull<apriltag_family_t>> {
-	cffi_wrapper(|| {
-		ffi_tag_create(crate::families::tag36h11_create())
-	})
-}
-#[no_mangle]
-pub unsafe extern "C" fn tag36h11_destroy(fam: *const apriltag_family_t) {
-	ffi_tag_destroy(fam)
-}
+tag_family_ffi!("tag16h5": tag16h5_create => tag16h5_destroy);
+tag_family_ffi!("tag25h9": tag25h9_create => tag25h9_destroy);
+tag_family_ffi!("tag36h10": tag36h10_create => tag36h10_destroy);
+tag_family_ffi!("tag36h11": tag36h11_create => tag36h11_destroy);
+tag_family_ffi!("tagCircle21h7": tagCircle21h7_create => tagCircle21h7_destroy);
+tag_family_ffi!("tagCustom48h12": tagCustom48h12_create => tagCustom48h12_destroy);
+tag_family_ffi!("tagCircle49h12": tagCircle49h12_create => tagCircle49h12_destroy);
+tag_family_ffi!("tagStandard41h12": tagStandard41h12_create => tagStandard41h12_destroy);
+tag_family_ffi!("tagStandard52h13": tagStandard52h13_create => tagStandard52h13_destroy);
 
 
 impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
@@ -181,8 +167,12 @@ impl TryFrom<&apriltag_family_t> for Arc<AprilTagFamily> {
 			} else {
 				let bits_x = unsafe { slice::from_raw_parts(value.bit_x, value.nbits as usize) };
 				let bits_y = unsafe { slice::from_raw_parts(value.bit_y, value.nbits as usize) };
-				for (bit_x, bit_y) in bits_x.iter().zip(bits_y.iter()) {
-					bits.push((*bit_x, *bit_y));
+				fn cast_bit(bit: &u32) -> Result<i8, FFIConvertError> {
+					let bit = *bit as i32;
+					bit.try_into().map_err(|_| FFIConvertError::FieldOverflow)
+				}
+				for (bit_x, bit_y) in bits_x.iter().zip(bits_y) {
+					bits.push((cast_bit(bit_x)?, cast_bit(bit_y)?));
 				}
 			}
 			bits
