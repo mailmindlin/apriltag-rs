@@ -183,7 +183,7 @@ fn debug_lines(mut f: File, im: ImageY8, quads: &[Quad]) -> std::io::Result<()> 
 
 	im.write_postscript(&mut ps)?;
 
-	let mut rng = rand::thread_rng();
+	let mut rng = rand::rng();
 
 	for q in quads.iter() {
 		ps.setrgbcolor(&rng.gen_color_rgb(100))?;

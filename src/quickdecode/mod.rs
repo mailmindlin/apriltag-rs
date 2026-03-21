@@ -36,13 +36,13 @@ pub(crate) struct QuickDecode {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum AddFamilyError {
 	/// Too many codes in an AprilTag family
-	#[error("Too many codes in AprilTag family to create QuickDecode (actual: {0}, max: {})", QuickDecode::NUM_CODES_MAX)]
+	#[error("Too many codes in AprilTag family to create QuickDecode (actual: {0}, max: {max})", max=QuickDecode::NUM_CODES_MAX)]
 	TooManyCodes(usize),
 	/// Error allocating QD table
 	#[error("Error allocating QuickDecode table")]
 	QuickDecodeAllocation,
 	/// Hamming value was too big
-	#[error("Hamming too big for QuickDecode: (actual: {0}, max: {})", QuickDecode::HAMMING_MAX)]
+	#[error("Hamming too big for QuickDecode: (actual: {0}, max: {max})", max=QuickDecode::HAMMING_MAX)]
 	BigHamming(usize),
 }
 

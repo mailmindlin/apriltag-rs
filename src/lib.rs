@@ -11,6 +11,7 @@
     ptr_as_uninit,
 )]
 #![allow(non_snake_case)]
+#![allow(unused)]
 
 pub mod families;
 mod detector;

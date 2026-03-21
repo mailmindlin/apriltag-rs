@@ -1,6 +1,6 @@
 use std::ops::{Range, Add, Sub};
 
-use rand::{Rng, distributions::uniform::{SampleRange, SampleUniform}};
+use rand::{Rng, RngExt, distr::uniform::{SampleRange, SampleUniform}};
 
 use super::image::{Rgb, Luma, Pixel, Primitive};
 
@@ -36,6 +36,6 @@ impl<R: Rng> RandomColor for R {
             T: Copy + Sub<T, Output = T> + Add<T, Output = T> + From<u8> + SampleUniform {
         // RNG range
         let range = bias..T::from(255);
-        Luma([self.gen_range(range)])
+        Luma([self.random_range(range)])
     }
 }

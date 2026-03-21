@@ -1,5 +1,3 @@
-#![cfg(feature="opencv")]
-
 use std::path::PathBuf;
 
 use apriltag_rs::util::ImageY8;

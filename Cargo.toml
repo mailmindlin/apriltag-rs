@@ -28,21 +28,21 @@ default = ["python", "jni", "cffi"]
 
 
 [dependencies]
-arrayvec = "0.7.4"
-rand = "0.8.5"
-rayon = "1.10.0"
+arrayvec = "0.7.6"
+rand = "0.10.0"
+rayon = "1.11.0"
 datasize = "0.2.15"
-clap = { version = "4.5.4", features=["derive"] }
-parking_lot = "0.12.2"
-raw-parts = "2.0.0"
-hashbrown = { version = "0.14.5", features = ["rayon"] }
-futures = "0.3.30"
-proc-macro2 = "1.0.66"
-bytemuck = "1.15.0"
+clap = { version = "4.6.0", features=["derive"] }
+parking_lot = "0.12.5"
+raw-parts = "2.2.2"
+hashbrown = { version = "0.16.1", features = ["rayon"] }
+futures = "0.3.32"
+proc-macro2 = "1.0.106"
+bytemuck = "1.24.0"
 concurrent-queue = "2.5.0"
 # vulkano-shaders = { version = "0.33.0", optional = true }
-async-trait = "0.1.80"
-thiserror = "1.0.49"
+async-trait = "0.1.89"
+thiserror = "2.0.18"
 cpu-time = "1.0.0"
 
 # Feature: Python FFI (pyo3)
@@ -53,7 +53,7 @@ features=["extension-module", "experimental-inspect"]
 
 # Feature: Java FFI (jni)
 [dependencies.jni]
-version = "0.21.1"
+version = "0.22.4"
 optional = true
 
 # Feature: C FFI (cffi)
@@ -61,18 +61,19 @@ optional = true
 version = "0.2.154"
 optional = true
 [dependencies.nix]
-version = "0.28.0"
+version = "0.31.2"
 optional = true
 [dependencies.errno]
-version = "0.3.8"
+version = "0.3.14"
 optional = true
 
 # Feature: compare_reference
 [dependencies.apriltag-sys]
 path="../apriltag-rust-deep/apriltag-sys"
 optional = true
+
 [dependencies.float-cmp]
-version = "0.9.0"
+version = "0.10.0"
 optional = true
 
 # Feature: OpenCL
@@ -83,18 +84,22 @@ optional = true
 # version = "0.9.3"
 # optional = true
 [dependencies.wgpu]
-version = "0.20.0"
+version = "29.0.0"
 optional = true
 features = ["vulkan-portability"]
 
 [dev-dependencies]
-image = "0.25.1"
+image = "0.25.10"
 
 [dependencies.opencv]
-version = "0.91.2"
+version = "0.98.1"
 features = ["clang-runtime"]
 optional = true
 
 # [dependencies.vulkano]
 # version = "0.33.0"
 # optional = true
+
+[[example]]
+name = "opencv_demo"
+required_features = ["opencv"]
