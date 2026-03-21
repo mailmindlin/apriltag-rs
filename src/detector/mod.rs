@@ -7,6 +7,21 @@ pub use config::{DetectorConfig, AccelerationRequest};
 pub use builder::DetectorBuilder;
 pub use error::{DetectError, DetectorBuildError, ImageDimensionError};
 
+/// Information about the GPU device used for hardware acceleration.
+#[derive(Debug, Clone)]
+pub struct GpuDeviceInfo {
+	/// Backend API (e.g. "Metal", "Vulkan", "OpenCL")
+	pub backend: String,
+	/// Device name (e.g. "Apple M1 Pro")
+	pub name: String,
+	/// Device type (e.g. "IntegratedGpu", "DiscreteGpu", "Cpu")
+	pub device_type: String,
+	/// Vendor identifier
+	pub vendor: String,
+	/// Driver description (if available)
+	pub driver: String,
+}
+
 use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
@@ -177,6 +192,17 @@ impl AprilTagDetector {
 
 	pub fn has_gpu(&self) -> bool {
 		!matches!(self.gpu, HardwareAccelerator::None)
+	}
+
+	/// Get information about the GPU device being used for acceleration, if any.
+	pub fn gpu_device_info(&self) -> Option<GpuDeviceInfo> {
+		match &self.gpu {
+			HardwareAccelerator::None => None,
+			#[cfg(feature = "opencl")]
+			HardwareAccelerator::OpenCL(ocl) => Some(ocl.device_info()),
+			#[cfg(feature = "wgpu")]
+			HardwareAccelerator::WebGPU(wgpu) => Some(wgpu.device_info()),
+		}
 	}
 
 	fn new(params: DetectorConfig, tag_families: Vec<Arc<QuickDecode>>) -> Result<AprilTagDetector, DetectorBuildError> {

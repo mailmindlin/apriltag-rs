@@ -65,7 +65,10 @@ impl<'a> GpuStageContext<'a> {
 		self.context.temp_buffer1(length, self.next_read, self.stage_name)
 	}
 
-	/// Create output 2D GPU buffer
+	/// Create output 2D GPU buffer.
+	/// The row stride is aligned to `lcm(next_align, align)` so the buffer
+	/// satisfies both this stage's write alignment and the next stage's
+	/// `src_alignment()` requirement (see `GpuStage` docs).
 	fn dst_buffer2<P>(&self, width: usize, height: usize, align: usize) -> Result<GpuBuffer2<P>, WgpuDetectError> {
 		let align = lcm(self.next_align, align);
 		self.context.temp_buffer2(width, height, align, self.next_read, self.stage_name)
@@ -114,6 +117,18 @@ impl WGPUDetector {
 	/// Create new detector (blocking call)
 	pub(super) fn new(config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
 		block_on(Self::new_async(config))
+	}
+
+	/// Get information about the GPU device being used.
+	pub(crate) fn device_info(&self) -> super::detector::GpuDeviceInfo {
+		let info = &self.context.adapter_info;
+		super::detector::GpuDeviceInfo {
+			backend: format!("{:?}", info.backend),
+			name: info.name.clone(),
+			device_type: format!("{:?}", info.device_type),
+			vendor: format!("{:#x}", info.vendor),
+			driver: info.driver.clone(),
+		}
 	}
 
 	/// Upload source image to GPU

@@ -177,6 +177,24 @@ fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, Image
 }
 
 impl OpenCLDetector {
+	/// Get information about the OpenCL device being used.
+	pub(crate) fn device_info(&self) -> super::detector::GpuDeviceInfo {
+		let device = &self.core.device;
+		let name = device.name().unwrap_or_default();
+		let vendor = device.vendor().unwrap_or_default();
+		let version = device.version().map(|v| format!("{v:?}")).unwrap_or_default();
+		let driver = device.info(ocl::enums::DeviceInfo::DriverVersion)
+			.map(|v| format!("{v}"))
+			.unwrap_or_default();
+		super::detector::GpuDeviceInfo {
+			backend: "OpenCL".into(),
+			name,
+			device_type: version,
+			vendor,
+			driver,
+		}
+	}
+
 	pub(super) fn new(config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
 		let (platform, device) = find_device(&config.acceleration)?;
 
