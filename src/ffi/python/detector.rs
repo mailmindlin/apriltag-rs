@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use pyo3::{exceptions::{PyAttributeError, PyEnvironmentError, PyMemoryError, PyRuntimeError, PyTypeError, PyValueError}, pyclass, pymethods, types::{PyAnyMethods, PyString}, Bound, Py, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject };
+use pyo3::{exceptions::{PyAttributeError, PyEnvironmentError, PyMemoryError, PyRuntimeError, PyTypeError, PyValueError}, pyclass, pymethods, types::{PyAnyMethods, PyString}, Bound, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use parking_lot::RwLock;
 
 use crate::{
@@ -287,11 +287,12 @@ impl DetectorBuilder {
     }
 
     #[getter]
-    fn acceleration(self_: Bound<Self>) -> PyResult<PyObject> {
+    fn acceleration(self_: Bound<Self>) -> PyResult<Py<PyAny>> {
 		let me = self_.try_borrow()?;
         let builder = me.builder.read();
+        let py = self_.py();
         let text = match builder.gpu_mode() {
-            AccelerationRequest::Disabled => return Ok(().to_object(self_.py())),
+            AccelerationRequest::Disabled => return Ok(().into_pyobject(py)?.into_any().unbind()),
             AccelerationRequest::Prefer => Cow::Borrowed("prefer"),
             AccelerationRequest::Required => Cow::Borrowed("required"),
             AccelerationRequest::PreferGpu => Cow::Borrowed("prefer_gpu"),
@@ -299,7 +300,7 @@ impl DetectorBuilder {
             AccelerationRequest::PreferDeviceIdx(idx) => Cow::Owned(format!("prefer_{idx}")),
             AccelerationRequest::RequiredDeviceIdx(idx) => Cow::Owned(format!("required_{idx}")),
         };
-        Ok(PyString::new_bound(self_.py(), &text).to_object(self_.py()))
+        Ok(PyString::new(py, &text).into_any().unbind())
     }
 
     #[setter]
@@ -338,7 +339,7 @@ impl DetectorBuilder {
 		{
 			let me = self_.try_borrow()?;
 			let builder = &me.builder;
-			self_.py().allow_threads(|| {
+			self_.py().detach(|| {
 				let mut builder = builder.write();
 				builder.config.acceleration = request;
 			});
@@ -394,7 +395,7 @@ impl DetectorBuilder {
         // add_family_bits could be slow, so run it on a different thread
         let res = {
             let family = family.clone();
-            self_.py().allow_threads(|| {
+            self_.py().detach(|| {
 				let mut builder = builder.write();
                 builder.add_family_bits(family, num_bits)
             })
@@ -424,7 +425,7 @@ impl DetectorBuilder {
             .read()
             .clone();// Ideally we'd be able to take the builder, but whatever
 
-        match self_.py().allow_threads(|| builder.build()) {
+        match self_.py().detach(|| builder.build()) {
             Ok(detector)
                 => Ok(Detector { detector }),
             Err(DetectorBuildError::BufferAllocationFailure)
@@ -514,7 +515,7 @@ impl Detector {
 
         let res = {
             let detector: &AprilTagDetector = &me.detector;
-            self_.py().allow_threads(|| {
+            self_.py().detach(|| {
                 let res = detector.detect(&image);
                 drop(image);
                 res
