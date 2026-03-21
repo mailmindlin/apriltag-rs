@@ -5,9 +5,8 @@ use std::path::PathBuf;
 use apriltag_rs::util::image::ImageWritePNM;
 use apriltag_rs::util::image::Pixel;
 use clap::Parser;
-use clap::command;
 use image::Rgb;
-use image::{io::Reader as ImageReader, ImageBuffer as IImageBuffer};
+use image::{ImageReader, ImageBuffer as IImageBuffer};
 use apriltag_rs::util::ImageRGB8;
 
 #[derive(Parser, Debug)]
