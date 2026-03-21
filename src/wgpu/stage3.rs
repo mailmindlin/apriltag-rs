@@ -94,10 +94,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_tile_minmax"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_minmax = shader.create_compute_pipeline(ComputePipelineDescriptor {
@@ -143,10 +143,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_tile_blur"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_blur = shader.create_compute_pipeline(ComputePipelineDescriptor {
@@ -207,10 +207,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_threshim"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_minmax = shader.create_compute_pipeline(ComputePipelineDescriptor {

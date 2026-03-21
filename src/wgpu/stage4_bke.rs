@@ -72,8 +72,8 @@ impl GpuBke {
 
 		let cp_layout = context.device.create_pipeline_layout(&PipelineLayoutDescriptor {
 			label: Some("bke->cpl"),
-			bind_group_layouts: &[&args_bgl],
-			push_constant_ranges: &[]
+			bind_group_layouts: &[Some(&args_bgl)],
+			..Default::default()
 		});
 
 		const HEADER_BKE: &str = include_str!("./shader/04a_bke.wgsl");

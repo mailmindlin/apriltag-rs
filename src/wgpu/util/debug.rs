@@ -1,5 +1,3 @@
-#![cfg(feature="debug")]
-
 use std::io::ErrorKind;
 
 use futures::executor::block_on;
@@ -61,6 +59,7 @@ pub(in super::super) struct DebugImageGenerator {
 
 impl DebugImageGenerator {
 	pub(in super::super) const fn new(debug: bool) -> Self {
+		let _ = debug;
 		Self {
 			#[cfg(feature="debug")]
 			debug,
@@ -69,18 +68,21 @@ impl DebugImageGenerator {
 		}
 	}
 	pub(in super::super) fn register(&mut self, image: &GpuTextureY8, path: &'static str) {
+		#[cfg(feature="debug")]
 		if self.debug {
 			self.values.push(DebugEntry::Y8 { path, image: image.clone() });
 		}
 	}
 
 	pub(in super::super) fn register_minmax(&mut self, image: &GpuTexture<[u8; 2]>, min_path: &'static str, max_path: &'static str) {
+		#[cfg(feature="debug")]
 		if self.debug {
 			self.values.push(DebugEntry::MinMax { min_path, max_path, image: image.clone() });
 		}
 	}
 
 	pub(in super::super) fn write_debug_images(self, context: &GpuContext, config: &DetectorConfig) {
+		#[cfg(feature="debug")]
 		for entry in self.values.into_iter() {
 			match entry {
 				DebugEntry::Y8 { path, image } => {

@@ -1,7 +1,7 @@
 use std::{hint::black_box, mem::size_of, num::NonZeroU32};
 
-use futures::{executor::block_on, future::{join, try_join}};
-use rand::{thread_rng, Rng};
+use futures::{executor::block_on, future::try_join};
+use rand::{RngExt, rng};
 use wgpu::CommandEncoderDescriptor;
 
 use crate::{TimeProfile, DetectorConfig, util::{ImageY8, image::ImageRefY8}, detector::{config::{QuadDecimateMode, AccelerationRequest}, quad_sigma_cpu}, wgpu::{GpuStageContext, GpuQuadDecimate, util::{GpuStage, GpuImageDownload}}, quad_thresh::threshold::threshold};
@@ -10,11 +10,11 @@ use super::WGPUDetector;
 
 /// Generate image with random data
 fn random_image(width: usize, height: usize) -> ImageY8 {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let mut result = ImageY8::zeroed_packed(width, height);
     for y in 0..height {
         for x in 0..width {
-            result[(x, y)] = rng.gen();
+            result[(x, y)] = rng.random();
         }
     }
     result
@@ -102,7 +102,7 @@ async fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -
             next_read: true,
             next_align: size_of::<u32>(),
             queries: &mut queries,
-            cpass: cpass,
+            cpass,
             stage_name: Some("quad_decimate"),
         };
         ctx.tp.stamp("Kernel0");
@@ -366,7 +366,10 @@ fn bench_both() {
         
         tp.stamp("Execute");
 
-        gpu.context.device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(dst_gpu.index.clone().unwrap()));
+        gpu.context.device.poll(wgpu::PollType::Wait {
+			submission_index: Some(dst_gpu.index.clone().unwrap()),
+			timeout: None,
+		});
         tp.stamp("Poll");
 
         let img_cpu2 = block_on(dst_gpu.download_image(&gpu.context))

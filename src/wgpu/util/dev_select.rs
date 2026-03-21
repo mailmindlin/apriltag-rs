@@ -24,14 +24,12 @@ fn evaluate_adapter(adapter: &wgpu::Adapter, config: &DetectorConfig) -> Result<
     if !caps.flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS) {
         return Err(InvalidAdapterReason::NoComputeShaders);
     }
-    drop(caps);
 
     let limits = adapter.limits();
     let max_dim = limits.max_texture_dimension_2d as usize;
     if let Err(e) = config.source_dimensions.check(..max_dim, ..max_dim) {
         return Err(InvalidAdapterReason::TextureSize(e));
     }
-    drop(limits);
 
     {
         // We need read/write/storage/texture for R8Uint
@@ -153,7 +151,7 @@ impl AdapterData {
 impl From<AdapterData> for Result<Adapter, WgpuBuildError> {
     fn from(value: AdapterData) -> Self {
         match value {
-            AdapterData::AllBad(reasons) if reasons.is_empty() => Err(WgpuBuildError::NoAdapters),
+            AdapterData::AllBad(reasons) if reasons.is_empty() => Err(WgpuBuildError::NoAdapters(None)),
             AdapterData::AllBad(mut reasons) => {
                 reasons.shrink_to_fit();
                 Err(WgpuBuildError::BadAdapters(reasons))
@@ -163,7 +161,7 @@ impl From<AdapterData> for Result<Adapter, WgpuBuildError> {
     }
 }
 
-fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions {
+fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions<'static, 'static> {
     let mut opts = RequestAdapterOptions::default();
     if config.acceleration.prefer_high_power() {
         opts.power_preference = PowerPreference::HighPerformance;
@@ -177,14 +175,14 @@ fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions {
 async fn request_adapter_async(instance: &wgpu::Instance, config: &DetectorConfig) -> Result<Adapter, WgpuBuildError> {
     let options = make_request_options(config);
     match instance.request_adapter(&options).await {
-        Some(adapter) => Ok(adapter),
-        None => Err(WgpuBuildError::NoAdapters)
+        Ok(adapter) => Ok(adapter),
+        Err(e) => Err(WgpuBuildError::NoAdapters(Some(e)))
     }
 }
 
 /// Get adapter compatible with config
 pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, WgpuBuildError> {
-    let mut desc = InstanceDescriptor::default();
+    let mut desc = InstanceDescriptor::new_without_display_handle();
     desc.backends = wgpu::Instance::enabled_backend_features();
     desc.backends -= wgpu::Backends::VULKAN;
 
@@ -195,7 +193,7 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
     let inst = wgpu::Instance::new(desc);
 
     let result = {
-        let adapters = inst.enumerate_adapters(wgpu::Backends::all());
+        let adapters = inst.enumerate_adapters(wgpu::Backends::all()).await;
         let mut accumulator = AdapterData::default();
         for adapter in adapters.into_iter() {
             accumulator.update(evaluate_adapter(&adapter, config), adapter);
@@ -203,7 +201,7 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
         accumulator.into()
     };
     
-    if let Err(WgpuBuildError::NoAdapters) = result {
+    if let Err(WgpuBuildError::NoAdapters(..)) = result {
         // On wasm, we won't get any values from enumerate_adapters
         // Try falling back on request_adapter
         request_adapter_async(&inst, config).await
@@ -256,8 +254,10 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
                 label: Some("AprilTag WebGPU"),
                 required_features: features,
                 required_limits: limits,
+				trace: wgpu::Trace::Off,
+				memory_hints: wgpu::MemoryHints::Performance,
+				experimental_features: wgpu::ExperimentalFeatures::disabled(),
             },
-            None,
         )
         .await?;
     Ok(res)

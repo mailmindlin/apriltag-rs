@@ -39,13 +39,13 @@ pub(crate) struct GpuContext {
 }
 
 fn device_lost_callback(reason: DeviceLostReason, msg: String) {
-	println!("wgpu device lost: {reason:?} {msg}");
+	eprintln!("wgpu device lost: {reason:?} {msg}");
 }
 impl GpuContext {
 	/// Attaches to a device
 	pub(super) async fn new(config: &DetectorConfig) -> Result<Self, WgpuBuildError> {
 		let adapter = select_adapter(config).await?;
-		println!("Selected wgpu adapter: {:?}", adapter.get_info());
+		log::info!("Selected wgpu adapter: {:?}", adapter.get_info());
 
 		let (device, queue) = request_device(adapter, config).await?;
 
@@ -126,7 +126,7 @@ impl GpuContext {
 		};
 		let buffer = self.device.create_buffer(&BufferDescriptor {
 			label,
-			size: ((dims.stride * height)) as u64,
+			size: (dims.stride * height) as u64,
 			usage,
 			mapped_at_creation: false,
 		});
@@ -189,7 +189,7 @@ impl GpuContext {
 		self.queue.write_texture(
 			tex.as_image_copy(),
 			image.container(),
-			wgpu::ImageDataLayout {
+			wgpu::TexelCopyBufferLayout {
 				offset: 0,
 				bytes_per_row: Some(image.stride() as _),
 				rows_per_image: Some(image.height() as _),
@@ -213,7 +213,7 @@ impl GpuContext {
 		};
 		let label = None;
 		//TODO: make async?
-		let (buffer, dims) = if (image.stride() % row_alignment == 0) && image.width() > (image.stride() * 3 / 2) {
+		let (buffer, dims) = if image.stride().is_multiple_of(row_alignment) && image.width() > (image.stride() * 3 / 2) {
 			// Upload without copying
 			// We need stride to be a multiple of 4 because we're packing it as u8x4
 			let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
@@ -239,7 +239,7 @@ impl GpuContext {
 				let mut view = buffer.slice(..).get_mapped_range_mut();
 				for y in 0..image.height() {
 					let src = image.row(y).as_slice();
-					let dst = &mut view[y * dims.stride..y*dims.stride + dims.width];
+					let mut dst = view.slice(y * dims.stride..y*dims.stride + dims.width);
 					dst.copy_from_slice(src);
 				}
 			}

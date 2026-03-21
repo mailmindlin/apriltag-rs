@@ -54,6 +54,7 @@ impl<P: GpuPixel> GpuTexture<P> {
             mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
+			usage: None,
         })
     }
 
@@ -72,7 +73,7 @@ impl<P: GpuPixel> GpuTexture<P> {
             };
             let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: ((dims.stride * self.height())) as u64,
+                size: (dims.stride * self.height()) as u64,
                 usage,
                 mapped_at_creation: false,
             });

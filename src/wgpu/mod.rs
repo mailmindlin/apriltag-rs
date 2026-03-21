@@ -15,27 +15,22 @@ use futures::future::{join, join4, try_join4};
 use wgpu::util::DeviceExt;
 use wgpu::{BufferUsages, ComputePass};
 
-use crate::dbg::debug_images;
+use self::util::debug::{DebugTargets, DebugImageGenerator};
+#[cfg(feature="debug")]
+use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 use crate::detector::{Preprocessor, ImageDimensionError};
 
-use crate::quad_thresh::{debug_unionfind, gradient_clusters};
-use crate::quad_thresh::unionfind::{UnionFindStatic, UnionFind, UnionFind2D};
-use crate::util::image::{ImageRefY8, ImageDimensions};
-use crate::util::multiple::lcm;
-use crate::wgpu::util::debug::DebugTargets;
-use crate::wgpu::util::{GpuStage, GpuBuffer1, GpuBufferFetch, GpuImageLike, GpuTimestampQueries};
-use crate::DetectorBuildError;
-use crate::{DetectorConfig, util::ImageY8, DetectError, TimeProfile};
+use crate::quad_thresh::{gradient_clusters, unionfind::{UnionFindStatic, UnionFind, UnionFind2D}};
+use crate::util::{image::{ImageRefY8, ImageDimensions}, multiple::lcm};
+use crate::{DetectorBuildError, DetectorConfig, util::ImageY8, DetectError, TimeProfile};
 use self::stage1_img::GpuQuadDecimate;
 use self::stage2_img::GpuQuadSigma;
 use self::stage3::GpuThreshim;
 use self::stage4_bke::GpuBke;
-use self::util::debug::DebugImageGenerator;
-use self::util::{GpuPixel, GpuTexture, GpuBuffer2, GpuTextureY8, GpuImageDownload};
-pub(self) use self::util::GpuContext;
+use self::util::{GpuPixel, GpuTexture, GpuBuffer2, GpuTextureY8, GpuImageDownload, GpuStage, GpuBuffer1, GpuBufferFetch, GpuImageLike, GpuTimestampQueries, GpuContext};
 pub use self::error::{WgpuDetectError, WgpuBuildError};
 
-pub(self) struct GpuStageContext<'a> {
+struct GpuStageContext<'a> {
 	pub(super) context: &'a GpuContext,
 	pub(super) tp: &'a mut TimeProfile,
 	pub(super) config: &'a DetectorConfig,
@@ -158,6 +153,7 @@ impl WGPUDetector {
 				qd.apply(&mut ctx, &gpu_last, &mut quad_decimate_bg)
 					.expect("Error in quad_decimate"),
 		};
+		#[cfg(feature="debug")]
 		debug.register(&gpu_last, debug_images::DECIMATE);
 
 		ctx.next_read = downloads.download_sigma;
@@ -166,6 +162,7 @@ impl WGPUDetector {
 			Some(qd) => qd.apply(&mut ctx, &gpu_last, &mut quad_sigma_bg)
 				.expect("quad_simga"),
 		};
+		#[cfg(feature="debug")]
 		debug.register(&gpu_last, debug_images::PREPROCESS);
 
 		ctx.next_read = true;
@@ -382,16 +379,14 @@ impl Preprocessor for WGPUDetector {
 			}
 
 			fn get_set_hops(&self, mut index: u32) -> usize {
-				let mut hops = 0;
-				for _ in 0..1000 {
+				for hops in 0..1000 {
 					let parent = self.0[index as usize * 2];
 					if parent == index {
 						return hops;
 					}
 					index = parent;
-					hops += 1;
 				}
-				return usize::MAX;
+				usize::MAX
 			}
 		}
 		let inner = SimpleUnionFind(unionfind);

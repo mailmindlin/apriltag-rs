@@ -71,8 +71,8 @@ impl GpuConnectedComponents {
 
 		let cp_layout = context.device.create_pipeline_layout(&PipelineLayoutDescriptor {
 			label: Some("uf->cpl"),
-			bind_group_layouts: &[&args_bgl],
-			push_constant_ranges: &[]
+			bind_group_layouts: &[Some(&args_bgl)],
+			..Default::default()
 		});
 
 		let cp_init = cs_build.create_compute_pipeline(ComputePipelineDescriptor {
@@ -145,7 +145,7 @@ impl GpuStage for GpuConnectedComponents {
 		{
 			let tw = src.width().div_ceil(16) as u32;
 			let th = src.height().div_ceil(16) as u32;
-			println!("Dispatch wg=({tw}, {th}) uf_init");
+			log::info!("Dispatch wg=({tw}, {th}) uf_init");
 			ctx.cpass.set_pipeline(&self.uf_init);
 			ctx.cpass.dispatch_workgroups(tw, th, 1);
 			ctx.tp.stamp("uf_init kernel");
@@ -154,7 +154,7 @@ impl GpuStage for GpuConnectedComponents {
 		{
 			let tw = (src.width() - 2).div_ceil(16) as u32;
 			let th = src.height().div_ceil(16) as u32;
-			println!("Dispatch wg=({tw}, {th}) uf_connect");
+			log::info!("Dispatch wg=({tw}, {th}) uf_connect");
 			ctx.cpass.set_pipeline(&self.uf_connect);
 			for _ in 0..25 {
 				ctx.cpass.dispatch_workgroups(tw, th, 1);
@@ -165,7 +165,7 @@ impl GpuStage for GpuConnectedComponents {
 		{
 			let tw = src.width().div_ceil(16) as u32;
 			let th = src.height().div_ceil(16) as u32;
-			println!("Dispatch wg=({tw}, {th}) uf_count");
+			log::info!("Dispatch wg=({tw}, {th}) uf_count");
 			ctx.cpass.set_pipeline(&self.uf_count);
 			ctx.cpass.dispatch_workgroups(tw, th, 1);
 			ctx.tp.stamp("uf_count kernel");

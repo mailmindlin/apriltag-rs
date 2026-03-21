@@ -112,10 +112,10 @@ impl GpuQuadSigma {
 		let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("quad_sigma pipeline_layout"),
 			bind_group_layouts: &[
-				&const_bgl,
-				&param_bgl,
+				Some(&const_bgl),
+				Some(&param_bgl),
 			],
-			push_constant_ranges: &[],
+			immediate_size: 0,
 		});
 
 		let compute_pipeline = cs_module.create_compute_pipeline(ComputePipelineDescriptor {

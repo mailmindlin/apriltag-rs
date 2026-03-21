@@ -66,14 +66,15 @@ impl ProgramBuilder {
         let name = self.name;
         let text = self.finish();
         
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Owned(text)),
         });
-        if let Some(err) = device.pop_error_scope().await {
+		
+        if let Some(err) = error_scope.pop().await {
             if let wgpu::Error::Validation { description, .. } = &err {
-                println!("{description}");
+                eprintln!("{description}");
             }
             return Err(WgpuBuildError::RuntimeError(err));
         }
@@ -101,13 +102,17 @@ pub(in super::super) struct ShaderModule<'a> {
 impl<'a> ShaderModule<'a> {
     #[deprecated]
     pub(crate) fn create_compute_pipeline_<'b>(&self, descriptor: &ComputePipelineDescriptor<'b>) -> wgpu::ComputePipeline {
+		let constants: Vec<_> = self.constants.iter()
+			.map(|(k, v)| (&*k as &str, *v))
+			.collect();
         let descriptor_wgpu = wgpu::ComputePipelineDescriptor {
             label: descriptor.label,
             layout: descriptor.layout,
             module: &self.module,
-            entry_point: &descriptor.entry_point,
+			cache: None,
+            entry_point: Some(&descriptor.entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &self.constants,
+                constants: &constants,
                 zero_initialize_workgroup_memory: true,
             },
         };
@@ -117,22 +122,26 @@ impl<'a> ShaderModule<'a> {
     }
 
     pub(crate) async fn create_compute_pipeline<'b>(&self, descriptor: ComputePipelineDescriptor<'b>) -> Result<wgpu::ComputePipeline, WgpuBuildError> {
+		let constants: Vec<_> = self.constants.iter()
+			.map(|(k, v)| (k as &str, *v))
+			.collect();
         let descriptor_wgpu = wgpu::ComputePipelineDescriptor {
             label: descriptor.label,
             layout: descriptor.layout,
             module: &self.module,
-            entry_point: &descriptor.entry_point,
+			cache: None,
+            entry_point: Some(descriptor.entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &self.constants,
+                constants: &constants,
                 zero_initialize_workgroup_memory: true,
             },
         };
 
-        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let res = self.device.create_compute_pipeline(&descriptor_wgpu);
-        if let Some(err) = self.device.pop_error_scope().await {
-            println!("wgpu error: {err}");
-            println!("Type: {:?}", err.type_id());
+        if let Some(err) = error_scope.pop().await {
+            log::error!("wgpu error: {err}");
+            log::error!("Type: {:?}", err.type_id());
             Err(WgpuBuildError::RuntimeError(err))
         } else {
             Ok(res)
@@ -140,22 +149,26 @@ impl<'a> ShaderModule<'a> {
     }
 
     pub(crate) async fn create_shader_pipeline<'b>(&self, descriptor: &ComputePipelineDescriptor<'b>) -> wgpu::ComputePipeline {
+		let constants: Vec<_> = self.constants.iter()
+			.map(|(k, v)| (&*k as &str, *v))
+			.collect();
         let descriptor_wgpu = wgpu::ComputePipelineDescriptor {
             label: descriptor.label,
             layout: descriptor.layout,
             module: &self.module,
-            entry_point: &descriptor.entry_point,
+			cache: None,
+            entry_point: Some(&descriptor.entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &self.constants,
+                constants: &constants,
                 zero_initialize_workgroup_memory: true,
             },
         };
 
-        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let res = self.device.create_compute_pipeline(&descriptor_wgpu);
-        if let Some(err) = self.device.pop_error_scope().await {
-            println!("wgpu error: {err}");
-            println!("Type: {:?}", err.type_id());
+        if let Some(err) = error_scope.pop().await {
+            log::error!("wgpu error: {err}");
+            log::error!("Type: {:?}", err.type_id());
         }
         res
     }

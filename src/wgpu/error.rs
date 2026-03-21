@@ -1,4 +1,4 @@
-use wgpu::{BufferAsyncError, RequestDeviceError};
+use wgpu::{BufferAsyncError, RequestAdapterError, RequestDeviceError};
 use super::util::dev_select::InvalidAdapterError;
 
 use crate::DetectError;
@@ -6,7 +6,7 @@ use crate::DetectError;
 #[derive(Debug, thiserror::Error)]
 pub enum WgpuBuildError {
 	#[error("No WGPU adapters found")]
-	NoAdapters,
+	NoAdapters(Option<RequestAdapterError>),
 	#[error("All adapters were bad: {0:?}")]
 	BadAdapters(Vec<InvalidAdapterError>),
 	#[error("Error requesting device")]

@@ -37,8 +37,8 @@ impl<'a, 'b> Future for AsyncBufferView<'a, 'b> {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
         self.device.poll(match self.sub_idx.take() {
-            Some(sub_idx) => wgpu::MaintainBase::WaitForSubmissionIndex(sub_idx),
-            None => wgpu::MaintainBase::Poll,
+            Some(sub_idx) => wgpu::PollType::Wait { submission_index: Some(sub_idx), timeout: None },
+            None => wgpu::PollType::Poll,
         });
 
         match self.receiver.try_recv() {
@@ -51,14 +51,14 @@ impl<'a, 'b> Future for AsyncBufferView<'a, 'b> {
     }
 }
 
-pub(super) struct MappedBufferGuard<'a, B: Borrow<GpuBuffer>, E: AnyBitPattern> {
+pub(super) struct MappedBufferGuard<B: Borrow<GpuBuffer>, E: AnyBitPattern> {
     buffer: B,
-    view: BufferView<'a>,
+    view: BufferView,
     element: PhantomData<E>,
 }
 
-impl<'a, B: Borrow<GpuBuffer>, E: AnyBitPattern> MappedBufferGuard<'a, B, E> {
-    fn new(buffer: B, view: BufferView<'a>) -> Self {
+impl<B: Borrow<GpuBuffer>, E: AnyBitPattern> MappedBufferGuard<B, E> {
+    fn new(buffer: B, view: BufferView) -> Self {
         Self {
             buffer,
             view,
@@ -66,7 +66,7 @@ impl<'a, B: Borrow<GpuBuffer>, E: AnyBitPattern> MappedBufferGuard<'a, B, E> {
         }
     }
 }
-impl<B: Borrow<GpuBuffer>, E: Pod> Borrow<[E]> for MappedBufferGuard<'_, B, E> {
+impl<B: Borrow<GpuBuffer>, E: Pod> Borrow<[E]> for MappedBufferGuard<B, E> {
     fn borrow(&self) -> &[E] {
         let bytes = self.view.deref();
         bytemuck::cast_slice(bytes)
