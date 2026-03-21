@@ -4,7 +4,7 @@ use std::{hint::black_box, num::NonZeroU32};
 use ocl::{Event, prm::Uchar2};
 use rand::{thread_rng, Rng};
 
-use crate::{util::{ImageY8, ImageBuffer}, DetectorConfig, TimeProfile, detector::{config::{QuadDecimateMode, GpuAccelRequest}, quad_sigma_cpu}, quad_thresh::threshold::{tile_minmax_cpu, TILESZ, tile_blur_cpu}, ocl::{OclStage, buffer::OclAwaitable}};
+use crate::{util::{ImageY8, ImageBuffer}, DetectorConfig, TimeProfile, detector::config::{QuadDecimateMode, AccelerationRequest}, quad_thresh::threshold::{tile_minmax_cpu, TILESZ, tile_blur_cpu}, ocl::{OclStage, buffer::OclAwaitable}};
 
 use super::OpenCLDetector;
 
@@ -21,7 +21,7 @@ fn random_image(width: usize, height: usize) -> ImageY8 {
 
 fn make_env() -> (OpenCLDetector, TimeProfile) {
 	let mut config = DetectorConfig::default();
-	config.gpu = GpuAccelRequest::Required;
+	config.acceleration = AccelerationRequest::Required;
 	let ocl = OpenCLDetector::new(&config).unwrap();
 	let tp = TimeProfile::default();
 	(ocl, tp)
@@ -30,7 +30,7 @@ fn make_env() -> (OpenCLDetector, TimeProfile) {
 #[test]
 fn test_create() {
 	let mut config = DetectorConfig::default();
-	config.gpu = GpuAccelRequest::Required;
+	config.acceleration = AccelerationRequest::Required;
 	let ocl = OpenCLDetector::new(&config).unwrap();
 	black_box(ocl);
 }
@@ -51,7 +51,7 @@ fn test_upload_download() {
 
 fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -> ImageY8 {
 	let mut config = DetectorConfig::default();
-	config.gpu = GpuAccelRequest::Required;
+	config.acceleration = AccelerationRequest::Required;
 	config.debug = false;
 	config.quad_decimate = match quad_decimate {
 		QuadDecimateMode::ThreeHalves => 1.5,

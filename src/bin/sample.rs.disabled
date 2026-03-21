@@ -1,0 +1,96 @@
+#![cfg(feature="opencl")]
+
+use ocl::{Device, Platform, ProQue, Buffer, Image as ClImage, MemFlags};
+fn create_blur_mask(sigma: f32) -> Box<[u8]> {
+    let ksz = (4. * sigma) as usize; // 2 std devs in each direction
+	let ksz = if (ksz & 1) == 0 {
+		ksz + 1
+	} else {
+		ksz
+	};
+    let mut dk = vec![0.; ksz];
+
+    // for kernel of length 5:
+    // dk[0] = f(-2), dk[1] = f(-1), dk[2] = f(0), dk[3] = f(1), dk[4] = f(2)
+    for i in 0..ksz {
+        let x = i as isize - (ksz as isize / 2);
+        let x_sig = x as f32 / sigma;
+        let v = f32::exp(-0.5*(x_sig * x_sig));
+        dk[i] = v;
+    }
+
+    // normalize
+    let acc = dk.iter().sum::<f32>();
+
+    dk.iter()
+        .map(|x| {
+            let x_norm = x / acc;
+            (x_norm * 255.) as u8 //TODO: round?
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+pub fn main() {
+    for platform in Platform::list() {
+        println!("Platform {}: prof {} vend {} ", platform.name().unwrap(), platform.profile().unwrap(), platform.vendor().unwrap());
+
+        for device in Device::list_all(platform).unwrap() {
+            println!("-> Device {}: {} / {}", device.name().unwrap(), device.info(ocl::enums::DeviceInfo::Type).unwrap(), device.info(ocl::enums::DeviceInfo::HostUnifiedMemory).unwrap());
+        }
+    }
+
+    let quad_sigma = include_str!("../ocl/02_quad_sigma.cl");
+
+    let pro_que = ProQue::builder()
+        .src(quad_sigma)
+        .dims((1024, 1024))
+        .build()
+        .unwrap();
+    let data = vec![127; 1024 * 1024];
+
+    let cl_src = ClImage::<u8>::builder()
+        .queue(pro_que.queue().clone())
+        .dims((1024, 1024))
+        .channel_data_type(ocl::enums::ImageChannelDataType::UnsignedInt8)
+        .channel_order(ocl::enums::ImageChannelOrder::A)
+        .image_type(ocl::enums::MemObjectType::Image2d)
+        .build()
+        .unwrap();
+
+    let cl_dst = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::WRITE_ONLY)
+        .len((1024, 1024))
+        .build()
+        .unwrap();
+
+    drop(data);
+
+    let mask = create_blur_mask(1.5);
+    let cl_mask = Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::READ_ONLY)
+        .copy_host_slice(&mask)
+        .len(mask.len())
+        .build()
+        .unwrap();
+
+    let kernel = pro_que.kernel_builder("gaussian_blur")
+        .arg(&cl_src)
+        .arg(&cl_mask)
+        .arg(&cl_dst)
+        .arg(mask.len())
+        .build()
+        .unwrap();
+
+    unsafe { kernel.enq().unwrap(); }
+
+    let mut dst = vec![0; cl_dst.len()];
+
+    
+    cl_dst.read(&mut dst).enq_async().unwrap();
+
+    
+    println!("The value at index [{}] is now '{}'!", 200007, dst[200007]);
+}
