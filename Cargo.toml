@@ -8,19 +8,23 @@ edition = "2021"
 
 [features]
 # Python FFI bindings
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "dep:parking_lot"]
 # JNI FFI bindings
 jni = ["dep:jni"]
 # C FFI Bindings (we try to match libapriltag)
-cffi = ["dep:libc", "dep:nix", "dep:errno"]
-debug = []
+cffi = ["dep:libc", "dep:nix", "dep:errno", "dep:parking_lot"]
+cbindgen = ["cffi"]
+
+debug = ["dep:cpu-time"]
 debug_ps = ["debug"]
 opencl = ["dep:ocl"]
-wgpu = ["dep:wgpu"]
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:async-trait", "dep:futures"]
 extra_debug = ["debug", "debug_ps"]
 # Compare to apriltag-sys
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 opencv=["dep:opencv"]
+# Benchmarking support
+bench = ["tag36h11"]
 
 # Enable specific tag families
 tag16h5 = []
@@ -54,16 +58,8 @@ all-families = [
 
 # vulkan=["dep:vulkano", "dep:vulkano-shaders"]
 default = [
-	"debug", "extra_debug",
 	"default-families",
-	"python",
 ]
-
-[profile.dev]
-default = ["python", "jni", "cffi", "debug", "extra_debug"]
-
-[profile.release]
-default = ["python", "jni", "cffi"]
 
 
 [dependencies]
@@ -71,17 +67,16 @@ arrayvec = "0.7.6"
 rand = "0.10.0"
 rayon = "1.11.0"
 datasize = "0.2.15"
-clap = { version = "4.6.0", features=["derive"] }
-parking_lot = "0.12.5"
 hashbrown = { version = "0.16.1", features = ["rayon"] }
-futures = "0.3.32"
-proc-macro2 = "1.0.106"
-bytemuck = "1.24.0"
-concurrent-queue = "2.5.0"
 # vulkano-shaders = { version = "0.33.0", optional = true }
-async-trait = "0.1.89"
 thiserror = "2.0.18"
-cpu-time = "1.0.0"
+
+# Optional: behind feature flags
+parking_lot = { version = "0.12.5", optional = true }
+futures = { version = "0.3.32", optional = true }
+bytemuck = { version = "1.24.0", optional = true }
+async-trait = { version = "0.1.89", optional = true }
+cpu-time = { version = "1.0.0", optional = true }
 
 # Feature: Python FFI (pyo3)
 [dependencies.pyo3]
@@ -128,6 +123,8 @@ features = ["vulkan-portability"]
 
 [dev-dependencies]
 image = "0.25.10"
+criterion = { version = "0.5", features = ["html_reports"] }
+clap = { version = "4.6.0", features = ["derive"] }
 
 [dependencies.opencv]
 version = "0.98.1"
@@ -141,3 +138,11 @@ optional = true
 [[example]]
 name = "opencv_demo"
 required-features = ["opencv"]
+
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["bench"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }
