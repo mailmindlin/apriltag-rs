@@ -26,7 +26,8 @@ use ocl::{
 };
 use rayon::Scope;
 
-use crate::detector::config::GpuAccelRequest;
+use crate::dbg::debug_images;
+use crate::detector::config::AccelerationRequest;
 use crate::ocl::stage2::OclQuadSigma;
 use crate::ocl::stage4::WrappedUnionFind;
 use crate::quad_thresh::{gradient_clusters, Clusters, debug_unionfind};
@@ -48,6 +49,16 @@ const PROG_QUAD_SIGMA: &str = include_str!("./02_quad_sigma.cl");
 const PROG_THRESHOLD: &str = include_str!("./03_threshold.cl");
 const PROG_UNIONFIND: &str = include_str!("./04_unionfind_simple.cl");
 
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum OclBuildError {
+	#[error("OpenCL disabled")]
+	Disabled,
+	#[error("OpenCL inner error: {0:?}")]
+	Inner(#[from] OclError),
+	#[error("OpenCL core error: {0:?}")]
+	Core(#[from] ocl::core::Error)
+}
+
 trait OclStage {
 	type S: OclPrm;
 	type R: OclPrm;
@@ -55,12 +66,6 @@ trait OclStage {
 	fn result_dims(&self, src_dims: &ImageDimensions) -> ImageDimensions;
 	
 	fn make_kernel<'a>(&'a self, core: &OclCore, src_buf: &OclBufferState<Self::S>, dst_dims: &OclBufferState<Self::R>) -> Result<Self::K<'a>, OclError>;
-}
-
-impl From<OclError> for DetectError {
-	fn from(_: OclError) -> Self {
-		Self::OpenCLError
-	}
 }
 
 impl Into<SpatialDims> for ImageDimensions {
@@ -115,16 +120,17 @@ fn combined_events<'a>(bases: &[&'a dyn OclAwaitable]) -> EventList {
 	wait_events
 }
 
-fn find_device(mode: &GpuAccelRequest) -> Result<(OclPlatform, OclDevice), DetectorBuildError> {
+fn find_device(mode: &AccelerationRequest) -> Result<(OclPlatform, OclDevice), DetectorBuildError> {
 	let (devtype, idx, prefer) = match mode {
-		GpuAccelRequest::Disabled => panic!(),
-		GpuAccelRequest::Prefer => (None, 0, true),
-		GpuAccelRequest::Required => (None, 0, false),
-		GpuAccelRequest::PreferDeviceIdx(idx) => (None, *idx, true),
-		GpuAccelRequest::RequiredDeviceIdx(idx) => (None, *idx, false),
-		GpuAccelRequest::PreferGpu => (Some(DeviceType::GPU), 0, true),
-		GpuAccelRequest::RequiredGpu => (Some(DeviceType::GPU), 0, false),
+		AccelerationRequest::Disabled => return Err(DetectorBuildError::OpenCLError(OclBuildError::Disabled)),
+		AccelerationRequest::Prefer => (None, 0, true),
+		AccelerationRequest::Required => (None, 0, false),
+		AccelerationRequest::PreferDeviceIdx(idx) => (None, *idx, true),
+		AccelerationRequest::RequiredDeviceIdx(idx) => (None, *idx, false),
+		AccelerationRequest::PreferGpu => (Some(DeviceType::GPU), 0, true),
+		AccelerationRequest::RequiredGpu => (Some(DeviceType::GPU), 0, false),
 	};
+
 	for platform in OclPlatform::list() {
 		let devs = match OclDevice::list(platform, devtype) {
 			Ok(devs) => devs,
@@ -134,7 +140,7 @@ fn find_device(mode: &GpuAccelRequest) -> Result<(OclPlatform, OclDevice), Detec
 					eprintln!("OpenCLDevice::list error: {e:?}");
 					continue;
 				} else {
-					return Err(DetectorBuildError::OpenCLError(e));
+					return Err(DetectorBuildError::OpenCLError(OclBuildError::Inner(e)));
 				}
 			}
 		};
@@ -142,15 +148,18 @@ fn find_device(mode: &GpuAccelRequest) -> Result<(OclPlatform, OclDevice), Detec
 			continue;
 		}
 		let device = devs[idx % devs.len()];
-		println!("OpenCL version: {:?}", device.version());
-		println!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
-		println!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
-		println!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
+		#[cfg(feature="extra_debug")]
+		{
+			println!("OpenCL version: {:?}", device.version());
+			println!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
+			println!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
+			println!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
+		}
 		if let Ok(true) = device.is_available() {
 			return Ok((platform, device));
 		}
 	}
-	Err(DetectorBuildError::GpuNotAvailable)
+	Err(DetectorBuildError::AccelerationNotAvailable)
 }
 
 fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, ImageY8) {
@@ -169,7 +178,7 @@ fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, Image
 
 impl OpenCLDetector {
 	pub(super) fn new(config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
-		let (platform, device) = find_device(&config.gpu)?;
+		let (platform, device) = find_device(&config.acceleration)?;
 
 		let context = Context::builder()
 			.platform(platform)
@@ -674,10 +683,10 @@ impl OpenCLDetector {
 			
 			tp_gpu.set_start(get_time(qd_buf.event.as_ref().unwrap(), ProfilingInfo::Queued));
 			let mut record_evt = |name, evt| {
-				tp_gpu.stamp_at(&format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
-				tp_gpu.stamp_at(&format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
-				tp_gpu.stamp_at(&format!("{name} start"), get_time(evt, ProfilingInfo::Start));
-				tp_gpu.stamp_at(&format!("{name} end"), get_time(evt, ProfilingInfo::End));
+				tp_gpu.stamp_at(format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
+				tp_gpu.stamp_at(format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
+				tp_gpu.stamp_at(format!("{name} start"), get_time(evt, ProfilingInfo::Start));
+				tp_gpu.stamp_at(format!("{name} end"), get_time(evt, ProfilingInfo::End));
 			};
 			if self.quad_decimate.is_some() {
 				record_evt("qd", qd_buf.event().unwrap());
