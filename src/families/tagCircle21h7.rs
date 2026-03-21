@@ -2,13 +2,13 @@ use std::borrow::Cow;
 
 use super::AprilTagFamily;
 
+super::impl_tag!("tagCircle21h7");
 pub fn tagCircle21h7_create() -> AprilTagFamily {
-	let m2 = -2i32 as u32;
 	AprilTagFamily {
 		bits: vec![
-			(1, m2),
-			(2, m2),
-			(3, m2),
+			(1, -2),
+			(2, -2),
+			(3, -2),
 			(1, 1),
 			(2, 1),
 			(6, 1),
@@ -21,9 +21,9 @@ pub fn tagCircle21h7_create() -> AprilTagFamily {
 			(1, 6),
 			(3, 3),
 			(2, 3),
-			(m2, 3),
-			(m2, 2),
-			(m2, 1),
+			(-2, 3),
+			(-2, 2),
+			(-2, 1),
 			(1, 3),
 			(1, 2),
 			(2, 2),
@@ -72,7 +72,7 @@ pub fn tagCircle21h7_create() -> AprilTagFamily {
 		total_width: 9,
 		reversed_border: true,
 		min_hamming: 7,
-		name: Cow::Borrowed("tagCircle21h7"),
+		name: Cow::Borrowed(NAME_S),
 	}
 }
 
