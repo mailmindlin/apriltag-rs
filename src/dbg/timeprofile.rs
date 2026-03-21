@@ -73,6 +73,7 @@ impl Display for TimeProfileStatistics {
 pub struct TimeProfile {
     /// Start timestamp
     now: Instant,
+	#[cfg(feature = "debug")]
 	now_proc: Option<cpu_time::ProcessTime>,
     /// Named timestamps
     stamps: Vec<TimeProfileEntry>,
@@ -82,6 +83,7 @@ impl Default for TimeProfile {
     fn default() -> Self {
         Self {
             now: Instant::now(),
+			#[cfg(feature = "debug")]
 			now_proc: cpu_time::ProcessTime::try_now().ok(),
             stamps: Default::default(),
         }
@@ -94,6 +96,7 @@ pub(crate) struct TimeProfileEntry {
     name: Cow<'static, str>,
     /// Entry timestamp
     wall: Instant,
+	#[cfg(feature = "debug")]
 	proc: Option<cpu_time::ProcessTime>,
 }
 
@@ -129,27 +132,22 @@ impl TimeProfile {
     /// Record a timestamp right now
     #[inline]
     pub fn stamp(&mut self, name: impl Into<Cow<'static, str>>) {
-        let name = name.into();
-        let timestamp = Instant::now();
-		let proc = cpu_time::ProcessTime::try_now().ok();
-        self.stamp_at_inner(name, timestamp, proc)
+        self.stamps.push(TimeProfileEntry {
+            name: name.into(),
+            wall: Instant::now(),
+            #[cfg(feature = "debug")]
+            proc: cpu_time::ProcessTime::try_now().ok(),
+        });
     }
 
     /// Mark a specific time
     pub fn stamp_at(&mut self, name: impl Into<Cow<'static, str>>, timestamp: Instant) {
-        let name = name.into();
-        self.stamp_at_inner(name, timestamp, None);
-    }
-
-    #[inline]
-    fn stamp_at_inner(&mut self, name: Cow<'static, str>, timestamp: Instant, proc: Option<cpu_time::ProcessTime>) {
-        let entry = TimeProfileEntry {
-            name,
+        self.stamps.push(TimeProfileEntry {
+            name: name.into(),
             wall: timestamp,
-			proc,
-        };
-
-        self.stamps.push(entry);
+            #[cfg(feature = "debug")]
+            proc: None,
+        });
     }
 
     /// Get duration from [start] to last recorded timestamp
@@ -167,6 +165,26 @@ impl TimeProfile {
 
     pub(crate) fn entries(&self) -> &[TimeProfileEntry] {
         &self.stamps
+    }
+
+    /// Get the duration of a named stage.
+    ///
+    /// Each stage's duration is the time between its stamp and the previous stamp
+    /// (or the profile start time for the first stamp).
+    pub fn stage_duration(&self, name: &str) -> Option<Duration> {
+        let mut last_time = self.now;
+        for stamp in &self.stamps {
+            if stamp.name == name {
+                return Some(stamp.wall - last_time);
+            }
+            last_time = stamp.wall;
+        }
+        None
+    }
+
+    /// Get all stage names in order.
+    pub fn stage_names(&self) -> Vec<&str> {
+        self.stamps.iter().map(|s| s.name.as_ref()).collect()
     }
 }
 
@@ -186,18 +204,21 @@ impl Display for TimeProfile {
             None => Duration::ZERO,
         };
 
+		#[cfg(feature = "debug")]
 		let total_proc =  stamps.iter().rev()
 			.find_map(|stamp| stamp.proc)
 			;
 
 		if f.alternate() {
 			write!(f, "{:>2} {:width$} {:>12} ms {:>12} ms {:>4}", "#", "Name", "Wall", "Wall (cum)", "%", width=max_name_length)?;
+			#[cfg(feature = "debug")]
 			if total_proc.is_some() {
 				write!(f, " {:>12} ms {:>4}", "Proc", "P%")?;
 			}
 			writeln!(f)?;
 		}
         let mut last_time = self.now;
+		#[cfg(feature = "debug")]
 		let mut last_proc = self.now_proc;
         for (i, stamp) in stamps.iter().enumerate() {
             let cumtime = stamp.wall - self.now;
@@ -213,6 +234,7 @@ impl Display for TimeProfile {
                 width=max_name_length
             )?;
 			
+			#[cfg(feature = "debug")]
 			if let Some(proc) = stamp.proc {
 				if let Some(last_proc_) = last_proc {
 					let proc_part = proc.duration_since(last_proc_);
