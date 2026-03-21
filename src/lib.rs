@@ -1,17 +1,10 @@
 #![feature(
     int_roundings,
-    // unwrap_infallible,
-    // vec_into_raw_parts,
     const_trait_impl,
-    // slice_flatten,
-    // box_into_inner,
     allocator_api,
-    // anonymous_lifetime_in_impl_trait,
-    // array_chunks,
-    ptr_as_uninit,
 )]
 #![allow(non_snake_case)]
-#![allow(unused, clippy::collapsible_if)]
+#![allow(clippy::collapsible_if)]
 
 pub mod families;
 mod detector;
