@@ -48,6 +48,7 @@ fn value_for_pixel(im: &ImageRefY8, p: Point2D) -> Option<f64> {
     }
     let y = p.y() - 0.5 - (y1 as f64);
 
+	#[allow(clippy::unnecessary_cast)]
     let v = 0.
      + im[(x1 as usize, y1 as usize)] as f64 * (1.-x) * (1.-y)
      + im[(x2 as usize, y1 as usize)] as f64 *      x * (1.-y)
@@ -105,7 +106,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Result<Mat33, HomographySolveError> 
 
             if max_val < EPSILON {
                 //TODO
-                println!("Warning: Matrix is singular");
+                log::warn!("Matrix is singular");
                 return Err(HomographySolveError::SingularMatrix);
             }
             max_val_idx.unwrap()

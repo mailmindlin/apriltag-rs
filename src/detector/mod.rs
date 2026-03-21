@@ -410,7 +410,7 @@ impl AprilTagDetector {
 				let quad_iter = quads.into_iter();
 				let mut dets = Vec::new();
 
-				for quad in quad_iter {
+				for mut quad in quad_iter {
 					dets.extend(quad.decode_task(info));
 				}
 				dets
@@ -434,13 +434,15 @@ impl AprilTagDetector {
 		tp.stamp("decode+refinement");
 
 		#[cfg(feature="debug")]
-		if self.params.generate_debug_image() {
-			self.params.debug_image(debug_images::QUADS_FIXED, |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
-			#[cfg(feature="debug_ps")]
-			self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
-			tp.stamp("decode+refinement (output)");
+		{
+			if self.params.generate_debug_image() {
+				self.params.debug_image(debug_images::QUADS_FIXED, |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
+				#[cfg(feature="debug_ps")]
+				self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
+				tp.stamp("decode+refinement (output)");
+			}
+			drop(quads);
 		}
-		drop(quads);
 
 		let mut detections = reconcile_detections(detections);
 

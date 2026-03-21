@@ -619,7 +619,7 @@ pub unsafe extern "C" fn matd_multiply<'a>(a: InPtr<'a, matd_t>, b: InPtr<'a, ma
         if b.is_scalar() {
             return (&a * b.data[0]).try_into();
         }
-        a.matmul(&b).try_into()
+        a.matmul_dyn(&b).try_into()
     })
 }
 
