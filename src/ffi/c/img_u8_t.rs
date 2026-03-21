@@ -1,7 +1,6 @@
 use std::slice;
 
 use libc::c_uint;
-use raw_parts::RawParts;
 
 use crate::util::image::{ImageBuffer, Luma, ImageY8, ImageRefY8};
 
@@ -28,14 +27,14 @@ impl From<ImageBuffer<Luma<u8>>> for image_u8_t {
 		let height = value.height() as i32;
 		let stride = value.stride() as i32;
 		
-		let RawParts { ptr, length, capacity } = RawParts::from_vec(value.data.into_vec());
+		let (buf, length, capacity) = value.data.into_vec().into_raw_parts();
 		assert_eq!(length, capacity, "Vector not compact");
 
 		Self {
 			width,
 			height,
 			stride,
-			buf: ptr,
+			buf,
 		}
 	}
 }

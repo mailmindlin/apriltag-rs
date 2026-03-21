@@ -1,7 +1,6 @@
 use std::{mem, marker::PhantomData};
 
 use libc::{size_t, c_int, c_char};
-use raw_parts::RawParts;
 
 #[repr(C)]
 pub struct ZArray<T> {
@@ -19,7 +18,7 @@ pub struct ZArray<T> {
 impl<T: Sized> From<Vec<T>> for ZArray<T> {
 	fn from(value: Vec<T>) -> Self {
 		let el_sz = mem::size_of::<T>();
-		let RawParts { ptr, length, capacity } = RawParts::from_vec(value);
+		let (ptr, length, capacity) = value.into_raw_parts();
 		Self {
 			el_sz,
 			size: length as _,

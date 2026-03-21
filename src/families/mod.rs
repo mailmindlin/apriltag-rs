@@ -155,13 +155,13 @@ impl Ord for AprilTagFamily {
 }
 
 impl AprilTagFamily {
-	#[cfg(feature="compare_reference")]
+	#[cfg(any(feature="compare_reference", feature="cffi"))]
 	pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
 		let mut bit_x = Vec::with_capacity(self.bits.len());
 		let mut bit_y = Vec::with_capacity(self.bits.len());
 		for (x, y) in self.bits.iter() {
-			bit_x.push(*x);
-			bit_y.push(*y);
+			bit_x.push(*x as i32 as u32);
+			bit_y.push(*y as i32 as u32);
 		}
 		(bit_x, bit_y)
 	}
