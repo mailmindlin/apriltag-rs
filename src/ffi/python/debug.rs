@@ -97,7 +97,7 @@ fn py_entry(tp: &TimeProfile, key: usize) -> PyResult<TimeProfileEntry> {
 	})
 }
 
-#[pyclass(frozen, get_all, module="apriltag_rs")]
+#[pyclass(frozen, get_all, module="apriltag_rs", skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub(super) struct TimeProfileEntry {
 	/// Entry index (starts at 0)

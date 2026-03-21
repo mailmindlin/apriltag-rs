@@ -60,7 +60,7 @@ pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
 	let sigma = f32::abs(quad_sigma);
 
 	let kernel_size = (4. * sigma) as usize; // 2 std devs in each direction
-	let kernel_size = if (kernel_size % 2) == 0 {
+	let kernel_size = if kernel_size.is_multiple_of(2) {
 		kernel_size + 1
 	} else {
 		kernel_size
@@ -107,7 +107,7 @@ fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 				// Prevent overflow
 				let v = ((vorig.to_value() as i16) * 2).saturating_sub(vblur as i16);
 
-				img[(x, y)] = (v.clamp(0, 255) as u8).into();
+				img[(x, y)] = (v.clamp(0, 255) as u8);
 			}
 		}
 	}
@@ -302,7 +302,7 @@ impl AprilTagDetector {
 
 		// make segmentation image.
 		#[cfg(feature="debug")]
-		debug_unionfind(&self.params, tp, threshim.dimensions(), &mut uf);
+		debug_unionfind(&self.params, tp, threshim.dimensions(), &uf);
 
 		let clusters = gradient_clusters(&self.params, &threshim.as_ref(), uf);
 
@@ -332,7 +332,7 @@ impl AprilTagDetector {
 	/// ### 3. Threshold
 	/// 
 	fn detect_inner(&self, im_orig: &ImageRefY8) -> Result<Detections, DetectError> {
-		if self.tag_families.len() == 0 {
+		if self.tag_families.is_empty() {
 			println!("AprilTag: No tag families enabled.");
 			return Ok(Detections::default());
 		}

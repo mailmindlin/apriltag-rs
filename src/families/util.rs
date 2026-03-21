@@ -38,7 +38,7 @@ pub const fn rotate90(w: Code, num_bits: u64) -> Code {
 	};
 
 	let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
-	w & (1u64 << num_bits) - 1
+	w & ((1u64 << num_bits) - 1)
 }
 
 pub const fn rotations(code: u64, num_bits: u64) -> [u64; 4] {

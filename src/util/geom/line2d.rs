@@ -92,11 +92,7 @@ impl LineSegment2D {
     // result is stored in p and 1 is returned. Otherwise, zero is
     // returned. p may be NULL.
     pub fn intersect_segment(&self, other: &LineSegment2D) -> Option<Point2D> {
-        let tmp = if let Some(tmp) = self.intersect_line(&other.line) {
-            tmp
-        } else {
-            return None;
-        };
+        let tmp = self.intersect_line(&other.line)?;
 
         let a = other.line.get_coordinate(&other.line.p);
         let b = other.line.get_coordinate(&other.p1);
@@ -114,11 +110,7 @@ impl LineSegment2D {
     // intersect, result is stored in p and 1 is returned. Otherwise, zero
     // is returned. p may be NULL.
     pub fn intersect_line(&self, line: &Line2D) -> Option<Point2D> {
-        let tmp = if let Some(tmp) = self.line.intersect_line(line) {
-            tmp
-        } else {
-            return None;
-        };
+        let tmp = self.line.intersect_line(line)?;
 
         let a = self.line.get_coordinate(&self.line.p);
         let b = self.line.get_coordinate(&self.p1);

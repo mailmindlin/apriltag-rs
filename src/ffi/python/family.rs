@@ -13,13 +13,13 @@ pub(super) struct AprilTagFamily {
 impl AprilTagFamily {
 	#[staticmethod]
     fn names() -> PyResult<Vec<String>> {
-        Ok(ATFamily::names().into_iter().map(|s| String::from(s)).collect())
+        Ok(ATFamily::names().into_iter().map(String::from).collect())
     }
 
     /// Create AprilTag family for name
 	#[staticmethod]
     pub(super) fn for_name(name: &str) -> PyResult<Self> {
-        match ATFamily::for_name(&name) {
+        match ATFamily::for_name(name) {
             Some(family) => Ok(Self { family }),
             None => Err(PyErr::new::<PyValueError, _>(format!("Unknown AprilTag family '{name}'"))),
         }

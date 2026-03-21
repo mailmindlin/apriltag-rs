@@ -156,7 +156,7 @@ pub(super) fn drop_boxed_mut<T>(ptr: &mut *mut T) {
     if ptr.is_null() {
         return;
     }
-    let ptr = std::mem::replace(ptr, std::ptr::null_mut()) as *mut T;
+    let ptr = std::mem::replace(ptr, std::ptr::null_mut());
     let boxed = unsafe { Box::from_raw(ptr) };
     drop(boxed);
 }
@@ -173,6 +173,6 @@ pub(super) fn drop_array_mut<T>(ptr: &mut *mut T, len: usize) {
     if ptr.is_null() {
         return;
     }
-    let ptr = std::mem::replace(ptr, std::ptr::null_mut()) as *mut T;
+    let ptr = std::mem::replace(ptr, std::ptr::null_mut());
     unsafe { Vec::from_raw_parts(ptr, len, len) };
 }

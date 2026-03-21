@@ -15,12 +15,12 @@ enum DetectionOrDetections<'py> {
 }
 
 impl<'py> DetectionOrDetections<'py> {
-	fn map<R: Ungil + Send, F>(&self, callback: F) -> PyResult<Py<PyAny>>
+	fn map<R, F>(&self, callback: F) -> PyResult<Py<PyAny>>
 		where
 			Vec<R>: Ungil,
 			F: Fn(&AprilTagDetection) -> R,
 			F: Send + Ungil,
-			R: IntoPyObject<'py>,
+			R: Ungil + Send + IntoPyObject<'py>,
 			<R as IntoPyObject<'py>>::Error: Into<pyo3::PyErr>,
 	{
 		let obj = match self {
@@ -35,7 +35,7 @@ impl<'py> DetectionOrDetections<'py> {
 				let res = py.detach(move || {
 					dets_list
 						.iter()
-						.map(|it| callback(it))
+						.map(callback)
 						.collect::<Vec<_>>()
 				});
 				PyList::new(py, res)?.into_any().unbind()
@@ -88,8 +88,7 @@ impl PoseEstimator {
 #[pymethods]
 impl OrthogonalIterationResult {
 	fn __len__(&self) -> usize {
-		let len = if self.solution2.is_some() { 2 } else { 1 };
-		len
+		if self.solution2.is_some() { 2 } else { 1 }
 	}
 
 	//TODO: iter

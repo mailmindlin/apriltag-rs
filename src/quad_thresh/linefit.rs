@@ -271,7 +271,7 @@ fn get_point(lfps: &[LineFitPoint], i0: usize, i1: usize) -> (LineFitPoint, usiz
 				W: a.W - b.W,
 			}
 		} else {
-			lfps[i1].clone()
+			lfps[i1]
 		};
 		(pt, N)
 	} else {

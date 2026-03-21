@@ -34,10 +34,10 @@ pub(crate) fn lcm(a: usize, b: usize) -> usize {
     if a == 0 && b == 0 {
         return 0;
     }
-    if a == b || a % b == 0 {
+    if a == b || a.is_multiple_of(b) {
         return a;
     }
-    if b % a == 0 {
+    if b.is_multiple_of(a) {
         return b;
     }
     let gcd = gcd(a, b);

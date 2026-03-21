@@ -30,21 +30,21 @@ impl<T: Primitive> Pixel for Rgb<T> {
         self.0
     }
 
-    fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
+    fn from_slice(slice: &[Self::Subpixel]) -> &Self {
         assert_eq!(slice.len(), Self::CHANNEL_COUNT);
         unsafe { &*(slice.as_ptr() as *const Rgb<T>) }
     }
 
-    fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
+    fn slice_to_value(slice: &[Self::Subpixel]) -> &Self::Value {
         slice.try_into().unwrap()
     }
 
-    fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
+    fn from_slice_mut(slice: &mut [Self::Subpixel]) -> &mut Self {
         assert_eq!(slice.len(), Self::CHANNEL_COUNT);
         unsafe { &mut *(slice.as_mut_ptr() as *mut Rgb<T>) }
     }
 
-    fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
+    fn slice_to_value_mut(slice: &mut [Self::Subpixel]) -> &mut Self::Value {
         slice.try_into().unwrap()
     }
 }

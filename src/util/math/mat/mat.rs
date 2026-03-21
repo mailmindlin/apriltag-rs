@@ -683,11 +683,8 @@ mod test {
 
 		assert!(s.is_scalar());
 
-		if let Some(sc) = s.as_scalar() {
-			assert_eq!(sc, 1.0);
-		} else {
-			assert!(false);
-		}
+		let sc = s.as_scalar().unwrap();
+		assert_eq!(sc, 1.0);
 	}
 
 	#[test]

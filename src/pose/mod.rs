@@ -35,7 +35,7 @@ fn orthogonal_iteration<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Ve
 			p_mean / (N as f64)
 		};
 
-		p.map(|p_i| p_i - &p_mean)
+		p.map(|p_i| p_i - p_mean)
 	};
 
 	// Compute M1_inv.
@@ -87,7 +87,7 @@ fn orthogonal_iteration<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Ve
 				let mut M3 = Mat33::zeroes();
 				for j in 0..N {
 					// let M3_update = Mat::op("(M-M)*M'", &[&q[j], &q_mean, &p_res[j]]).unwrap();
-					let M3_update = (&q[j] - &q_mean).outer(&p_res[j]);
+					let M3_update = (q[j] - q_mean).outer(&p_res[j]);
 					M3 += &M3_update;
 				}
 				M3
@@ -241,9 +241,9 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 		let mut a4 = 0.;
 		for (Ft_i, Pt_i) in Fp_trans.into_iter() {
 			let tmp0 = Mat33::identity() - &Ft_i;
-			let c0 = &tmp0 * &(&R_gamma * &Pt_i + &b0_);
-			let c1 = &tmp0 * &(&(&R_gamma.matmul(&M1) * &Pt_i + &b1_));
-			let c2 = &tmp0 * &(&(&R_gamma.matmul(&M2) * &Pt_i + &b2_));
+			let c0 = &tmp0 * &(&R_gamma * &Pt_i + b0_);
+			let c1 = &tmp0 * (&(&R_gamma.matmul(&M1) * &Pt_i + b1_));
+			let c2 = &tmp0 * (&(&R_gamma.matmul(&M2) * &Pt_i + b2_));
 			// let c0 = Mat::op("(M-M)(MM+M)", &[&I3, &F_trans[i], &R_gamma, &p_trans[i], &b0_]).unwrap();
 			// let c1 = Mat::op("(M-M)(MMM+M)", &[&I3, &F_trans[i], &R_gamma, &M1, &p_trans[i], &b1_]).unwrap();
 			// let c2 = Mat::op("(M-M)(MMM+M)", &[&I3, &F_trans[i], &R_gamma, &M2, &p_trans[i], &b2_]).unwrap();
@@ -302,7 +302,7 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 	if minima.len() == 1 {
 		let R_beta = {
 			let t_cur = minima[0];
-			let mut R_beta = M2.clone();
+			let mut R_beta = M2;
 			R_beta.scale_inplace(t_cur);
 			R_beta += &M1;
 			R_beta.scale_inplace(t_cur);
@@ -345,7 +345,7 @@ pub struct AprilTagDetectionInfo {
 	pub extrinsics: PoseParams,
 }
 
-#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs", skip_from_py_object))]
 #[derive(Copy, Clone, Debug)]
 pub struct AprilTagPose {
 	/// Rotation matrix
@@ -354,7 +354,7 @@ pub struct AprilTagPose {
 	pub t: Vec3,
 }
 
-#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs", skip_from_py_object))]
 #[derive(Copy, Clone, Debug)]
 pub struct AprilTagPoseWithError {
 	/// Mean estimated pose
@@ -394,7 +394,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
 	AprilTagPose { R, t }
 }
 
-#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs"))]
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs", skip_from_py_object))]
 #[derive(Copy, Clone, Debug)]
 pub struct OrthogonalIterationResult {
 	/// Best pose solution

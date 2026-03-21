@@ -7,6 +7,7 @@ pub trait ImageWritePNM {
 	fn save_to_pnm(&self, outfile: impl AsRef<Path>) -> io::Result<()> {
 		let mut f = OpenOptions::new()
 			.create(true)
+			.truncate(true)
 			.write(true)
 			.open(outfile)?;
 		
@@ -56,7 +57,7 @@ impl PNM {
             match tmp.peek() {
                 // skip comments
                 Some('#') => continue,
-                Some('P') if format == None => {
+                Some('P') if format.is_none() => {
                     tmp.next().unwrap();
                     format = match tmp.next().unwrap() {
                         '4' => Some(PNMFormat::Binary),

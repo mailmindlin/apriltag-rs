@@ -207,7 +207,7 @@ pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, 
 	let sz = threshim.height() - 1;
 	if config.single_thread() && false {
 		let mut clustermap = Clusters::with_capacity_and_hasher(nclustermap, ClusterHasher::default());
-		do_gradient_clusters(threshim, 0, sz, &mut clustermap, &mut uf);
+		do_gradient_clusters(threshim, 0, sz, &mut clustermap, &uf);
 		clustermap
 	} else {
 		let chunksize = 1 + sz / config.nthreads();
@@ -227,7 +227,7 @@ pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, 
 	}
 }
 
-#[cfg(all(test, feature="disabled"))]
+#[cfg(all(test, false))]
 mod test {
 	use crate::quad_thresh::linefit::Pt;
 

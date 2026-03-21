@@ -150,7 +150,7 @@ impl<'a, P: Pixel + 'a> RowsMutIter<'a, P> {
             data.len() - (data.len() % dims.stride) + width_spx
         };
 
-        let chunks = (&mut data[..end]).chunks_mut(dims.stride);
+        let chunks = data[..end].chunks_mut(dims.stride);
         Self {
             chunks,
             width_spx,

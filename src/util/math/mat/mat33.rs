@@ -501,7 +501,7 @@ impl Mat33 {
 
     pub(crate) fn scale_inplace(&mut self, scalar: f64) {
         for e in self.0.iter_mut() {
-            *e = *e * scalar;
+            *e *= scalar;
         }
     }
 

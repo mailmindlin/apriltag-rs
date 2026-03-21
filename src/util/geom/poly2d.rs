@@ -166,7 +166,7 @@ impl Poly2D {
                     );
                 } else {
                     // we already have a line (p,q). is point thisq RIGHT OF line (p, q)?
-                    let e = thisq - &p;
+                    let e = thisq - p;
                     let dot = e.dot(n);
 
                     if dot > 0. {
@@ -195,7 +195,7 @@ impl Poly2D {
             if hull.len() > 1 {
                 let o = &hull[hull.len() - 2];
 
-                let e = o - &p;
+                let e = o - p;
 
                 if n.dot(e) == 0. {
                     colinear = true;
@@ -213,7 +213,7 @@ impl Poly2D {
             p = q;
         }
 
-        return hull;
+        hull
     }
 
     // Find point p on the boundary of poly that is closest to q.
@@ -307,7 +307,7 @@ impl Poly2D {
                             q.x() - p.x(),
                         );
 
-                        let dot = n.dot(p0 - &q);
+                        let dot = n.dot(p0 - q);
                         if dot < 0. {
                             quad_acc -= 2;
                         } else {
@@ -396,7 +396,7 @@ impl Poly2D {
             return true;
         }
 
-        return false;
+        false
     }
     /// Returns the x intercepts
     pub fn rasterize(&self, y: f64) -> Vec<f64> {

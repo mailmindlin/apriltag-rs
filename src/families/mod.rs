@@ -56,7 +56,7 @@ impl Rotation {
 	}
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
@@ -79,31 +79,37 @@ pub struct AprilTagFamily {
 
 impl PartialOrd for AprilTagFamily {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		match self.name.partial_cmp(&other.name) {
-			Some(core::cmp::Ordering::Equal) => {}
+		Some(self.cmp(other))
+	}
+}
+impl Ord for AprilTagFamily {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		use std::cmp::Ordering::Equal;
+		match self.name.cmp(&other.name) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.width_at_border.partial_cmp(&other.width_at_border) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.width_at_border.cmp(&other.width_at_border) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.total_width.partial_cmp(&other.total_width) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.total_width.cmp(&other.total_width) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.reversed_border.partial_cmp(&other.reversed_border) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.reversed_border.cmp(&other.reversed_border) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.min_hamming.partial_cmp(&other.min_hamming) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.min_hamming.cmp(&other.min_hamming) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.bits.partial_cmp(&other.bits) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.bits.cmp(&other.bits) {
+			Equal => {}
 			ord => return ord,
 		}
-		self.codes.partial_cmp(&other.codes)
+		self.codes.cmp(&other.codes)
 	}
 }
 

@@ -40,7 +40,7 @@ mod test {
     fn test_add() {
         let u = Vec2Ref::of(1., 2.);
         let v = Vec2Ref::of(-1., 5.);
-        let w = u + &v;
+        let w = u + v;
         assert_eq!(w.x(), 0.);
         assert_eq!(w.y(), 7.);
     }

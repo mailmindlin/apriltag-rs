@@ -242,44 +242,6 @@ fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> 
 	}
 }
 
-#[cfg(test)]
-mod test {
-    use super::remove_indices;
-
-    #[test]
-    fn drop_idxs_noop() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        let idxs = vec![];
-
-        let res = remove_indices(elems.clone(), idxs);
-        assert_eq!(res, elems);
-    }
-
-    #[test]
-    fn drop_idxs_one() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        assert_eq!(vec![1, 2, 3, 4, 5], remove_indices(elems.clone(), vec![0]));
-        assert_eq!(vec![0, 1, 2, 3, 5], remove_indices(elems.clone(), vec![4]));
-        assert_eq!(vec![0, 1, 3, 4, 5], remove_indices(elems.clone(), vec![2]));
-    }
-
-    #[test]
-    fn drop_idxs_many() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        assert_eq!(vec![1, 3, 5], remove_indices(elems.clone(), vec![0, 2, 4]));
-        assert_eq!(vec![0, 2, 4], remove_indices(elems.clone(), vec![1, 3, 5]));
-        assert_eq!(vec![0, 5], remove_indices(elems.clone(), vec![1, 2, 3, 4]));
-        assert_eq!(vec![5], remove_indices(elems.clone(), vec![0, 1, 2, 3, 4]));
-    }
-
-    #[test]
-    #[should_panic]
-    #[cfg(debug_assertions)]
-    fn drop_error() {
-        remove_indices(vec![1, 2], vec![0, 0]);
-    }
-}
-
 /// Step 3. Reconcile detections--- don't report the same tag more
 /// than once. (Allow non-overlapping duplicate detections.)
 pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Vec<AprilTagDetection> {
@@ -339,4 +301,42 @@ pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Ve
 	// } else {
 	// 	detections
 	// }
+}
+
+#[cfg(test)]
+mod test {
+    use super::remove_indices;
+
+    #[test]
+    fn drop_idxs_noop() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        let idxs = vec![];
+
+        let res = remove_indices(elems.clone(), idxs);
+        assert_eq!(res, elems);
+    }
+
+    #[test]
+    fn drop_idxs_one() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        assert_eq!(vec![1, 2, 3, 4, 5], remove_indices(elems.clone(), vec![0]));
+        assert_eq!(vec![0, 1, 2, 3, 5], remove_indices(elems.clone(), vec![4]));
+        assert_eq!(vec![0, 1, 3, 4, 5], remove_indices(elems.clone(), vec![2]));
+    }
+
+    #[test]
+    fn drop_idxs_many() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        assert_eq!(vec![1, 3, 5], remove_indices(elems.clone(), vec![0, 2, 4]));
+        assert_eq!(vec![0, 2, 4], remove_indices(elems.clone(), vec![1, 3, 5]));
+        assert_eq!(vec![0, 5], remove_indices(elems.clone(), vec![1, 2, 3, 4]));
+        assert_eq!(vec![5], remove_indices(elems.clone(), vec![0, 1, 2, 3, 4]));
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn drop_error() {
+        remove_indices(vec![1, 2], vec![0, 0]);
+    }
 }

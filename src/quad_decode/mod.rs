@@ -402,6 +402,7 @@ impl Quad {
         }
         let (decision_margin, entry) = decode_res?;
 
+		#[allow(clippy::absurd_extreme_comparisons)]
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
         }
@@ -449,7 +450,7 @@ impl Quad {
         // apply this optimization BEFORE the other work.
         //if (td->quad_decimate > 1 && td->refine_edges) {
         if info.det_params.refine_edges {
-            self.refine_edges(&info.det_params, info.im_orig);
+            self.refine_edges(info.det_params, info.im_orig);
         }
 
         #[cfg(feature="compare_reference")]
@@ -503,8 +504,8 @@ impl Quad {
 
     fn update_homographies(&mut self) -> Result<Mat33, HomographySolveError> {
         let mut corr_arr = [[0f64; 4]; 4];
-        for i in 0..4 {
-            corr_arr[i] = [
+		for (i, c) in corr_arr.iter_mut().enumerate() {
+            *c = [
                 if i == 0 || i == 3 { -1. } else { 1. },
                 if i == 0 || i == 1 { -1. } else { 1. },
                 self.corners[i].x(),

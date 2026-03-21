@@ -241,7 +241,7 @@ fn do_unionfind_first_line(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8) {
 	}
 }
 
-pub(crate) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(u32, u32), Id = u32> {
+pub(crate) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(UnionFindId, UnionFindId), Id = UnionFindId> {
     if config.single_thread() {
         let mut uf = UnionFind2D::new(threshim.width(), threshim.height());
 	    do_unionfind_first_line(&mut uf, threshim);

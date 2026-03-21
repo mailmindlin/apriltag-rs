@@ -35,14 +35,14 @@ impl ConfigRef {
 		Ok(value)
     }
 
-	fn write(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig) -> ()) -> PyResult<()> {
+	fn write(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig)) -> PyResult<()> {
 		self.write_t(callback, PyTimeout::Blocking)
 	}
 
     /// Mutates config
     /// 
     /// Fails if it's a reference to a [detector](variant.DetectorRef)
-    fn write_t(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig) -> (), timeout: PyTimeout) -> PyResult<()> {
+    fn write_t(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig), timeout: PyTimeout) -> PyResult<()> {
         let value = match self {
             Self::Owned(rwl) => &mut timeout.write(rwl)?,
             Self::BuilderMut(rwl) => &mut timeout.write(rwl)?.config,
@@ -66,7 +66,7 @@ impl DetectorConfig {
 		me.config.read(py, callback)
 	}
 
-	fn write_config(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig) -> ()) -> PyResult<()> {
+	fn write_config(&self, callback: impl FnOnce(&mut AprilTagDetectorConfig)) -> PyResult<()> {
 		self.config.write(callback)
 	}
 }
@@ -148,10 +148,8 @@ impl DetectorConfig {
     #[getter]
     fn debug_path(self_: &Bound<Self>) -> PyResult<Option<String>> {
         Self::read_config(self_, |config| {
-            match &config.debug_path {
-                Some(path) => Some(path.to_string_lossy().into_owned()),
-                None => None,
-            }
+            config.debug_path.as_ref()
+				.map(|path| path.to_string_lossy().into_owned())
         })
     }
 
@@ -267,7 +265,7 @@ impl QuadThresholdParams {
         self_.try_borrow()?.config.read(self_.py(), |config| callback(&config.qtp))
     }
 
-    fn write(&self, callback: impl FnOnce(&mut AprilTagQuadThreshParams) -> ()) -> PyResult<()> {
+    fn write(&self, callback: impl FnOnce(&mut AprilTagQuadThreshParams)) -> PyResult<()> {
         self.config.write(|config| callback(&mut config.qtp))
     }
 }
@@ -378,14 +376,14 @@ impl DetectorBuilder {
 	#[pyo3(signature=(family, num_bits=None))]
     fn add_family(self_: &Bound<Self>, family: &Bound<PyAny>, num_bits: Option<usize>) -> PyResult<()> {
         // Parse family
-        let family = if let Ok(family) = family.downcast::<super::PyAprilTagFamily>() {
-            AprilTagFamily::raw_family(&family)?
-        } else if let Ok(family_name) = family.downcast::<PyString>() {
+        let family = if let Ok(family) = family.cast::<super::PyAprilTagFamily>() {
+            AprilTagFamily::raw_family(family)?
+        } else if let Ok(family_name) = family.cast::<PyString>() {
             let family_name = family_name.to_string();
 			//TODO: call PyAprilTagFamily::for_name directly?
 			super::PyAprilTagFamily::for_name(&family_name)?.family
         } else {
-            return Err(PyErr::new::<PyTypeError, _>(format!("Invalid AprilTag family type")));
+            return Err(PyErr::new::<PyTypeError, _>("Invalid AprilTag family type"));
         };
 
         let num_bits = num_bits.unwrap_or(2);
@@ -525,9 +523,9 @@ impl Detector {
         match res {
             Ok(detections) => Ok(super::PyDetections(Arc::new(detections))),
             Err(DetectError::ImageAlloc(..)) =>
-                Err(PyErr::new::<PyMemoryError, _>(format!("Unable to allocate buffers"))),
+                Err(PyErr::new::<PyMemoryError, _>("Unable to allocate buffers")),
             Err(DetectError::BadSourceImageDimensions(..)) =>
-                Err(PyErr::new::<PyValueError, _>(format!("Source image too small"))),  
+                Err(PyErr::new::<PyValueError, _>("Source image too small")),  
             Err(e)
                 => Err(PyErr::new::<PyRuntimeError, _>(e.to_string())),
         }

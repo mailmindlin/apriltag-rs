@@ -58,7 +58,7 @@ impl Poly {
     /// @return roots
     pub fn solve_approx(&self) -> Vec<f64> {
         const MAX_ROOT: f64 = 1000.;
-        let ref p = self.coefs;
+        let p = &self.coefs;
         let mut roots = Vec::new();
         match self.degree() {
             0 => panic!("No roots of degree 0"),

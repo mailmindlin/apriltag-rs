@@ -43,7 +43,7 @@ pub fn homography_to_pose(H: &Mat33, fx: f64, fy: f64, cx: f64, cy: f64) -> (Mat
 		// (Use geometric average of the two length vectors we have)
 		let length1 = f64::sqrt(R00*R00 + R10*R10 + R20*R20);
 		let length2 = f64::sqrt(R01*R01 + R11*R11 + R21*R21);
-		let s = f64::sqrt((length1 * length2) as f64).recip();
+		let s = f64::sqrt(length1 * length2).recip();
 	
 		// get sign of S by requiring the tag to be in front the camera;
 		// we assume camera looks in the -Z direction.

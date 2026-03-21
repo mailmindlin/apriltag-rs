@@ -6,13 +6,15 @@ use super::ImageDimensionError;
 
 /// When building the [AprilTagDetector], what kind of acceleration should we use?
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Default)]
 pub enum AccelerationRequest {
 	/// Do not use GPU acceleration
 	Disabled,
 	/// Attempt to use acceleration if any device is available
 	/// 
 	/// This will possibly use OpenCL on the CPU
-	Prefer,
+	#[default]
+ Prefer,
 	/// Attempt to use acceleration if any GPU is available,
 	/// but won't use the CPU
 	PreferGpu,
@@ -34,36 +36,22 @@ impl AccelerationRequest {
 
 	/// Are high-powered devices (GPUs) preferred over lower-powered devices?
 	pub const fn prefer_high_power(&self) -> bool {
-		match self {
-			Self::PreferGpu | Self::RequiredGpu => true,
-			_ => false,
-		}
+		matches!(self, Self::PreferGpu | Self::RequiredGpu)
 	}
 
 	/// If no GPU is available, should we fall back to CPU-with-acceleration?
 	pub const fn allow_cpu(&self) -> bool {
-		match self {
-			Self::Prefer | Self::Required => true,
-			_ => false,
-		}
+		matches!(self, Self::Prefer | Self::Required)
 	}
 	
 	/// Is acceleration required?
 	/// 
 	/// If `true`, emit a detector build error if acceleration is not available
 	pub const fn is_required(&self) -> bool {
-		match self {
-			Self::Required | Self::RequiredGpu | Self::RequiredDeviceIdx(_) => true,
-			_ => false,
-		}
+		matches!(self, Self::Required | Self::RequiredGpu | Self::RequiredDeviceIdx(_))
 	}
 }
 
-impl Default for AccelerationRequest {
-    fn default() -> Self {
-        Self::Prefer
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum SourceDimensions {

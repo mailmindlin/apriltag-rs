@@ -10,16 +10,16 @@ use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThr
 /// 1. Identify A) white points near a black point and B) black points near a white point.
 ///
 /// 2. Find the connected components within each of the classes above,
-/// yielding clusters of "white-near-black" and
-/// "black-near-white". (These two classes are kept separate). Each
-/// segment has a unique id.
+///    yielding clusters of "white-near-black" and
+///    "black-near-white". (These two classes are kept separate). Each
+///    segment has a unique id.
 ///
 /// 3. For every pair of "white-near-black" and "black-near-white"
-/// clusters, find the set of points that are in one and adjacent to the
-/// other. In other words, a "boundary" layer between the two
-/// clusters. (This is actually performed by iterating over the pixels,
-/// rather than pairs of clusters.) Critically, this helps keep nearby
-/// edges from becoming connected.
+///    clusters, find the set of points that are in one and adjacent to the
+///    other. In other words, a "boundary" layer between the two
+///    clusters. (This is actually performed by iterating over the pixels,
+///    rather than pairs of clusters.) Critically, this helps keep nearby
+///    edges from becoming connected.
 fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps: &[LineFitPoint]) -> Option<[usize; 4]> {
 	// ksz: when fitting points, how many points on either side do we consider?
 	// (actual "kernel" width is 2ksz).
@@ -233,9 +233,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 	}
 
 	// Implement ordering for MaxHeap
-	impl Eq for RemoveVertex {
-		fn assert_receiver_is_total_eq(&self) {}
-	}
+	impl Eq for RemoveVertex {}
 	impl PartialOrd for RemoveVertex {
 		fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 			Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
@@ -243,7 +241,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 	}
 	impl Ord for RemoveVertex {
 		fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-			return f64::total_cmp(&self.err, &other.err).reverse()
+			f64::total_cmp(&self.err, &other.err).reverse()
 		}
 	}
 
@@ -264,7 +262,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 			(i - 1, (i + 1) % cluster.len())
 		};
 
-		let err = fit_line_error(&lfps, left, right).err;
+		let err = fit_line_error(lfps, left, right).err;
 
 		heap.push(RemoveVertex {
 			i,
@@ -305,7 +303,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 			let left = segs[rv.left].left;
 			let right = rv.right;
 
-			let err = linefit::fit_line_error(&lfps, left, right).err;
+			let err = linefit::fit_line_error(lfps, left, right).err;
 
 			heap.push(RemoveVertex { i, left, right, err });
 		}
@@ -316,7 +314,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 			let left = rv.left;
 			let right = segs[rv.right].right;
 
-			let err = linefit::fit_line_error(&lfps, left, right).err;
+			let err = linefit::fit_line_error(lfps, left, right).err;
 
 			heap.push(RemoveVertex { i, left, right, err });
 		}

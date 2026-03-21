@@ -34,13 +34,13 @@ pub trait Pixel: Copy {
 
     fn to_value(self) -> Self::Value;
 
-    fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self;
+    fn from_slice(slice: &[Self::Subpixel]) -> &Self;
 
-    fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value;
+    fn slice_to_value(slice: &[Self::Subpixel]) -> &Self::Value;
 
-    fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self;
+    fn from_slice_mut(slice: &mut [Self::Subpixel]) -> &mut Self;
 
-    fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value;
+    fn slice_to_value_mut(slice: &mut [Self::Subpixel]) -> &mut Self::Value;
 }
 
 pub trait PixelConvert: Pixel {
@@ -81,19 +81,19 @@ impl<P: Primitive, const N: usize> Pixel for [P; N] {
         self
     }
 
-    fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
+    fn from_slice(slice: &[Self::Subpixel]) -> &Self {
         slice.try_into().unwrap()
     }
 
-    fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
+    fn slice_to_value(slice: &[Self::Subpixel]) -> &Self::Value {
         slice.try_into().unwrap()
     }
 
-    fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
+    fn from_slice_mut(slice: &mut [Self::Subpixel]) -> &mut Self {
         slice.try_into().unwrap()
     }
 
-    fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
+    fn slice_to_value_mut(slice: &mut [Self::Subpixel]) -> &mut Self::Value {
         slice.try_into().unwrap()
     }
 }
@@ -139,25 +139,25 @@ impl<P: Pixel> Pixel for MaybeUninit<P> where P::Subpixel: SafeZero {
     //     }
     // }
 
-    fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
+    fn from_slice(slice: &[Self::Subpixel]) -> &Self {
         let slice = unsafe { slice.assume_init_ref() };
         let inner = P::from_slice(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
-    fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
+    fn slice_to_value(slice: &[Self::Subpixel]) -> &Self::Value {
         let slice = unsafe { slice.assume_init_ref() };
         let inner = P::slice_to_value(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
-    fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
+    fn from_slice_mut(slice: &mut [Self::Subpixel]) -> &mut Self {
         let slice = unsafe { slice.assume_init_mut() };
         let inner = P::from_slice_mut(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
-    fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
+    fn slice_to_value_mut(slice: &mut [Self::Subpixel]) -> &mut Self::Value {
         let slice = unsafe { slice.assume_init_mut() };
         let inner = P::slice_to_value_mut(slice);
         unsafe { std::mem::transmute(inner) }

@@ -13,7 +13,7 @@ pub(super) enum PyTimeout {
 
 impl PyTimeout {
 	fn nonblocking_err() -> PyErr {
-		PyErr::new::<PyTimeoutError, _>(format!("Unable to get nonblocking lock"))
+		PyErr::new::<PyTimeoutError, _>("Unable to get nonblocking lock")
 	}
 	fn timeout_err(timeout: &Duration) -> PyErr {
 		PyErr::new::<PyTimeoutError, _>(format!("Lock timed out after {timeout:?}"))

@@ -57,7 +57,7 @@ impl MatChol {
 	}
 
 	pub fn solve(&self, b: &Mat) -> Mat {
-		let ref u = self.u;
+		let u = &self.u;
 		let mut x = b.clone();
 
 		// LUx = b

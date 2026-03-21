@@ -245,7 +245,7 @@ pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, 
 
 	// make segmentation image.
 	#[cfg(feature="debug")]
-	debug_unionfind(&td.params, tp, threshim.dimensions(), &mut uf);
+	debug_unionfind(&td.params, tp, threshim.dimensions(), &uf);
 
 	let clusters = gradient_clusters(&td.params, &threshim.as_ref(), uf);
 	drop(threshim);

@@ -159,7 +159,7 @@ impl QuickDecode {
 	fn add(&mut self, code: u64, id: usize, hamming: u8) {
         let id = id.try_into().unwrap(); // We already checked for this overflow
         self.table.add(code, QuickDecodeValue { id, hamming })
-            .ok() // Drop value on error
+            // .ok() // Drop value on error
             .expect("No bucket for code"); // Shouldn't happen
 	}
 

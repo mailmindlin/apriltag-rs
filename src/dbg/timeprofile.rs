@@ -68,7 +68,7 @@ impl Display for TimeProfileStatistics {
 }
 
 /// Records 
-#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs"))]
+#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs", skip_from_py_object))]
 #[derive(Clone, Debug)]
 pub struct TimeProfile {
     /// Start timestamp
@@ -155,7 +155,7 @@ impl TimeProfile {
     /// Get duration from [start] to last recorded timestamp
     pub fn total_duration(&self) -> Duration {
         let stamps = &self.stamps;
-        if stamps.len() == 0 {
+        if stamps.is_empty() {
             return Duration::ZERO;
         }
 

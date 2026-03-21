@@ -36,7 +36,7 @@ pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) ->
 	
 	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 	for quad in quads.into_iter() {
-		let color = rng.gen_color_rgb(128).into();
+		let color = rng.gen_color_rgb(128);
 
 		im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 		im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);
@@ -56,7 +56,7 @@ pub(super) fn debug_quads_fixed(mut f: File, mut im_quads: ImageY8, quads: &[Qua
 	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 
 	for quad in quads.iter() {
-		let color = rng.gen_color_gray(100).into();
+		let color = rng.gen_color_gray(100);
 
 		im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
 		im_quads.draw_line(quad.corners[1], quad.corners[2], &color, 1);

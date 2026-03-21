@@ -127,7 +127,7 @@ impl MatPLU {
     }
 
     pub fn p(&self) -> Mat {
-        let ref lu = self.lu;
+        let lu = &self.lu;
         let mut P = Mat::zeroes(lu.rows(), lu.rows());
     
         for i in 0..lu.rows() {
@@ -140,7 +140,7 @@ impl MatPLU {
     pub fn lower(&self) -> Mat {
         let lu = &self.lu;
 
-        let mut L = Mat::zeroes_like(&lu);
+        let mut L = Mat::zeroes_like(lu);
         for i in 0..lu.rows() {
             L[(i,i)] = 1.;
             for j in 0..i {

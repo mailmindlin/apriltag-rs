@@ -562,7 +562,7 @@ impl MatSVD {
         // but this doesn't seem to happen any more with our more stable
         // svd22 implementation.
         const MAX_ITERS: u32 = 1u32 << 30;
-        assert!(MAX_ITERS > 0); // reassure clang
+        const { assert!(MAX_ITERS > 0) }; // reassure clang
 
         // let mut maxv: f64; // maximum non-zero value being reduced this iteration
 

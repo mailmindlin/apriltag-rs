@@ -31,7 +31,7 @@ pub(super) fn homography_project(H: &Mat33, x: f64, y: f64) -> Point2D {
 }
 
 enum HomographyMode {
-    INVERSE,
+    Inverse,
     SVD,
 }
 
@@ -168,7 +168,7 @@ fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat
     let mut H = Mat33::zeroes();
 
     match mode {
-        HomographyMode::INVERSE => {
+        HomographyMode::Inverse => {
             // compute singular vector by (carefully) inverting the rank-deficient matrix.
 
             if true {

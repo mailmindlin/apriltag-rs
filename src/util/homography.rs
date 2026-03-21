@@ -23,7 +23,7 @@ pub(crate) fn homography_to_model_view(H: &Mat, F: f64, G: f64, A: f64, B: f64, 
     // (Use geometric average of the two length vectors we have)
     let length1 = f64::sqrt(R00*R00 + R10*R10 + R20*R20);
     let length2 = f64::sqrt(R01*R01 + R11*R11 + R21*R21);
-    let s = f64::sqrt((length1 * length2) as f64).recip();
+    let s = f64::sqrt(length1 * length2).recip();
 
     // get sign of S by requiring the tag to be in front of the camera
     // (which is Z < 0) for our conventions.
