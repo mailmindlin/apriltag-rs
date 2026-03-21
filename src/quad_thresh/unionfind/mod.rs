@@ -140,6 +140,9 @@ fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32), Id = u32>, im: &Image
 			continue;
 		}
 
+		#[cfg(feature="uf_blackonly")]
+		if v == 0 { continue; }
+
 		let idx_xy = uf.index_to_id((x as _, y as _));
 		let idx_up = uf.index_to_id((x as _, y as u32 - 1));
 
@@ -235,6 +238,8 @@ fn do_unionfind_first_line(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8) {
 			continue;
 		}
 		let v1 = im[(x - 1, 0)];
+		#[cfg(feature="uf_blackonly")]
+		if v0 != 255 { continue; }
 		if v0 == v1 {
 			uf.connect((x as _, 0), (x as u32 - 1, 0));
 		}
