@@ -1,6 +1,6 @@
 use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all, panic::AssertUnwindSafe};
 
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics, Detections};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, ImageY8, ImageRGB8, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
 use rayon::prelude::*;
 use clap::Parser;
