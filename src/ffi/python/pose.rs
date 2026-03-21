@@ -1,4 +1,4 @@
-use pyo3::{marker::Ungil, pyclass, pymethods, types::PyList, Bound, FromPyObject, IntoPy, Py, PyAny, PyResult};
+use pyo3::{Bound, BoundObject, FromPyObject, IntoPyObject, Py, PyAny, PyResult, marker::Ungil, pyclass, pymethods, types::PyList};
 
 use crate::{pose, AprilTagDetection};
 pub(super) use crate::pose::{AprilTagPose, OrthogonalIterationResult, AprilTagPoseWithError};
@@ -20,26 +20,25 @@ impl<'py> DetectionOrDetections<'py> {
 			Vec<R>: Ungil,
 			F: Fn(&AprilTagDetection) -> R,
 			F: Send + Ungil,
-			R: IntoPy<Py<PyAny>>,
+			R: IntoPyObject<'py>,
+			<R as IntoPyObject<'py>>::Error: Into<pyo3::PyErr>,
 	{
 		let obj = match self {
 			Self::Detection(det) => {
 				let dr: &AprilTagDetection = &det.get().detection;
-				let res = det.py().allow_threads(move || callback(dr));
-				res.into_py(det.py())
+				let res = det.py().detach(move || callback(dr));
+				res.into_pyobject(det.py()).map_err(Into::into)?.into_any().unbind()
 			},
 			Self::Detections(dets) => {
 				let dets_list = &dets.get().0.detections;
 				let py = dets.py();
-				let res = py.allow_threads(move || {
+				let res = py.detach(move || {
 					dets_list
 						.iter()
 						.map(|it| callback(it))
 						.collect::<Vec<_>>()
 				});
-				let items = res.into_iter()
-					.map(|it| it.into_py(py));
-				PyList::new_bound(dets.py(), items).unbind().into_any()
+				PyList::new(py, res)?.into_any().unbind()
 			},
 		};
 		Ok(obj)
