@@ -16,6 +16,7 @@ use wgpu::util::DeviceExt;
 use wgpu::{BufferUsages, ComputePass};
 
 use self::util::debug::{DebugTargets, DebugImageGenerator};
+use crate::dbg::{debug_enabled, debugln};
 #[cfg(feature="debug")]
 use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 use crate::detector::{Preprocessor, ImageDimensionError};
@@ -123,6 +124,7 @@ impl WGPUDetector {
 	pub(crate) fn device_info(&self) -> super::detector::GpuDeviceInfo {
 		let info = &self.context.adapter_info;
 		super::detector::GpuDeviceInfo {
+			accelerator: "wgpu".into(),
 			backend: format!("{:?}", info.backend),
 			name: info.name.clone(),
 			device_type: format!("{:?}", info.device_type),
@@ -261,7 +263,7 @@ impl Preprocessor for WGPUDetector {
 		Ok((quad_im, threshim))
 	}
 
-	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, crate::quad_thresh::Clusters), DetectError> {
+	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<crate::detector::ClusterResult, DetectError> {
 		let downloads = DebugTargets::new(self, config);
 
 		let mut debug = DebugImageGenerator::new(config.generate_debug_image());
@@ -327,32 +329,30 @@ impl Preprocessor for WGPUDetector {
 		let (quad_im, threshim, unionfind, gpu_tp) = block_on(download_results(&self.context, gpu_quad, gpu_threshim, gpu_uf, queries))?;
 		tp.stamp("GPU fetch results");
 		
-		println!("Uf width: {}", uf_dims.width);
-		let print_row = |y| {
-			print!("Threshim data: ");
-			let off = 0;
-			let n = 64;
-			for i in 0..n {
-				let pix = threshim[(i + off, y)];
-				match pix {
-					0 => print!("-"),
-					255 => print!("#"),
-					_ => print!("_"),
-				}
+		if debug_enabled() {
+			debugln!("Uf width: {}", uf_dims.width);
+			let print_row = |y| {
+				let off = 0;
+				let n = 64;
+				let threshim_line: String = (0..n).map(|i| {
+					match threshim[(i + off, y)] {
+						0 => '-',
+						255 => '#',
+						_ => '_',
+					}
+				}).collect();
+				let base = uf_dims.width * y + off;
+				let uf_line: String = (0..n).map(|i| {
+					let par = &unionfind[(base + i)*2+0];
+					let siz = &unionfind[(base + i)*2+1];
+					format!("({par},{siz}), ")
+				}).collect();
+				debugln!("Threshim data: {threshim_line}");
+				debugln!("Uf data: {uf_line}");
+			};
+			for i in 0..5 {
+				print_row(i);
 			}
-			println!();
-			print!("Uf data: ");
-			let base = uf_dims.width * y + off;
-			for i in 0..n {
-				let par = &unionfind[(base + i)*2+0];
-				let siz = &unionfind[(base + i)*2+1];
-				print!("({:},{}), ", par, siz);
-				// print!("{}, ", siz);
-			}
-			println!();
-		};
-		for i in 0..5 {
-			print_row(i);
 		}
 
 		struct SimpleUnionFind(Box<[u32]>);
@@ -403,8 +403,10 @@ impl Preprocessor for WGPUDetector {
 			}
 		}
 		let inner = SimpleUnionFind(unionfind);
-		for i in 0..5 {
-			println!("Parent({i}) = {:?}", inner.get_set_static(i));
+		if debug_enabled() {
+			for i in 0..5 {
+				debugln!("Parent({i}) = {:?}", inner.get_set_static(i));
+			}
 		}
 		let uf2 = UnionFind2D::wrap(uf_dims.width, uf_dims.height, inner);
 
