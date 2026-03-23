@@ -25,4 +25,8 @@ Cargo.lock
 # Java metadata
 java/*.iml
 java/.idea
-java/out
+java/out# pixi environments
+.pixi/*
+!.pixi/config.toml
+*.jsonl
+*.html
