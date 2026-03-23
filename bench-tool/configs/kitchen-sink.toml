@@ -1,0 +1,29 @@
+# "Kitchen sink" — all the expensive options at once.
+# No decimation, blur, max error correction, loose line fitting.
+# Represents the absolute maximum quality/slowest configuration.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "kitchen-sink"
+
+[detector]
+nthreads = 4
+quad_decimate = 1.0
+quad_sigma = 0.8
+refine_edges = true
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 5
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 50.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 2

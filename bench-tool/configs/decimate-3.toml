@@ -1,0 +1,28 @@
+# 3x decimation — aggressive downscaling.
+# Much faster but may miss small tags entirely.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "decimate-3"
+
+[detector]
+nthreads = 4
+quad_decimate = 3.0
+quad_sigma = 0.0
+refine_edges = true
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 5
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 10.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 1

@@ -1,0 +1,29 @@
+# Aggressive small-blob filtering (min_cluster_pixels=20, default is 5).
+# Rejects more blobs early in unionfind/clustering, reducing quad fitting work.
+# May miss very small or distant tags.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "cluster-px-20"
+
+[detector]
+nthreads = 4
+quad_decimate = 2.0
+quad_sigma = 0.0
+refine_edges = true
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 20
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 10.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 1

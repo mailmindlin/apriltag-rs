@@ -1,0 +1,28 @@
+# Heavy Gaussian blur (sigma=1.5) before quad detection.
+# Very aggressive smoothing — may help very noisy images but risks losing detail.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "sigma-1.5"
+
+[detector]
+nthreads = 4
+quad_decimate = 2.0
+quad_sigma = 1.5
+refine_edges = true
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 5
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 10.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 1

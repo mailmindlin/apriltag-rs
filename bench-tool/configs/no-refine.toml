@@ -1,0 +1,29 @@
+# Edge refinement disabled.
+# Skips the gradient-snapping pass that improves corner accuracy at decimated resolution.
+# Should be slightly faster with 2x decimate, negligible at decimate=1.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "no-refine"
+
+[detector]
+nthreads = 4
+quad_decimate = 2.0
+quad_sigma = 0.0
+refine_edges = false
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 5
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 10.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 1
