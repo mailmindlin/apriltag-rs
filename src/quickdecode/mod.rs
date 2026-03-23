@@ -3,7 +3,7 @@ use std::{alloc::AllocError, sync::Arc};
 
 use datasize::DataSize;
 
-use crate::families::{AprilTagFamily, Rotation, rotate90};
+use crate::{dbg::{debug_enabled, debugln}, families::{AprilTagFamily, Rotation, rotate90}};
 
 use self::table::LookupTable;
 
@@ -144,13 +144,12 @@ impl QuickDecode {
 		}
 	
         
-        #[cfg(feature="extra_debug")]
-		{
+		if debug_enabled() {
 			use datasize::data_size;
-            println!("quick decode: capacity {}, size {:.0} kB", capacity, data_size(&qd.table) as f64 / 1024.0);
+			debugln!("quick decode: capacity {}, size {:.0} kB", capacity, data_size(&qd.table) as f64 / 1024.0);
 
-            let (avg_run, longest_run) = qd.table.stats();
-            println!("quick decode: longest run: {}, average run {:.3}", longest_run, avg_run);
+			let (avg_run, longest_run) = qd.table.stats();
+			debugln!("quick decode: longest run: {}, average run {:.3}", longest_run, avg_run);
 		}
 
 		Ok(qd)

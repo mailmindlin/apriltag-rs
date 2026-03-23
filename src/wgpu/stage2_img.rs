@@ -2,7 +2,7 @@ use std::{num::NonZeroU64, mem::size_of};
 
 use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
-use crate::{detector::quad_sigma_kernel, wgpu::util::GpuImageLike, DetectorBuildError};
+use crate::{DetectorBuildError, dbg::debugln, detector::quad_sigma_kernel, wgpu::util::GpuImageLike};
 
 use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder, DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
@@ -171,8 +171,7 @@ impl GpuStage for GpuQuadSigma {
 
 		let wg_x = (src.width()).div_ceil(self.local_dims.0 as usize) as u32;
 		let wg_y = (src.height()).div_ceil(self.local_dims.1 as usize) as u32;
-		#[cfg(feature="extra_debug")]
-		println!("Dispatch wg=({wg_x}, {wg_y})");
+		debugln!("Dispatch wg=({wg_x}, {wg_y})");
 		ctx.cpass.dispatch_workgroups(wg_x, wg_y, 1);
 
 		#[cfg(feature="debug")]

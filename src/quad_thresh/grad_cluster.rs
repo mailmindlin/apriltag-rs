@@ -3,7 +3,7 @@ use hashbrown::{HashMap, hash_map::Entry};
 
 use rayon::prelude::*;
 
-use crate::{util::image::ImageRefY8, detector::DetectorConfig, quad_thresh::MIN_CLUSTER_SIZE};
+use crate::{dbg::debugln, detector::DetectorConfig, quad_thresh::MIN_CLUSTER_SIZE, util::image::ImageRefY8};
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
@@ -163,11 +163,10 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 			connected_last = DO_CONN(1, 1);
 		}
 	}
-	#[cfg(feature="extra_debug")]
 	if !clustermap.is_empty() && false {
-		println!("Found {} clusters on line {}..{}", clustermap.len(), y0, y1);
+		debugln!("Found {} clusters on line {}..{}", clustermap.len(), y0, y1);
 		for (cid, cluster) in clustermap.iter() {
-			println!(" - {}/{} len {}", cid.rep0, cid.rep1, cluster.len());
+			debugln!(" - {}/{} len {}", cid.rep0, cid.rep1, cluster.len());
 		}
 	}
 }

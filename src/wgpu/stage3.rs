@@ -2,7 +2,7 @@ use std::{num::NonZeroU64, mem::size_of};
 
 use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
-use crate::{quad_thresh::threshold::TILESZ, wgpu::util::GpuImageLike, DetectorBuildError, DetectorConfig};
+use crate::{DetectorBuildError, DetectorConfig, dbg::debugln, quad_thresh::threshold::TILESZ, wgpu::util::GpuImageLike};
 
 use super::{util::{ComputePipelineDescriptor, DataStore, GpuTexture, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
@@ -322,8 +322,7 @@ impl GpuStage for GpuThreshim {
 			})
 		};
 		
-		#[cfg(feature="extra_debug")]
-		println!("Dispatch wg=({tw}, {th})");
+		debugln!("Dispatch wg=({tw}, {th})");
 		ctx.cpass.set_bind_group(1, bg_minmax, &[]);
 		ctx.cpass.set_pipeline(&self.tile_minmax.0);
 		ctx.cpass.dispatch_workgroups(tw as u32, th as u32, 1);

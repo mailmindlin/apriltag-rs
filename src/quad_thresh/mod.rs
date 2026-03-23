@@ -8,7 +8,7 @@ pub(super) use grad_cluster::{gradient_clusters, Clusters};
 use std::fs::File;
 use std::f64::consts as f64c;
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
+use crate::{DetectorConfig, dbg::{TimeProfile, debugln}, detector::AprilTagDetector, quad_decode::Quad, util::{color::RandomColor, image::{ImageBuffer, ImageDimensions, ImageRefY8, ImageWritePNM, ImageY8, Rgb}, mem::calloc}};
 #[cfg(feature="debug")]
 use crate::dbg::debug_images;
 
@@ -216,8 +216,7 @@ pub(crate) fn debug_unionfind(config: &DetectorConfig, tp: &mut TimeProfile, dim
 }
 
 pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, im: ImageRefY8, clusters: Clusters) -> Vec<Quad> {
-	#[cfg(feature="extra_debug")]
-	println!("{} gradient clusters", clusters.len());
+	debugln!("{} gradient clusters", clusters.len());
 	
 	#[cfg(feature="debug")]
 	td.params.debug_image(debug_images::CLUSTERS, |f| debug_clusters(f, im.width(), im.height(), &clusters));
@@ -227,9 +226,8 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
 	// step 3. process each connected component.
 	let quads = fit_quads(td, clusters, &im);
 
-	#[cfg(feature="extra_debug")]
 	for quad in quads.iter() {
-		println!("Quad corner: {:?}", quad.corners);
+		debugln!("Quad corner: {:?}", quad.corners);
 	}
 
 	#[cfg(feature="debug_ps")]

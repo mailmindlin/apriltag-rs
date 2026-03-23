@@ -34,3 +34,14 @@ pub(crate) mod debug_images {
     pub(crate) const OUTPUT: &str = "10a_debug_output.pnm";
     pub(crate) const OUTPUT_PS: &str = "10b_debug_output.ps";
 }
+
+pub(crate) const fn debug_enabled() -> bool {
+	cfg!(feature="extra_debug")
+}
+macro_rules! debugln {
+	($($tt:tt)*) => {
+		#[cfg(feature="extra_debug")]
+		println!($($tt)*)
+	};
+}
+pub(crate) use debugln;

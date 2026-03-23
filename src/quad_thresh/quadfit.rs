@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use arrayvec::ArrayVec;
 use rayon::prelude::*;
 
-use crate::{util::{mem::calloc, geom::{Point2D, quad::Quadrilateral}, image::ImageRefY8}, AprilTagDetector, quad_decode::Quad, quad_thresh::{linefit::fit_line_error, MIN_CLUSTER_SIZE}};
+use crate::{AprilTagDetector, dbg::debugln, quad_decode::Quad, quad_thresh::{MIN_CLUSTER_SIZE, linefit::fit_line_error}, util::{geom::{Point2D, quad::Quadrilateral}, image::ImageRefY8, mem::calloc}};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams, grad_cluster::{Clusters, ClusterId}};
 
@@ -36,8 +36,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps:
 
 	// can't fit a quad if there are too few points.
 	if ksz < 2 {
-		#[cfg(feature="extra_debug")]
-		println!(" R quad_segment_maxima: \tIgnored (too few points)");
+		debugln!(" R quad_segment_maxima: \tIgnored (too few points)");
 		return None;
 	}
 
@@ -106,8 +105,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps:
 
 	// if we didn't get at least 4 maxima, we can't fit a quad.
 	if maxima.len() < 4 {
-		#[cfg(feature="extra_debug")]
-		println!(" R quad_segment_maxima: \tIgnored (need 4 maxima, had {})", maxima.len());
+		debugln!(" R quad_segment_maxima: \tIgnored (need 4 maxima, had {})", maxima.len());
 		return None;
 	}
 
@@ -135,8 +133,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps:
 	// disallow quads where the angle is less than a critical value.
 	let max_dot = qtp.cos_critical_rad; //25*M_PI/180);
 
-	#[cfg(feature="extra_debug")]
-	println!(" R quad_segment_maxima: \t{} maxima", maxima.len());
+	debugln!(" R quad_segment_maxima: \t{} maxima", maxima.len());
 
 	for m0 in 0..(maxima.len() - 3) {
 		let (i0, _i0_err) = maxima[m0];
@@ -195,18 +192,15 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps:
 	}
 
 	if best_error == f64::INFINITY {
-		#[cfg(feature="extra_debug")]
-		println!(" R quad_segment_maxima: \tIgnored (inf maxima error)");
+		debugln!(" R quad_segment_maxima: \tIgnored (inf maxima error)");
 		return None;
 	}
 
 	if best_error / (cluster_len as f64) >= qtp.max_line_fit_mse as f64 {
-		#[cfg(feature="extra_debug")]
-		println!(" R quad_segment_maxima: \tIgnored (failed max_line_fit_mse)");
+		debugln!(" R quad_segment_maxima: \tIgnored (failed max_line_fit_mse)");
 		return None;
 	}
-	#[cfg(feature="extra_debug")]
-	println!(" R quad_segment_maxima: \tGood maxima");
+	debugln!(" R quad_segment_maxima: \tGood maxima");
 	Some(best_indices)
 }
 
@@ -439,8 +433,7 @@ fn compute_lfps(cluster: &[Pt], im: &ImageRefY8) -> Vec<LineFitPoint> {
 /// Return the quad if it's ok
 fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &ImageRefY8, fqp: &FitQuadsParams) -> Option<Quad> {
 	if cluster.len() < MIN_CLUSTER_SIZE {
-		#[cfg(feature="extra_debug")]
-		println!(" R fit_quad: \tIgnored (size1)");
+		debugln!(" R fit_quad: \tIgnored (size1)");
 		return None;
 	}
 
@@ -474,8 +467,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		}
 
 		if ((xmax - xmin) as usize) * ((ymax - ymin) as usize) < tag_width {
-			#[cfg(feature="extra_debug")]
-			println!("\tIgnored (min size) size={} tag_width={tag_width}", ((xmax - xmin) as usize) * ((ymax - ymin) as usize));
+			debugln!("\tIgnored (min size) size={} tag_width={tag_width}", ((xmax - xmin) as usize) * ((ymax - ymin) as usize));
 			return None;
 		}
 
@@ -533,13 +525,11 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 	// Ensure that the black border is inside the white border.
 	let q_reversed_border = dot < 0.;
 	if !fqp.reversed_border && q_reversed_border {
-		#[cfg(feature="extra_debug")]
-		println!(" R fit_quad: \tIgnored (reversed_border)");
+		debugln!(" R fit_quad: \tIgnored (reversed_border)");
 		return None;
 	}
 	if !fqp.normal_border && !q_reversed_border {
-		#[cfg(feature="extra_debug")]
-		println!(" R fit_quad: \tIgnored (normal_border)");
+		debugln!(" R fit_quad: \tIgnored (normal_border)");
 		return None;
 	}
 
@@ -575,8 +565,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 	}
 
 	if false && cluster.len() < MIN_CLUSTER_SIZE {
-		#[cfg(feature="extra_debug")]
-		println!(" R fit_quad: \tIgnored (small2)");
+		debugln!(" R fit_quad: \tIgnored (small2)");
 		return None;
 	}
 
@@ -624,17 +613,13 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 			println!(" R fit_quad: Compare idxs: {qsm_res:?} {qsm_sys_res:?}");
 			assert_eq!(qsm_res, qsm_sys_res);
 		}
-		#[cfg(feature="extra_debug")]
 		match qsm_res {
 			Some(idxs) => idxs,
 			None => {
-				#[cfg(feature="extra_debug")]
-				println!("\tIgnored (maxima)");
+				debugln!("\tIgnored (maxima)");
 				return None;
 			}
 		}
-		#[cfg(not(feature="extra_debug"))]
-		qsm_res?
 	} else {
 		quad_segment_agg(&cluster, &lfps)?
 	};
@@ -650,8 +635,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		lines[i] = line.lineparm;
 
 		if line.mse > qtp.max_line_fit_mse as f64 {
-			#[cfg(feature="extra_debug")]
-			println!(" R fit_quad: \tIgnored (error {} > {})", line.mse, qtp.max_line_fit_mse as f64);
+				debugln!(" R fit_quad: \tIgnored (error {} > {})", line.mse, qtp.max_line_fit_mse as f64);
 			return None;
 		}
 	}
@@ -684,8 +668,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		let W00 = A11 / det;
 		let W01 = -A01 / det;
 		if det.abs() < 0.001 {
-			#[cfg(feature="extra_debug")]
-			println!(" R fit_quad: \tIgnored (corner)");
+			debugln!(" R fit_quad: \tIgnored (corner)");
 			return None;
 		}
 
@@ -734,8 +717,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		let area = area + triangle_area(len_23, len_30, len_20);
 
 		if area < 0.95 * (tag_width as f64)*(tag_width as f64) {
-			#[cfg(feature="extra_debug")]
-			println!(" R fit_quad: \tIgnored (size3) area={area} thresh={}", 0.95 * (tag_width as f64)*(tag_width as f64));
+			debugln!(" R fit_quad: \tIgnored (size3) area={area} thresh={}", 0.95 * (tag_width as f64)*(tag_width as f64));
 			return None;
 		}
 	}
@@ -752,15 +734,13 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 			let cos_dtheta = d1.dot(d2) / f64::sqrt(d1.dot(d1) * d2.dot(d2));
 
 			if (cos_dtheta > qtp.cos_critical_rad as f64 || cos_dtheta < -qtp.cos_critical_rad as f64) || (d1.x() * d2.y() < d1.y() * d2.x()) {
-				#[cfg(feature="extra_debug")]
-				println!(" R fit_quad: \tIgnored (angle)");
+				debugln!(" R fit_quad: \tIgnored (angle)");
 				return None;
 			}
 		}
 	}
 
-	#[cfg(feature="extra_debug")]
-	println!(" R fit_quad: good");
+	debugln!(" R fit_quad: good");
 	Some(Quad {
 		reversed_border: q_reversed_border,
 		corners,
@@ -1200,8 +1180,7 @@ impl FitQuadsParams {
 		}
 
 		let min_tag_width = std::cmp::max((min_tag_width as f32 / td.params.quad_decimate) as usize, 3);
-		#[cfg(feature="extra_debug")]
-		println!("min_tag_width={}", min_tag_width);
+		debugln!("min_tag_width={}", min_tag_width);
 
 		Self {
 			normal_border,
@@ -1254,13 +1233,11 @@ pub(super) fn fit_quads(td: &AprilTagDetector, clusters: Clusters, im: &ImageRef
 	let filter_fit_quad = |(_id, cluster): (ClusterId, Vec<Pt>)| {
 		if cluster.len() < min_cluster_pixels {
 			// Synchronize with later check.
-			#[cfg(feature="extra_debug")]
-			println!("\tIgnored (min size) {}", cluster.len());
+			debugln!("\tIgnored (min size) {}", cluster.len());
 			return None;
 		}
 		if cluster.len() > max_cluster_pixels {
-			#[cfg(feature="extra_debug")]
-			println!("\tIgnored (max size) {}", cluster.len());
+			debugln!("\tIgnored (max size) {}", cluster.len());
 			return None;
 		}
 		fit_quad(td, im, cluster, &fqp)

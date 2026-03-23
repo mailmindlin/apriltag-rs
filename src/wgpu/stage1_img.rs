@@ -2,7 +2,7 @@ use std::{mem::size_of, num::NonZeroU32};
 
 use wgpu::BindGroupEntry;
 
-use crate::{detector::config::QuadDecimateMode, wgpu::util::{ProgramBuilder, GpuImageLike}, DetectorConfig, DetectorBuildError, util::image::Luma};
+use crate::{DetectorBuildError, DetectorConfig, dbg::debugln, detector::config::QuadDecimateMode, util::image::Luma, wgpu::util::{GpuImageLike, ProgramBuilder}};
 
 use super::{util::{ComputePipelineDescriptor, DataStore, GpuStage, GpuTextureY8, DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT}, GpuContext, GpuStageContext, WgpuDetectError};
 
@@ -234,8 +234,7 @@ impl GpuStage for GpuQuadDecimate {
 		
 				let wg_x = swidth.div_ceil(local_width) as u32;
 				let wg_y = sheight.div_ceil(local_height) as u32;
-				#[cfg(feature="extra_debug")]
-				println!("Dispatch local=({local_width}, {local_height}) wg=({wg_x}, {wg_y}) global=({swidth}, {sheight})");
+				debugln!("Dispatch local=({local_width}, {local_height}) wg=({wg_x}, {wg_y}) global=({swidth}, {sheight})");
 				ctx.cpass.dispatch_workgroups(wg_x, wg_y, 1);
 
 				(dst, local_width, local_height)

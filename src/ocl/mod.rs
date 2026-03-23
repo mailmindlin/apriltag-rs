@@ -148,12 +148,11 @@ fn find_device(mode: &AccelerationRequest) -> Result<(OclPlatform, OclDevice), D
 			continue;
 		}
 		let device = devs[idx % devs.len()];
-		#[cfg(feature="extra_debug")]
-		{
-			println!("OpenCL version: {:?}", device.version());
-			println!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
-			println!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
-			println!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
+		if debug_enabled() {
+			debugln!("OpenCL version: {:?}", device.version());
+			debugln!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
+			debugln!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
+			debugln!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
 		}
 		if let Ok(true) = device.is_available() {
 			return Ok((platform, device));

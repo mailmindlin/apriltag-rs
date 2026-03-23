@@ -5,7 +5,7 @@ mod sharpening;
 
 use std::sync::{Mutex, Arc};
 
-use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, image::{ImageBuffer, ImageY8, ImageRefY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
+use crate::{AprilTagDetection, dbg::debugln, detector::DetectorConfig, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, util::{geom::{Point2D, quad::Quadrilateral}, image::{ImageBuffer, ImageRefY8, ImageY8}, math::{Vec2, Vec2Builder, mat::Mat33}}};
 
 use greymodel::Graymodel;
 use homography::homography_project;
@@ -345,15 +345,13 @@ impl Quad {
 
         // XXX Tunable
         if (whitemodel.interpolate(Vec2::zero()) - blackmodel.interpolate(Vec2::zero()) < 0.) != qd.family.reversed_border {
-            #[cfg(feature="extra_debug")]
-            println!("Quad_decode: bad border");
+            debugln!("Quad_decode: bad border");
             return None;
         }
 
         let (rcode, score) = Self::decision_margin(H, &qd.family, info.det_params.decode_sharpening, info.im_orig, whitemodel, blackmodel, im_samples);
 
-        #[cfg(feature="extra_debug")]
-        println!(" R quad_decode: codeword={rcode}");
+        debugln!(" R quad_decode: codeword={rcode}");
         let entry = qd.decode_codeword(rcode)?;
 
         Some((score, entry))

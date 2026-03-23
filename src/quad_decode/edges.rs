@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use arrayvec::ArrayVec;
 
-use crate::{detector::DetectorConfig, util::{math::{Vec2, Vec2Builder, FMA}, geom::Point2D, image::{ImageDimensions, ImageRefY8}}};
+use crate::{dbg::debugln, detector::DetectorConfig, util::{geom::Point2D, image::{ImageDimensions, ImageRefY8}, math::{FMA, Vec2, Vec2Builder}}};
 
 use super::Quad;
 
@@ -239,8 +239,7 @@ impl Quad {
                 self.corners[(i + 1) % 4] = Point2D::from_vec(lineA_E + &(Vec2::of(A00, A10) * L0));
             } else {
                 // this is a bad sign. We'll just keep the corner we had.
-                #[cfg(feature="extra_debug")]
-                eprintln!("bad det {i}: {A00:15} {A11:15} {A10:15} {A01:15} {det}");
+                debugln!("bad det {i}: {A00:15} {A11:15} {A10:15} {A01:15} {det}");
             }
         }
 
