@@ -26,11 +26,13 @@ use ocl::{
 };
 use rayon::Scope;
 
-use crate::dbg::debug_images;
+use crate::dbg::{debug_enabled, debugln};
+#[cfg(feature="debug")]
+use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 use crate::detector::config::AccelerationRequest;
 use crate::ocl::stage2::OclQuadSigma;
 use crate::ocl::stage4::WrappedUnionFind;
-use crate::quad_thresh::{gradient_clusters, Clusters, debug_unionfind};
+use crate::quad_thresh::{gradient_clusters, Clusters};
 use crate::quad_thresh::threshold::{self};
 use crate::quad_thresh::unionfind::UnionFind2D;
 use crate::util::image::{ImageWritePNM, ImageRefY8};
@@ -53,6 +55,8 @@ const PROG_UNIONFIND: &str = include_str!("./04_unionfind_simple.cl");
 pub(crate) enum OclBuildError {
 	#[error("OpenCL disabled")]
 	Disabled,
+	#[error("{0}")]
+	Other(String),
 	#[error("OpenCL inner error: {0:?}")]
 	Inner(#[from] OclError),
 	#[error("OpenCL core error: {0:?}")]
@@ -186,6 +190,7 @@ impl OpenCLDetector {
 			.map(|v| format!("{v}"))
 			.unwrap_or_default();
 		super::detector::GpuDeviceInfo {
+			accelerator: "opencl".into(),
 			backend: "OpenCL".into(),
 			name,
 			device_type: version,
@@ -205,13 +210,13 @@ impl OpenCLDetector {
 		let (queue_write, queue_kernel, queue_init, queue_read_debug) = {
 			let available_props = match device.info(ocl::enums::DeviceInfo::QueueProperties) {
 				Ok(DeviceInfoResult::QueueProperties(props)) => props,
-				Ok(_) => return Err(DetectorBuildError::OpenCLError("Unable to get queue props".into())),
-				Err(e) => return Err(DetectorBuildError::OpenCLError(e)),
+				Ok(_) => return Err(DetectorBuildError::OpenCLError(OclBuildError::Other("Unable to get queue props".to_string()))),
+				Err(e) => return Err(DetectorBuildError::OpenCLError(e.into())),
 			};
 			
 			let props = CommandQueueProperties::new();
-			#[cfg(feature="debug")]
-			let props = if !config.debug {
+			#[cfg(any(feature="debug", feature="bench"))]
+			let props = if !(config.debug || cfg!(feature="bench")) {
 				props
 			} else if !available_props.contains(CommandQueueProperties::PROFILING_ENABLE) {
 				eprintln!("OpenCL: Profiling unavailable");
@@ -332,7 +337,7 @@ impl OpenCLDetector {
 		host_img.write_pnm(file)
 	}
 
-	fn make_kernels(&self, config: &DetectorConfig, tp: &mut TimeProfile, img_src: &OclImageState) -> Result<Kernels, DetectError> {
+	fn make_kernels(&self, config: &DetectorConfig, tp: &mut TimeProfile, img_src: &OclImageState) -> Result<Kernels<'_>, DetectError> {
 		// Build kernels (relatively slow)
 		let mut kernel_quad_decimate = None;
 		let mut kernel_quad_sigma = None;
@@ -483,7 +488,7 @@ impl OpenCLDetector {
 		})
 	}
 
-	pub(crate) fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
+	pub(crate) fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters, Option<TimeProfile>), DetectError> {
 		// Upload source image (TODO: async?)
 		let img_src = {
 			let img_src = self.core.upload_image(self.download_src, tp, image)
@@ -689,39 +694,47 @@ impl OpenCLDetector {
 		// let threshim = self.download_image(th_buf).unwrap();
 		tp.stamp("Download threshim");
 
-		#[cfg(feature="debug")]
-		if config.debug {
-			let mut tp_gpu = TimeProfile::default();
-			let t0 = Instant::now();
-			let get_time = |event: &OclEvent, info: ProfilingInfo| -> Instant {
-				let time = event.profiling_info(info).unwrap().time().unwrap();
-				t0.checked_add(Duration::from_nanos(time*1000)).unwrap()
-			};
-			
-			tp_gpu.set_start(get_time(qd_buf.event.as_ref().unwrap(), ProfilingInfo::Queued));
-			let mut record_evt = |name, evt| {
-				tp_gpu.stamp_at(format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
-				tp_gpu.stamp_at(format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
-				tp_gpu.stamp_at(format!("{name} start"), get_time(evt, ProfilingInfo::Start));
-				tp_gpu.stamp_at(format!("{name} end"), get_time(evt, ProfilingInfo::End));
-			};
-			if self.quad_decimate.is_some() {
-				record_evt("qd", qd_buf.event().unwrap());
+		let gpu_tp = {
+			#[cfg(any(feature="debug", feature="bench"))]
+			{
+				if config.debug || cfg!(feature="bench") {
+					let mut tp_gpu = TimeProfile::default();
+					let t0 = Instant::now();
+					let get_time = |event: &OclEvent, info: ProfilingInfo| -> Instant {
+						let time = event.profiling_info(info).unwrap().time().unwrap();
+						t0.checked_add(Duration::from_nanos(time*1000)).unwrap()
+					};
+
+					tp_gpu.set_start(get_time(qd_buf.event.as_ref().unwrap(), ProfilingInfo::Queued));
+					let mut record_evt = |name, evt| {
+						tp_gpu.stamp_at(format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
+						tp_gpu.stamp_at(format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
+						tp_gpu.stamp_at(format!("{name} start"), get_time(evt, ProfilingInfo::Start));
+						tp_gpu.stamp_at(format!("{name} end"), get_time(evt, ProfilingInfo::End));
+					};
+					if self.quad_decimate.is_some() {
+						record_evt("qd", qd_buf.event().unwrap());
+					}
+					if self.quad_sigma.is_some() {
+						record_evt("qs", qs_buf.event().unwrap());
+					}
+					record_evt("tm", tm_buf.event().unwrap());
+					record_evt("tb", tb_buf.event().unwrap());
+					record_evt("th", th_buf.event().unwrap());
+					record_evt("ufi", uf0_buf.event().unwrap());
+					record_evt("cc", uf1_buf.event().unwrap());
+					record_evt("uf", uf_buf.event().unwrap());
+					Some(tp_gpu)
+				} else {
+					None
+				}
 			}
-			if self.quad_sigma.is_some() {
-				record_evt("qs", qs_buf.event().unwrap());
-			}
-			record_evt("tm", tm_buf.event().unwrap());
-			record_evt("tb", tb_buf.event().unwrap());
-			record_evt("th", th_buf.event().unwrap());
-			record_evt("ufi", uf0_buf.event().unwrap());
-			record_evt("cc", uf1_buf.event().unwrap());
-			record_evt("uf", uf_buf.event().unwrap());
-			println!("{tp_gpu}");
-		}
+			#[cfg(not(any(feature="debug", feature="bench")))]
+			{ None }
+		};
 
 		let quad_im = quad_im.expect("Unable to download quad_im");
 
-		Ok((quad_im, clusters))
+		Ok((quad_im, clusters, gpu_tp))
 	}
 }
