@@ -43,7 +43,8 @@ pub(crate) struct GpuContext {
 	pub(in super::super) device: wgpu::Device,
 	queue: wgpu::Queue,
 	// === GPU info ===
-	/// Can 
+	/// Adapter info (backend, name, vendor, etc.)
+	pub(crate) adapter_info: wgpu::AdapterInfo,
 	/// Can map primary buffers
 	mappable_primary: bool,
 	/// Maximum allowed size for 2d texture
@@ -63,7 +64,8 @@ impl GpuContext {
 	/// Attaches to a device
 	pub(super) async fn new(config: &DetectorConfig) -> Result<Self, WgpuBuildError> {
 		let adapter = select_adapter(config).await?;
-		log::info!("Selected wgpu adapter: {:?}", adapter.get_info());
+		let adapter_info = adapter.get_info();
+		log::info!("Selected wgpu adapter: {:?}", adapter_info);
 
 		let (device, queue) = request_device(adapter, config).await?;
 
@@ -76,6 +78,7 @@ impl GpuContext {
 		Ok(Self {
 			device,
 			queue,
+			adapter_info,
 			mappable_primary,
 			max_texture_dimension_2d: dev_limits.max_texture_dimension_2d,
 			max_compute_workgroup_size_x: dev_limits.max_compute_workgroup_size_x,
@@ -83,6 +86,26 @@ impl GpuContext {
 			max_compute_invocations_per_workgroup: dev_limits.max_compute_invocations_per_workgroup,
 			max_compute_workgroups_per_dimension: dev_limits.max_compute_workgroups_per_dimension,
 		})
+	}
+
+	/// Validate that a workgroup size is within device limits.
+	/// Call this at pipeline build time so we fail early and can fall back
+	/// to CPU rather than getting a silent GPU error at dispatch time.
+	pub(super) fn check_workgroup_dims(&self, (wg_x, wg_y): (u32, u32)) -> Result<(), WgpuBuildError> {
+		if wg_x > self.max_compute_workgroup_size_x
+			|| wg_y > self.max_compute_workgroup_size_y
+			|| wg_x * wg_y > self.max_compute_invocations_per_workgroup
+		{
+			return Err(WgpuBuildError::WorkgroupTooLarge {
+				actual_x: wg_x,
+				actual_y: wg_y,
+				total: wg_x * wg_y,
+				limit_x: self.max_compute_workgroup_size_x,
+				limit_y: self.max_compute_workgroup_size_y,
+				max_invocations: self.max_compute_invocations_per_workgroup,
+			});
+		}
+		Ok(())
 	}
 
 	pub(super) fn check_texture_dims(&self, width: usize, height: usize) -> Result<(), ImageDimensionError> {
