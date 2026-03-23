@@ -16,7 +16,7 @@ pub(crate) trait GpuBuffer {
     fn buffer(&self) -> &wgpu::Buffer;
     
     /// Return the binding view of the entire buffer.
-    fn as_binding(&self) -> wgpu::BindingResource {
+    fn as_binding(&self) -> wgpu::BindingResource<'_> {
         self.buffer().as_entire_binding()
     }
 }

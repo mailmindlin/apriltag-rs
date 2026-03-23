@@ -17,6 +17,7 @@ pub enum WgpuBuildError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum WgpuDetectError {
+	#[expect(private_interfaces)]
 	#[error("Unable to map buffer")]
 	BufferMap(#[from] GpuBufferFetchError),
 }

@@ -86,7 +86,7 @@ impl GpuTimestampInner {
 			Some(first) => *first,
 		};
 
-		for (name, item) in self.names.iter().zip(res.into_iter()) {
+		for (name, item) in self.names.iter().zip(res) {
 			let offset_ticks = item - gpu_t0;
 			let offset_nanos = (offset_ticks as f32) * period;
 			let tN = t0 + Duration::from_nanos(offset_nanos as u64);

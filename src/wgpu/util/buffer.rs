@@ -113,7 +113,7 @@ impl<E> GpuBuffer2<E> {
             pixel: PhantomData,
         }
     }
-    pub(super) fn as_image_copy(&self) -> wgpu::TexelCopyBufferInfo {
+    pub(super) fn as_image_copy(&self) -> wgpu::TexelCopyBufferInfo<'_> {
         let size_elem = std::mem::size_of::<E>();
         wgpu::TexelCopyBufferInfo {
             buffer: self.buffer(),

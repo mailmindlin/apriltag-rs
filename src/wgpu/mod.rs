@@ -390,7 +390,7 @@ impl Preprocessor for WGPUDetector {
 					}
 					index = parent;
 				}
-				return (index, 0);
+				(index, 0)
 			}
 
 			fn get_set_hops(&self, mut index: u32) -> usize {
