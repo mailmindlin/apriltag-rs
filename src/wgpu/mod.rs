@@ -221,7 +221,7 @@ impl Preprocessor for WGPUDetector {
 
 		// Upload source image to GPU
 		let gpu_src = self.upload_texture(downloads.download_src, &image.as_ref())
-			.map_err(|e| DetectError::BadSourceImageDimensions(e))?;
+			.map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
 		#[cfg(all(debug_assertions, feature="extra_debug"))]
@@ -267,7 +267,7 @@ impl Preprocessor for WGPUDetector {
 		let mut debug = DebugImageGenerator::new(config.generate_debug_image());
 
 		let gpu_src = self.upload_texture(downloads.download_src, &image.as_ref())
-			.map_err(|e| DetectError::BadSourceImageDimensions(e))?;
+			.map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
 		#[cfg(all(debug_assertions, feature="extra_debug"))]
