@@ -44,6 +44,7 @@ pub(crate) struct GpuContext {
 	queue: wgpu::Queue,
 	// === GPU info ===
 	/// Can 
+	/// Can map primary buffers
 	mappable_primary: bool,
 	/// Maximum allowed size for 2d texture
 	max_texture_dimension_2d: u32,
@@ -276,11 +277,33 @@ impl GpuContext {
 	}
 }
 
+/// A single GPU compute stage in the detection pipeline.
+///
+/// # Buffer alignment strategy
+///
+/// GPU shaders often read pixel data as packed `u32` words (4 bytes at a time)
+/// for efficiency. This means each buffer row's stride must be aligned to the
+/// shader's read granularity. Different stages may have different alignment
+/// requirements (e.g., a decimation stage with factor=3 needs stride divisible
+/// by 3×sizeof(u32)).
+///
+/// When stages are chained, the *output* buffer of stage N becomes the *input*
+/// of stage N+1. The output stride must therefore satisfy both:
+///   1. The producing stage's own write alignment, and
+///   2. The consuming stage's `src_alignment()`.
+///
+/// `GpuStageContext` resolves this by computing `lcm(next_align, stage_align)`
+/// when allocating output buffers (see `dst_buffer2`). The `next_align` field
+/// is set by the pipeline orchestrator based on the downstream stage's
+/// `src_alignment()`. This ensures every intermediate buffer is compatible
+/// with both the stage that writes it and the stage that reads it, without
+/// any extra copies.
 pub(super) trait GpuStage {
     type Data;
     type Source;
     type Output;
 
+    /// Byte alignment required for this stage's *input* buffer rows.
     fn src_alignment(&self) -> usize;
 
     fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError>;
