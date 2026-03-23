@@ -10,6 +10,8 @@ pub use error::{DetectError, DetectorBuildError, ImageDimensionError};
 /// Information about the GPU device used for hardware acceleration.
 #[derive(Debug, Clone)]
 pub struct GpuDeviceInfo {
+	/// Which apriltag-rs accelerator is in use: "wgpu" or "opencl"
+	pub accelerator: String,
 	/// Backend API (e.g. "Metal", "Vulkan", "OpenCL")
 	pub backend: String,
 	/// Device name (e.g. "Apple M1 Pro")
@@ -26,7 +28,7 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections};
+use crate::{Detections, dbg::{TimeProfile, debugln}, detection::reconcile_detections, quad_decode::QuadDecodeInfo, quad_thresh::{Clusters, gradient_clusters, quads_from_clusters, unionfind::connected_components}, quickdecode::QuickDecode, util::{ImageBuffer, image::{ImageRefY8, ImageWritePNM, ImageY8, Luma, Pixel}, math::{Vec2, Vec2Builder}}};
 #[cfg(feature="debug")]
 use crate::{quad_thresh::debug_unionfind, dbg::debug_images};
 #[cfg(feature="wgpu")]
@@ -34,9 +36,12 @@ use crate::wgpu::WGPUDetector;
 
 use self::config::QuadDecimateMode;
 
+/// Result of GPU-accelerated clustering, including optional GPU-side timing.
+pub(crate) type ClusterResult = (ImageY8, Clusters, Option<TimeProfile>);
+
 pub(crate) trait Preprocessor {
 	fn preprocess(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, ImageY8), DetectError>;
-	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError>;
+	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<ClusterResult, DetectError>;
 }
 
 enum HardwareAccelerator {
@@ -283,7 +288,7 @@ impl AprilTagDetector {
 	/// Preprocess and segment image
 	/// 
 	/// Returns preprocessed image & ccl
-	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
+	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<ClusterResult, DetectError> {
 		match &self.gpu {
 			#[cfg(feature="opencl")]
 			HardwareAccelerator::OpenCL(ocl) => {
@@ -292,7 +297,7 @@ impl AprilTagDetector {
 						return Ok(res);
 					},
 					Err(e) => {
-						if self.params.gpu.is_required() {
+						if self.params.acceleration.is_required() {
 							return Err(e);
 						} else {
 							// Swallow
@@ -304,8 +309,8 @@ impl AprilTagDetector {
 			#[cfg(feature="wgpu")]
 			HardwareAccelerator::WebGPU(wgpu) => {
 				match wgpu.cluster(&self.params, tp, im_orig) {
-					Ok((quad_im, clusters)) => {
-						return Ok((quad_im, clusters));
+					Ok(res) => {
+						return Ok(res);
 					},
 					Err(e) => {
 						if self.params.acceleration.is_required() {
@@ -334,7 +339,9 @@ impl AprilTagDetector {
 
 		let clusters = gradient_clusters(&self.params, &threshim.as_ref(), uf);
 
-		Ok((quad_im, clusters))
+		tp.stamp("gradient_clusters");
+
+		Ok((quad_im, clusters, None))
 	}
 
 	pub fn detect<Container: AsRef<[u8]>>(&self, im: &ImageBuffer<Luma<u8>, Container>) -> Result<Detections, DetectError> {
@@ -369,14 +376,13 @@ impl AprilTagDetector {
 		let mut tp = TimeProfile::default();
 		tp.stamp("init");
 
-		let mut quads = {
-			let (quad_im, clusters) = self.segment_image(&mut tp, im_orig.as_ref())?;
+		let (mut quads, gpu_tp) = {
+			let (quad_im, clusters, gpu_tp) = self.segment_image(&mut tp, im_orig.as_ref())?;
 
-			quads_from_clusters(self, &mut tp, quad_im.as_ref(), clusters)
+			(quads_from_clusters(self, &mut tp, quad_im.as_ref(), clusters), gpu_tp)
 		};
 
-		#[cfg(feature="extra_debug")]
-		println!("Found {} quads", quads.len());
+		debugln!("Found {} quads", quads.len());
 
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
@@ -442,8 +448,7 @@ impl AprilTagDetector {
 				dets
 			};
 
-			#[cfg(feature="extra_debug")]
-			println!("Found {} detections", detections.len());
+			debugln!("Found {} detections", detections.len());
 
 			#[cfg(feature="debug")]
 			if let Some(im_samples) = im_samples {
@@ -503,6 +508,7 @@ impl AprilTagDetector {
 
 		Ok(Detections {
 			tp,
+			gpu_tp,
 			nquads,
 			detections,
 		})
