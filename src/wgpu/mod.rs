@@ -224,7 +224,7 @@ impl Preprocessor for WGPUDetector {
 			.map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
-		#[cfg(all(debug_assertions, feature="extra_debug"))]
+		#[cfg(feature = "wgpu_validate")]
 		{
 			let cpu_src = block_on(gpu_src.download_image(&self.context)).unwrap();
 			assert_eq!(image.as_ref(), cpu_src.as_ref());
@@ -270,7 +270,7 @@ impl Preprocessor for WGPUDetector {
 			.map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
-		#[cfg(all(debug_assertions, feature="extra_debug"))]
+		#[cfg(feature = "wgpu_validate")]
 		{
 			let cpu_src = block_on(gpu_src.download_image(&self.context)).unwrap();
 			assert_eq!(image.as_ref(), cpu_src.as_ref());

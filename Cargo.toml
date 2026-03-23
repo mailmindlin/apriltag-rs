@@ -20,6 +20,7 @@ debug_ps = ["debug"]
 opencl = ["dep:ocl"]
 wgpu = ["dep:wgpu", "dep:bytemuck", "dep:async-trait", "dep:futures"]
 extra_debug = ["debug", "debug_ps"]
+wgpu_validate = ["wgpu"]
 # Compare to apriltag-sys
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 opencv=["dep:opencv"]
