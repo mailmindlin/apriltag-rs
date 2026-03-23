@@ -49,6 +49,13 @@ pub enum DetectError {
 	Acceleration,
 }
 
+#[cfg(feature="opencl")]
+impl From<ocl::Error> for DetectError {
+	fn from(_: ocl::Error) -> Self {
+		Self::Acceleration
+	}
+}
+
 
 /// Error generated when attempting to [build](crate::DetectorBuilder::build) an [AprilTagDetector]
 #[derive(Debug, Error)]
@@ -68,8 +75,9 @@ pub enum DetectorBuildError {
     #[error(transparent)]
 	WGPU(#[from] crate::wgpu::WgpuBuildError),
 	#[cfg(feature="opencl")]
+	#[allow(private_interfaces)]
     #[error(transparent)]
-	OpenCLError(crate::ocl::Error),
+	OpenCLError(#[from] crate::ocl::OclBuildError),
 }
 
 impl PartialEq for DetectorBuildError {
@@ -77,8 +85,8 @@ impl PartialEq for DetectorBuildError {
         match (self, other) {
             (Self::Threadpool(_), Self::Threadpool(_)) => false, // ThreadPoolBuildError is not comparable
             (Self::InvalidSourceDimensions(l0), Self::InvalidSourceDimensions(r0)) => l0 == r0,
-            #[cfg(feature="opencl")]
-            (Self::OpenCLError(l0), Self::OpenCLError(r0)) => l0 == r0,
+            // #[cfg(feature="opencl")]
+            // (Self::OpenCLError(l0), Self::OpenCLError(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -87,6 +95,6 @@ impl PartialEq for DetectorBuildError {
 #[cfg(feature="opencl")]
 impl From<ocl::Error> for DetectorBuildError {
     fn from(value: ocl::Error) -> Self {
-        Self::OpenCLError(value)
+        Self::OpenCLError(crate::ocl::OclBuildError::Inner(value))
     }
 }
