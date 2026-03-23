@@ -12,7 +12,7 @@ use super::{async_buffer::read_mappable_buffer, buffer_traits::{GpuAwaitable, Gp
 pub(crate) struct GpuBuffer1<E> {
     /// GPU buffer handle
     pub(super) buffer: wgpu::Buffer,
-    pub(super) index: Option<SubmissionIndex>,
+    pub(crate) index: Option<SubmissionIndex>,
     /// Number of elements
     len: usize,
     pixel: PhantomData<E>,
