@@ -120,7 +120,7 @@ impl AprilTagDetection {
 
 		// at this point, we should only be undecided if the tag detections
 		// are *exactly* the same. How would that happen?
-		println!("uh oh, no preference for overlappingdetection");
+		log::warn!("uh oh, no preference for overlappingdetection");
 
 		Ordering::Equal
 	}
@@ -131,6 +131,9 @@ pub struct Detections {
 	pub detections: Vec<AprilTagDetection>,
 	pub nquads: u32,
 	pub tp: TimeProfile,
+	/// GPU-side timing profile, if hardware acceleration was used and
+	/// the device supports timestamp queries.
+	pub gpu_tp: Option<TimeProfile>,
 }
 
 fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> Vec<T> {
