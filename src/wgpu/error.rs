@@ -23,8 +23,8 @@ pub enum WgpuDetectError {
 }
 
 impl From<WgpuDetectError> for DetectError {
-    fn from(value: WgpuDetectError) -> Self {
-        todo!()
+    fn from(_: WgpuDetectError) -> Self {
+        Self::Acceleration
     }
 }
 
