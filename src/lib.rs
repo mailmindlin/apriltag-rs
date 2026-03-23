@@ -21,7 +21,8 @@ mod ocl;
 mod wgpu;
 
 // Core detection
-pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig, AccelerationRequest};
+pub use detector::{AprilTagDetector, DetectorBuilder, DetectorBuildError, DetectError, DetectorConfig, AccelerationRequest, GpuDeviceInfo};
+pub use detector::config::SourceDimensions;
 pub use detection::{AprilTagDetection, Detections};
 pub use quad_thresh::AprilTagQuadThreshParams;
 
