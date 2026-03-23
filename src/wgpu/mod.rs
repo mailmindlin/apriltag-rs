@@ -306,7 +306,7 @@ impl Preprocessor for WGPUDetector {
 		#[cfg(feature="debug")]
 		debug.write_debug_images(&self.context, config);
 
-		async fn download_results(context: &GpuContext, gpu_quad: GpuTextureY8, gpu_threshim: GpuTextureY8, gpu_uf: GpuBuffer1<u32>, queries: GpuTimestampQueries) -> Result<(ImageY8, ImageY8, Box<[u32]>), WgpuDetectError> {
+		async fn download_results(context: &GpuContext, gpu_quad: GpuTextureY8, gpu_threshim: GpuTextureY8, gpu_uf: GpuBuffer1<u32>, queries: GpuTimestampQueries) -> Result<(ImageY8, ImageY8, Box<[u32]>, Option<TimeProfile>), WgpuDetectError> {
 			let fut_quad = gpu_quad.download_image(context);
 			let fut_threshim = gpu_threshim.download_image(context);
 			let fut_uf = gpu_uf.fetch_buffer(context);
@@ -321,12 +321,10 @@ impl Preprocessor for WGPUDetector {
 				fut_uf,
 				queries.wait_for_results(context),
 			).await;
-			if let Some(tp) = queries_tp? {
-				println!("GPU TP: {tp}");
-			}
-			Ok((res_quad?, res_threshim?, res_uf?))
+			let gpu_tp = queries_tp?;
+			Ok((res_quad?, res_threshim?, res_uf?, gpu_tp))
 		}
-		let (quad_im, threshim, unionfind) = block_on(download_results(&self.context, gpu_quad, gpu_threshim, gpu_uf, queries))?;
+		let (quad_im, threshim, unionfind, gpu_tp) = block_on(download_results(&self.context, gpu_quad, gpu_threshim, gpu_uf, queries))?;
 		tp.stamp("GPU fetch results");
 		
 		println!("Uf width: {}", uf_dims.width);
@@ -413,6 +411,6 @@ impl Preprocessor for WGPUDetector {
 		#[cfg(feature="debug")]
 		debug_unionfind(config, tp, &uf_dims, &uf2);
 		let clusters = gradient_clusters(config, &threshim.as_ref(), uf2);
-		Ok((quad_im, clusters))
+		Ok((quad_im, clusters, gpu_tp))
 	}
 }
