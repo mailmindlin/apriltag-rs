@@ -13,6 +13,15 @@ pub enum WgpuBuildError {
 	CantRequestDevice(#[from] #[source] RequestDeviceError),
 	#[error("Runtime error")]
 	RuntimeError(#[source] wgpu::Error),
+	#[error("Workgroup size ({actual_x}×{actual_y}={total}) exceeds device limit ({limit_x}×{limit_y}, max {max_invocations} invocations)")]
+	WorkgroupTooLarge {
+		actual_x: u32,
+		actual_y: u32,
+		total: u32,
+		limit_x: u32,
+		limit_y: u32,
+		max_invocations: u32,
+	},
 }
 
 #[derive(Debug, thiserror::Error)]

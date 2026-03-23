@@ -5,13 +5,7 @@ use wgpu::{BindGroupEntry, PipelineLayoutDescriptor};
 
 use crate::{DetectorBuildError, DetectorConfig};
 
-use super::{util::{buffer_traits::GpuBuffer, ComputePipelineDescriptor, DataStore, GpuBuffer1, GpuImageLike, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
-
-const WG_WIDTH: usize = 16;
-const WG_HEIGHT: usize = 16;
-
-const WARP_SIZE: u32 = 32;
-const BLOCK_H: u32 = 4;
+use super::{util::{buffer_traits::GpuBuffer, ComputePipelineDescriptor, DataStore, GpuBuffer1, GpuImageLike, GpuTextureY8, ProgramBuilder, BKE_WG_WIDTH, BKE_WG_HEIGHT, BKE_WARP_SIZE, BKE_BLOCK_H}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
 pub(super) struct GpuBke {
 	args_bgl: wgpu::BindGroupLayout,
@@ -146,8 +140,8 @@ impl GpuBke {
 			let cs_ha4 = {
 				let mut prog = ProgramBuilder::new("04f_ha4.wgsl");
 				prog.append(HEADER_BKE);
-				prog.set_u32("BLOCK_H", BLOCK_H);
-				prog.set_u32("WARP_SIZE", WARP_SIZE);
+				prog.set_u32("BLOCK_H", BKE_BLOCK_H);
+				prog.set_u32("WARP_SIZE", BKE_WARP_SIZE);
 				prog.append(include_str!("./shader/04f_ha4.wgsl"));
 				prog.build(&context.device).await?
 			};
@@ -215,11 +209,11 @@ impl GpuBke {
 		// Compute grid 
 		let grid_x: u32 = src.width()
 			.div_ceil(2) // Number of 2x2 blocks
-			.div_ceil(WG_WIDTH) // Number of workgroups over 2x2 blocks
+			.div_ceil(BKE_WG_WIDTH) // Number of workgroups over 2x2 blocks
 			.try_into().unwrap();
 		let grid_y: u32 = src.height()
 			.div_ceil(2) // Number of 2x2 blocks
-			.div_ceil(WG_HEIGHT) // Number of workgroups over 2x2 blocks
+			.div_ceil(BKE_WG_HEIGHT) // Number of workgroups over 2x2 blocks
 			.try_into().unwrap();
 		
 		ctx.cpass.set_pipeline(&self.cp_bke_init);
@@ -255,26 +249,26 @@ impl GpuBke {
 			// StripLabel
 			let grid_x = 1;
 			let grid_y = src.height()
-				.div_ceil(BLOCK_H as usize) as u32;
+				.div_ceil(BKE_BLOCK_H as usize) as u32;
 			ctx.cpass.set_pipeline(&self.cp_ha4_strip_label);
 			ctx.cpass.dispatch_workgroups(grid_x, grid_y, 1);
 		}
 
 		if true {
 			let grid_x = src.width()
-				.div_ceil(WARP_SIZE as usize) as u32;
+				.div_ceil(BKE_WARP_SIZE as usize) as u32;
 			let grid_y = src.height()
-				.div_ceil(BLOCK_H as usize)
-				.div_ceil(BLOCK_H as usize) as u32;
+				.div_ceil(BKE_BLOCK_H as usize)
+				.div_ceil(BKE_BLOCK_H as usize) as u32;
 			ctx.cpass.set_pipeline(&self.cp_ha4_strip_merge);
 			ctx.cpass.dispatch_workgroups(grid_x, grid_y, 1);
 		}
 
 		if true {
 			let grid_x = src.width()
-				.div_ceil(WARP_SIZE as usize) as u32;
+				.div_ceil(BKE_WARP_SIZE as usize) as u32;
 			let grid_y = src.height()
-				.div_ceil(BLOCK_H as usize) as u32;
+				.div_ceil(BKE_BLOCK_H as usize) as u32;
 			ctx.cpass.set_pipeline(&self.cp_ha4_relabeling);
 			ctx.cpass.dispatch_workgroups(grid_x, grid_y, 1);
 		}

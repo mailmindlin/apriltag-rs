@@ -9,6 +9,23 @@ pub(super) mod dev_select;
 
 use std::mem::size_of;
 
+// ── Shared workgroup constants ──────────────────────────────────────────
+// These are the default local workgroup dimensions used across pipeline stages.
+// Each stage's shaders must be compiled with matching values via ProgramBuilder.
+
+/// Default workgroup width for 1D-style row processing (stages 1, 2).
+pub(super) const DEFAULT_WG_WIDTH: u32 = 64;
+/// Default workgroup height for 1D-style row processing (stages 1, 2).
+pub(super) const DEFAULT_WG_HEIGHT: u32 = 1;
+
+/// Workgroup dimensions for BKE connected-component labeling (stage 4).
+pub(super) const BKE_WG_WIDTH: usize = 16;
+pub(super) const BKE_WG_HEIGHT: usize = 16;
+/// Warp size assumed by HA4 strip kernels (stage 4).
+pub(super) const BKE_WARP_SIZE: u32 = 32;
+/// Block height for HA4 strip labeling (stage 4).
+pub(super) const BKE_BLOCK_H: u32 = 4;
+
 use wgpu::{util::{BufferInitDescriptor, DeviceExt}, BufferDescriptor, BufferUsages, CommandBuffer, DeviceLostReason, SubmissionIndex, TextureDescriptor, TextureUsages};
 
 use crate::{detector::ImageDimensionError, util::image::{ImageDimensions, ImageRefY8}, wgpu::{error::WgpuBuildError, util::dev_select::select_adapter}, DetectorConfig};

@@ -4,7 +4,7 @@ use wgpu::BindGroupEntry;
 
 use crate::{detector::config::QuadDecimateMode, wgpu::util::{ProgramBuilder, GpuImageLike}, DetectorConfig, DetectorBuildError, util::image::Luma};
 
-use super::{util::{ComputePipelineDescriptor, DataStore, GpuStage, GpuTextureY8}, GpuContext, GpuStageContext, WgpuDetectError};
+use super::{util::{ComputePipelineDescriptor, DataStore, GpuStage, GpuTextureY8, DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT}, GpuContext, GpuStageContext, WgpuDetectError};
 
 const PROG_QUAD_DECIMATE_32: &str = include_str!("./shader/01_quad_decimate_img_32.wgsl");
 const PROG_QUAD_DECIMATE_F: &str = include_str!("./shader/01_quad_decimate_img_f.wgsl");
@@ -38,7 +38,8 @@ impl GpuQuadDecimate {
 			return Err(DetectorBuildError::InvalidSourceDimensions(e));
 		}
 
-		let local_dims = (64, 1);
+		let local_dims: (u32, u32) = (DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT);
+		context.check_workgroup_dims(local_dims)?;
 		let cs_module = {
 			let mut builder = ProgramBuilder::new("01_quad_decimate");
 			builder.set_u32("wg_width", local_dims.0);
@@ -96,7 +97,8 @@ impl GpuQuadDecimate {
 	}
 
 	pub(super) async fn new_factor(context: &GpuContext, factor: NonZeroU32) -> Result<Self, DetectorBuildError> {
-		let local_dims = (64, 1);
+		let local_dims = (DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT);
+		context.check_workgroup_dims(local_dims)?;
 		let cs_module = {
 			let mut builder = ProgramBuilder::new("01_quad_decimate");
 			builder.set_u32("wg_width", local_dims.0);

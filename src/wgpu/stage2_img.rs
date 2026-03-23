@@ -4,7 +4,7 @@ use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
 use crate::{detector::quad_sigma_kernel, wgpu::util::GpuImageLike, DetectorBuildError};
 
-use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
+use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder, DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
 const PROG_QUAD_SIGMA: &str = include_str!("./shader/02_quad_sigma_img.wgsl");
 
@@ -17,7 +17,8 @@ pub(super) struct GpuQuadSigma {
 
 impl GpuQuadSigma {
 	pub async fn new(context: &GpuContext, quad_sigma: f32) -> Result<Option<Self>, DetectorBuildError> {
-		let local_dims = (64, 1);
+		let local_dims = (DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT);
+		context.check_workgroup_dims(local_dims)?;
 		let filter_buf = {
 			let kernel_u8 = match quad_sigma_kernel(quad_sigma) {
 				Some(kernel) => kernel,
