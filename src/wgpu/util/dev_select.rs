@@ -4,18 +4,18 @@ use crate::{detector::ImageDimensionError, wgpu::WgpuBuildError, DetectorConfig}
 
 #[derive(Clone, Debug)]
 pub enum InvalidAdapterReason {
-	/// Compute shaders aren't supported
-	NoComputeShaders,
-	MissingTextureFeature(TextureFormat, TextureUsages),
-	TextureSize(ImageDimensionError),
-	RequestMismatch,
+    /// Compute shaders aren't supported
+    NoComputeShaders,
+    MissingTextureFeature(TextureFormat, TextureUsages),
+    TextureSize(ImageDimensionError),
+    RequestMismatch,
 }
 
 #[derive(Clone, Debug)]
 pub struct InvalidAdapterError {
-	pub adapter_backend: &'static str,
-	pub adapter_name: String,
-	pub reason: InvalidAdapterReason,
+    pub adapter_backend: &'static str,
+    pub adapter_name: String,
+    pub reason: InvalidAdapterReason,
 }
 
 /// Evaluate each adapter, eather returning a weight (higher weight wins) or a reason why it can't be selected
@@ -216,8 +216,10 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         let mut request_features = Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         
         // Debug features
-        if config.debug() || true {
+        if config.debug() || cfg!(feature="bench") {
+            // request_features |= Features::TIMESTAMP_QUERY | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | Features::PIPELINE_STATISTICS_QUERY;
             request_features |= Features::TIMESTAMP_QUERY | Features::PIPELINE_STATISTICS_QUERY;
+            request_features |= Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         }
 
         // Enable MAPPABLE_PRIMARY_BUFFERS for iGPUs
@@ -232,19 +234,19 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
 
     let required_limits = {
         let wgpu::Limits {
-			// TODO: reject if requested image is too big
-			max_texture_dimension_2d,
-			max_compute_workgroup_storage_size,
-			max_compute_invocations_per_workgroup,
-			max_compute_workgroup_size_x,
-			max_compute_workgroup_size_y,
-			max_compute_workgroups_per_dimension,
-			..
-		} = adapter.limits();
+            // TODO: reject if requested image is too big
+            max_texture_dimension_2d,
+            max_compute_workgroup_storage_size,
+            max_compute_invocations_per_workgroup,
+            max_compute_workgroup_size_x,
+            max_compute_workgroup_size_y,
+            max_compute_workgroups_per_dimension,
+            ..
+        } = adapter.limits();
         wgpu::Limits {
-			max_bind_groups: 2,
+            max_bind_groups: 2,
             max_bindings_per_bind_group: 4,
-			// Copied from adapter limits
+            // Copied from adapter limits
             max_texture_dimension_2d,
             max_compute_workgroup_storage_size,
             max_compute_invocations_per_workgroup,
@@ -262,9 +264,9 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
                 label: Some("AprilTag WebGPU"),
                 required_features,
                 required_limits,
-				trace: wgpu::Trace::Off,
-				memory_hints: wgpu::MemoryHints::Performance,
-				experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
+                memory_hints: wgpu::MemoryHints::Performance,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
             },
         )
         .await?;
