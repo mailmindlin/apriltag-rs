@@ -211,9 +211,7 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
 }
 
 pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConfig) -> Result<(wgpu::Device, wgpu::Queue), WgpuBuildError> {
-    // println!("Adapter limits: {:?}", adapter.limits());
-	
-    let features = {
+    let required_features = {
         use wgpu::Features;
         let mut request_features = Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         
@@ -232,18 +230,28 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         adapter.features().intersection(request_features)
     };
 
-    let limits = {
-        let adapter_limits = adapter.limits();
+    let required_limits = {
+        let wgpu::Limits {
+			// TODO: reject if requested image is too big
+			max_texture_dimension_2d,
+			max_compute_workgroup_storage_size,
+			max_compute_invocations_per_workgroup,
+			max_compute_workgroup_size_x,
+			max_compute_workgroup_size_y,
+			max_compute_workgroups_per_dimension,
+			..
+		} = adapter.limits();
         wgpu::Limits {
-            max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
-            max_bind_groups: 2,
+			max_bind_groups: 2,
             max_bindings_per_bind_group: 4,
-            max_compute_workgroup_storage_size: adapter_limits.max_compute_invocations_per_workgroup,
-            max_compute_invocations_per_workgroup: adapter_limits.max_compute_invocations_per_workgroup,
-            max_compute_workgroup_size_x: adapter_limits.max_compute_workgroup_size_x,
-            max_compute_workgroup_size_y: adapter_limits.max_compute_workgroup_size_y,
+			// Copied from adapter limits
+            max_texture_dimension_2d,
+            max_compute_workgroup_storage_size,
+            max_compute_invocations_per_workgroup,
+            max_compute_workgroup_size_x,
+            max_compute_workgroup_size_y,
             max_compute_workgroup_size_z: 1,
-            max_compute_workgroups_per_dimension: adapter_limits.max_compute_workgroups_per_dimension,
+            max_compute_workgroups_per_dimension,
             ..wgpu::Limits::downlevel_defaults()
         }
     };
@@ -252,8 +260,8 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("AprilTag WebGPU"),
-                required_features: features,
-                required_limits: limits,
+                required_features,
+                required_limits,
 				trace: wgpu::Trace::Off,
 				memory_hints: wgpu::MemoryHints::Performance,
 				experimental_features: wgpu::ExperimentalFeatures::disabled(),
