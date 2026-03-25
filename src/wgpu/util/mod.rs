@@ -217,7 +217,7 @@ impl GpuContext {
 
 		let tex = self.device.create_texture(&wgpu::TextureDescriptor {
 			label: None,
-			size: size.clone(),
+			size,
 			mip_level_count: 1,
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
@@ -335,7 +335,7 @@ pub(super) trait GpuStage {
 pub(super) struct DataStore<T>(Option<T>);
 
 impl<T> DataStore<T> {
-    pub(super) fn store<'a>(&'a mut self, value: T) -> &'a T {
+    pub(super) fn store(&mut self, value: T) -> &T {
         self.0 = Some(value);
         self.0.as_ref().unwrap()
     }

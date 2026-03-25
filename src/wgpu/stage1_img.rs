@@ -182,7 +182,7 @@ impl GpuStage for GpuQuadDecimate {
 
 				let args_bg = ctx.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
 					label: Some("quad_decimate->args_bg"),
-					layout: &args_bgl,
+					layout: args_bgl,
 					entries: &[
 						BindGroupEntry {
 							binding: 0,

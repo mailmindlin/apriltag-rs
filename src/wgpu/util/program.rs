@@ -36,7 +36,7 @@ impl ProgramBuilder {
             self.text += text;
         } else {
             // Apply substitutions
-            let mut remaining = &text[..];
+            let mut remaining = text;
             while let Some(idx) = remaining.find("$") {
                 let pfx = &remaining[..idx];
                 self.text += pfx;
@@ -103,22 +103,21 @@ impl<'a> ShaderModule<'a> {
     #[deprecated]
     pub(crate) fn create_compute_pipeline_<'b>(&self, descriptor: &ComputePipelineDescriptor<'b>) -> wgpu::ComputePipeline {
 		let constants: Vec<_> = self.constants.iter()
-			.map(|(k, v)| (&*k as &str, *v))
+			.map(|(k, v)| (k as &str, *v))
 			.collect();
         let descriptor_wgpu = wgpu::ComputePipelineDescriptor {
             label: descriptor.label,
             layout: descriptor.layout,
             module: &self.module,
 			cache: None,
-            entry_point: Some(&descriptor.entry_point),
+            entry_point: Some(descriptor.entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
                 constants: &constants,
                 zero_initialize_workgroup_memory: true,
             },
         };
 
-        let res = self.device.create_compute_pipeline(&descriptor_wgpu);
-        res
+        self.device.create_compute_pipeline(&descriptor_wgpu)
     }
 
     pub(crate) async fn create_compute_pipeline<'b>(&self, descriptor: ComputePipelineDescriptor<'b>) -> Result<wgpu::ComputePipeline, WgpuBuildError> {
@@ -150,14 +149,14 @@ impl<'a> ShaderModule<'a> {
 
     pub(crate) async fn create_shader_pipeline<'b>(&self, descriptor: &ComputePipelineDescriptor<'b>) -> wgpu::ComputePipeline {
 		let constants: Vec<_> = self.constants.iter()
-			.map(|(k, v)| (&*k as &str, *v))
+			.map(|(k, v)| (k as &str, *v))
 			.collect();
         let descriptor_wgpu = wgpu::ComputePipelineDescriptor {
             label: descriptor.label,
             layout: descriptor.layout,
             module: &self.module,
 			cache: None,
-            entry_point: Some(&descriptor.entry_point),
+            entry_point: Some(descriptor.entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
                 constants: &constants,
                 zero_initialize_workgroup_memory: true,
