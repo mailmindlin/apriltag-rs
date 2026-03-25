@@ -1,21 +1,32 @@
+// Step 2: Gaussian blur / sharpen (buffer-based variant — INCOMPLETE/WIP)
+//
+// Buffer-based version of the Gaussian filter that operates on packed u8x4
+// storage buffers instead of textures. This variant appears to be a work in
+// progress — get_pixel() has an incomplete call, and k02_gaussian_sharp_filter
+// is entirely commented out.
+//
+// See 02_quad_sigma_img.wgsl for the working texture-based implementation.
+
 struct Params {
-    stride_src: u32,
+    stride_src: u32,   // Row stride of source image (in u32 words, i.e. 4 pixels per word)
     width_src: u32,
     height_src: u32,
-    stride_dst: u32,
+    stride_dst: u32,   // Row stride of destination image
 }
 
-@group(0) @binding(0) var<storage, read> buf_filter : array<u32>;
+@group(0) @binding(0) var<storage, read> buf_filter : array<u32>; // 1D Gaussian kernel (fixed-point)
 
 @group(1) @binding(0) var<uniform> params: Params;
-@group(1) @binding(1) var<storage, read> img_src : array<u32>; // Packed u8x4
-@group(1) @binding(2) var<storage, write> img_dst : array<u32>; // Packed u8x4
+@group(1) @binding(1) var<storage, read> img_src : array<u32>;  // Packed u8x4 source image
+@group(1) @binding(2) var<storage, write> img_dst : array<u32>; // Packed u8x4 destination image
 @group(1) @binding(3) var<workgroup, write> row_buf: array<u32>;
 
+/// Extract a single 8-bit pixel from a packed u32 (4 pixels per word)
 fn unpack_pixel(packed: u32, off_x: u32) -> u32 {
 	return extractBits(packed, (off_x % 4u) * 8u, 8u);
 }
 
+/// Unpack all 4 pixels from a packed u32 into a vec4
 fn split_pixel(packed: u32) -> vec4<u32> {
     return vec4(
         unpack_pixel(packed, 0u),
@@ -25,20 +36,24 @@ fn split_pixel(packed: u32) -> vec4<u32> {
     );
 }
 
+/// Read a single pixel from the packed source buffer (INCOMPLETE — missing args)
 fn get_pixel(x: u32, y: u32) -> u32 {
     let idx = (y * params.stride_src) + (x / 4u);
     return unpack_pixel()
 }
 
+/// Read 4 adjacent pixels from the packed source buffer
 fn get_pixel4(x: u32, y: u32) -> vec4u {
     let idx = (y * params.stride_src) + (x / 4u);
     return split_pixel(img_src[idx]);
 }
 
+/// Read a single kernel weight
 fn get_filter(x: u32) -> u32 {
     return buf_filter[x];
 }
 
+/// Saturating subtraction: returns max(x - y, 0)
 fn sub_sat(x: u32, y: u32) -> u32 {
     if (y >= x) {
         return 0u;
@@ -47,11 +62,13 @@ fn sub_sat(x: u32, y: u32) -> u32 {
     }
 }
 
+/// Pack a vec4 of blurred values back into a single u32 (clamp to [0,255] after >>16)
 fn convert_uchar_sat(sum: vec4u) -> u32 {
     let clamped = clamp(sum >> 16u, vec4(0u), vec4(255u));
     return (sum.w << 24u) | (sum.z << 16u) | (sum.y << 8u) | (sum.x << 0u);
 }
 
+/// Gaussian blur — processes 4 adjacent pixels per invocation via packed u32 I/O.
 @compute
 @workgroup_size(1, 1)
 fn k02_gaussian_blur_filter(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -63,10 +80,9 @@ fn k02_gaussian_blur_filter(@builtin(global_invocation_id) global_invocation_id:
     if (x < ksz/2u) {
         res = get_pixel
     }
-    
-    // Collect neighbor values and multiply with gaussian
+
+    // Accumulate weighted sum across the 2D kernel neighborhood
     var sum = vec4u(0u);
-    // Calculate the mask size based on sigma (larger sigma, larger mask)
     for (var u: u32 = 0u; u < ksz; u++) {
         let py = min(sub_sat(y+u, ksz/2u), params.height_src);
         let k_u = get_filter(u);
@@ -80,13 +96,14 @@ fn k02_gaussian_blur_filter(@builtin(global_invocation_id) global_invocation_id:
     img_dst[y * params.stride_dst + x] = convert_uchar_sat(sum);
 }
 
+/// Unsharp mask (STUB — not yet implemented, contains commented-out C-style pseudocode)
 @compute
 @workgroup_size(1, 1)
 fn k02_gaussian_sharp_filter(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // let x = global_invocation_id.x;
     // let y = global_invocation_id.y;
     // let ksz = arraySize(buf_filter);
-    
+
     // // Collect neighbor values and multiply with gaussian
     // uint sum = 0;
     // // float sum = 0.0f;

@@ -343,6 +343,7 @@ impl Preprocessor for WGPUDetector {
 				}).collect();
 				let base = uf_dims.width * y + off;
 				let uf_line: String = (0..n).map(|i| {
+					#[allow(clippy::identity_op)]
 					let par = &unionfind[(base + i)*2+0];
 					let siz = &unionfind[(base + i)*2+1];
 					format!("({par},{siz}), ")
