@@ -73,7 +73,7 @@ impl DefaultAlignment for Luma<u8> {
 	const DEFAULT_ALIGNMENT: usize = 96;
 }
 
-impl<T: SafeZero> SafeZero for Luma<T> {}
+unsafe impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
 fn convolve(src: &[u8], dst: &mut [u8], krn: &[u8], need_copy: bool) {

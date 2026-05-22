@@ -78,8 +78,8 @@ impl Into<SpatialDims> for ImageDimensions {
 	}
 }
 
-impl SafeZero for Uchar2 {}
-impl SafeZero for Uint {}
+unsafe impl SafeZero for Uchar2 {}
+unsafe impl SafeZero for Uint {}
 
 pub(crate) struct OpenCLDetector {
 	core: OclCore,

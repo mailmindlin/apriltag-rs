@@ -14,7 +14,7 @@ pub(crate) struct Pt {
 	pub gy: i16,
 }
 
-impl SafeZero for Pt {}
+unsafe impl SafeZero for Pt {}
 
 impl Pt {
 	pub(crate) fn compare_angle(&self, rhs: &Pt) -> Ordering {

@@ -59,7 +59,7 @@ impl<T: Primitive> PixelConvert for Rgb<T> {
     }
 }
 
-impl<T: SafeZero> SafeZero for Rgb<T> {}
+unsafe impl<T: SafeZero> SafeZero for Rgb<T> {}
 
 /*impl<P: Pixel> From<Image<P>> for Image<Rgb<P::Subpixel>> {
     fn from(src: Image<P>) -> Self {
