@@ -1,7 +1,5 @@
-use std::borrow::Cow;
-
 #[cfg(feature="wgpu")]
-use wgpu::{ExperimentalFeatures, PowerPreference, RequestAdapterOptions};
+use wgpu::{PowerPreference, RequestAdapterOptions};
 
 #[cfg(feature="wgpu")]
 async fn run() {
