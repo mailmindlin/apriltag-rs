@@ -25,11 +25,7 @@ struct Params {
 
 /// Saturating subtraction: returns max(x - y, 0)
 fn sub_sat(x: u32, y: u32) -> u32 {
-    if (y >= x) {
-        return 0u;
-    } else {
-        return x - y;
-    }
+    return select(x - y, 0u, y >= x);
 }
 
 /// Saturating add clamped to [0, 255]
