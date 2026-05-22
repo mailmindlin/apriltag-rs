@@ -168,7 +168,7 @@ impl GpuStage for GpuQuadDecimate {
 		}
 	}
 
-	fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
+	fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		let (dst, local_width, local_height) = match self {
 			Self::Factor { factor, local_dims, args_bgl, compute_pipeline } => {
 				let factor = factor.get() as usize;

@@ -3,9 +3,9 @@ use std::io::ErrorKind;
 use futures::executor::block_on;
 use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
-use crate::{util::{image::ImageWritePNM, ImageBuffer, ImageY8}, wgpu::{error::GpuBufferFetchError, util::{buffer_traits::GpuImageLike, texture::GpuTexture, GpuBufferFetch}, GpuContext}, DetectorConfig};
+use crate::{util::{ImageBuffer, ImageY8}, wgpu::{error::GpuBufferFetchError, util::{buffer_traits::GpuImageLike, texture::GpuTexture, GpuBufferFetch}, GpuContext}, DetectorConfig};
 
-use super::{GpuTextureY8, GpuImageDownload};
+use super::GpuTextureY8;
 
 /// Calculate which targets should be downloaded from the GPU for debugging
 pub(in super::super) struct DebugTargets {
@@ -39,6 +39,7 @@ impl DebugTargets {
 	}
 }
 
+#[cfg(feature="debug")]
 enum DebugEntry {
 	Y8 {
 		path: &'static str,
@@ -57,6 +58,7 @@ pub(in super::super) struct DebugImageGenerator {
 	values: Vec<DebugEntry>,
 }
 
+#[cfg_attr(not(feature="debug"), expect(unused))]
 impl DebugImageGenerator {
 	pub(in super::super) const fn new(debug: bool) -> Self {
 		let _ = debug;

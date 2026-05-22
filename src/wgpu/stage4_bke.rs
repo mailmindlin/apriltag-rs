@@ -205,7 +205,7 @@ impl GpuBke {
 		})
 	}
 
-	fn dispatch_bke<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &GpuTextureY8) {
+	fn dispatch_bke<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &GpuTextureY8) {
 		// Compute grid 
 		let grid_x: u32 = src.width()
 			.div_ceil(2) // Number of 2x2 blocks
@@ -244,7 +244,7 @@ impl GpuBke {
 
 	}
 
-	fn dispatch_ha4<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &GpuTextureY8) {
+	fn dispatch_ha4<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &GpuTextureY8) {
 		if true {
 			// StripLabel
 			let grid_x = 1;
@@ -274,7 +274,7 @@ impl GpuBke {
 		}
 	}
 
-	fn dispatch_count<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &GpuTextureY8) {
+	fn dispatch_count<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &GpuTextureY8) {
 		// `Count` operates on individual pixels
 		let tw = src.width().div_ceil(16) as u32;
 		let th = src.height().div_ceil(16) as u32;
@@ -297,7 +297,7 @@ impl GpuStage for GpuBke {
         size_of::<u32>()
     }
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		// We guarauntee that the UnionFind buffer has a height multiple of two
 		let (uf_width, uf_height) = if src.height() % 2 == 0 {
 			(src.width(), src.height())

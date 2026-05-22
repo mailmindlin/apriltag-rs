@@ -113,7 +113,7 @@ impl GpuStage for GpuConnectedComponents {
         size_of::<u32>()
     }
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		let params = ctx.params_buffer(&[
 			src.width() as u32,
 		]);

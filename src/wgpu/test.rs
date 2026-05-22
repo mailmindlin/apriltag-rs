@@ -4,7 +4,7 @@ use futures::{executor::block_on, future::try_join};
 use rand::{RngExt, rng};
 use wgpu::CommandEncoderDescriptor;
 
-use crate::{TimeProfile, DetectorConfig, util::{ImageY8, image::ImageRefY8}, detector::{config::{QuadDecimateMode, AccelerationRequest}, quad_sigma_cpu}, wgpu::{GpuStageContext, GpuQuadDecimate, util::{GpuStage, GpuImageDownload, GpuImageLike, GpuTimestampQueries, GpuBufferFetch}}, quad_thresh::threshold::threshold};
+use crate::{TimeProfile, DetectorConfig, util::{ImageY8, image::ImageRefY8}, detector::{config::{QuadDecimateMode, AccelerationRequest}, quad_sigma_cpu}, wgpu::{GpuStageContext, GpuQuadDecimate, util::{GpuStage, GpuImageDownload, GpuImageLike, GpuBufferFetch}}, quad_thresh::threshold::threshold};
 
 use super::WGPUDetector;
 

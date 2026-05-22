@@ -329,7 +329,7 @@ pub(super) trait GpuStage {
     /// Byte alignment required for this stage's *input* buffer rows.
     fn src_alignment(&self) -> usize;
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError>;
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError>;
 }
 
 pub(super) struct DataStore<T>(Option<T>);
