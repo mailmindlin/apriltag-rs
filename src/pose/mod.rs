@@ -8,7 +8,7 @@ use self::homography::homography_to_pose;
 
 
 /// Calculate projection operator from image points.
-fn calculate_F(v: &Vec3) -> Mat33 {
+fn calculate_F(v: Vec3) -> Mat33 {
 	let mut outer_product = v.outer(v);
 	let inner_product = v.dot(v);
 	outer_product.scale_inplace(inner_product.recip());
@@ -106,7 +106,7 @@ fn orthogonal_iteration<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &mut Ve
 				&a * &b
 			};
 			// let err_vec = Mat::op("(M-M)(MM+M)", &[&I3, &F[i], R, &p[i], t]).unwrap();
-			error += err_vec.dot(&err_vec);
+			error += err_vec.dot(err_vec);
 			// error += Mat::op("M'M", &[&err_vec, &err_vec])
 			//     .unwrap()
 			//     .as_scalar()
@@ -133,7 +133,7 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 			R_t_1_tmp.normalized()
 		};
 
-		let R_t_2 = R_t_3.cross(&R_t_1);
+		let R_t_2 = R_t_3.cross(R_t_1);
 
 		Mat33::of([
 			R_t_1.0, R_t_1.1, R_t_1.2,
@@ -197,7 +197,7 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 			// let vt_i = Mat::op("M*M", &[&R_t, &v[i]]).unwrap();
 			let pt_i = R_z.transposed().mul(&p[i]);
 			let vt_i = R_t.mul(&v[i]);
-			let ft = calculate_F(&vt_i);
+			let ft = calculate_F(vt_i);
 			avg_F_trans += &ft;
 			Fp_trans.push((ft, pt_i));
 		}
@@ -224,13 +224,13 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 				// let op_tmp2 = Mat::op("(M-M)MMM", &[&F_trans[i], &I3, &R_gamma, &M1, &p_trans[i]]).unwrap();
 				// let op_tmp3 = Mat::op("(M-M)MMM", &[&F_trans[i], &I3, &R_gamma, &M2, &p_trans[i]]).unwrap();
 		
-				b0 += &op_tmp1;
-				b1 += &op_tmp2;
-				b2 += &op_tmp3;
+				b0 += op_tmp1;
+				b1 += op_tmp2;
+				b2 += op_tmp3;
 			}
-			let b0_ = G.mul(&b0);
-			let b1_ = G.mul(&b1);
-			let b2_ = G.mul(&b2);
+			let b0_ = &G * &b0;
+			let b1_ = &G * &b1;
+			let b2_ = &G * &b2;
 			(b0_, b1_, b2_)
 		};
 
@@ -249,9 +249,9 @@ fn fix_pose_ambiguities<const N: usize>(v: &[Vec3; N], p: &[Vec3; N], t: &Vec3, 
 			// let c2 = Mat::op("(M-M)(MMM+M)", &[&I3, &F_trans[i], &R_gamma, &M2, &p_trans[i], &b2_]).unwrap();
 
 			a0 += c0.mag_sq();
-			a1 += 2. * c0.dot(&c1);
-			a2 += c1.mag_sq() + 2. * c0.dot(&c2);
-			a3 += 2.* c1.dot(&c2);
+			a1 += 2. * c0.dot(c1);
+			a2 += c1.mag_sq() + 2. * c0.dot(c2);
+			a3 += 2.* c1.dot(c2);
 			a4 += c2.mag_sq();
 			// a0 += Mat::op("M'M", &[&c0, &c0]).unwrap().as_scalar().unwrap();
 			// a1 += Mat::op("2M'M", &[&c0, &c1]).unwrap().as_scalar().unwrap();
