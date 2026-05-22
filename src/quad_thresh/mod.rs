@@ -241,7 +241,7 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
 pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8, threshim: ImageY8) -> Vec<Quad> {
 	////////////////////////////////////////////////////////
 	// step 2. find connected components.
-	let mut uf = connected_components(&td.params, &threshim);
+	let uf = connected_components(&td.params, &threshim);
 
 	tp.stamp("unionfind");
 
