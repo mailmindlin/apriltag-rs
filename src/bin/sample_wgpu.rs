@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 
-use wgpu::{RequestAdapterOptions, PowerPreference};
+#[cfg(feature="wgpu")]
+use wgpu::{ExperimentalFeatures, PowerPreference, RequestAdapterOptions};
 
+#[cfg(feature="wgpu")]
 async fn run() {
 	let inst = wgpu::Instance::default();
 	let mut opts = RequestAdapterOptions::default();
@@ -15,8 +17,10 @@ async fn run() {
 				label: None,
 				required_features: wgpu::Features::empty(),
 				required_limits: wgpu::Limits::downlevel_defaults(),
-			},
-			None,
+				experimental_features: wgpu::ExperimentalFeatures::disabled(),
+				memory_hints: wgpu::MemoryHints::Performance,
+				trace: wgpu::Trace::Off,
+			}
 		)
 		.await
 		.unwrap();
@@ -28,9 +32,15 @@ async fn run() {
 	// });
 }
 
+#[cfg(feature="wgpu")]
 pub fn main() {
 	use futures::executor::block_on;
 
 	let a = run();
 	block_on(a);
+}
+
+#[cfg(not(feature="wgpu"))]
+pub fn main() {
+	panic!("requires feature `wgpu`")
 }
