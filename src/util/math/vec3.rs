@@ -206,3 +206,122 @@ impl MulAssign<f64> for Vec3 {
         self.scale_inplace(rhs)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::Vec3;
+
+    const EPS: f64 = 1e-10;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} != {b}");
+    }
+
+    fn assert_vec_close(a: Vec3, b: Vec3) {
+        assert_close(a.0, b.0);
+        assert_close(a.1, b.1);
+        assert_close(a.2, b.2);
+    }
+
+    #[test]
+    fn test_add() {
+        let a = Vec3::of(1., 2., 3.);
+        let b = Vec3::of(4., 5., 6.);
+        assert_vec_close(a + b, Vec3::of(5., 7., 9.));
+    }
+
+    #[test]
+    fn test_sub() {
+        let a = Vec3::of(4., 5., 6.);
+        let b = Vec3::of(1., 2., 3.);
+        assert_vec_close(a - b, Vec3::of(3., 3., 3.));
+    }
+
+    #[test]
+    fn test_add_assign() {
+        let mut a = Vec3::of(1., 2., 3.);
+        a += Vec3::of(10., 20., 30.);
+        assert_vec_close(a, Vec3::of(11., 22., 33.));
+    }
+
+    #[test]
+    fn test_add_assign_ref() {
+        let mut a = Vec3::of(1., 2., 3.);
+        let b = Vec3::of(10., 20., 30.);
+        a += &b;
+        assert_vec_close(a, Vec3::of(11., 22., 33.));
+    }
+
+    #[test]
+    fn test_neg() {
+        let a = Vec3::of(1., -2., 3.);
+        assert_vec_close(-a, Vec3::of(-1., 2., -3.));
+    }
+
+    #[test]
+    fn test_scale() {
+        let a = Vec3::of(1., 2., 3.);
+        assert_vec_close(a.scale(2.), Vec3::of(2., 4., 6.));
+    }
+
+    #[test]
+    fn test_div() {
+        let a = Vec3::of(2., 4., 6.);
+        assert_vec_close(a / 2., Vec3::of(1., 2., 3.));
+    }
+
+    #[test]
+    fn test_dot() {
+        let a = Vec3::of(1., 0., 0.);
+        let b = Vec3::of(0., 1., 0.);
+        assert_close(a.dot(&b), 0.);
+
+        let c = Vec3::of(1., 2., 3.);
+        let d = Vec3::of(4., 5., 6.);
+        assert_close(c.dot(&d), 32.);
+    }
+
+    #[test]
+    fn test_cross() {
+        let i = Vec3::of(1., 0., 0.);
+        let j = Vec3::of(0., 1., 0.);
+        let k = Vec3::of(0., 0., 1.);
+        assert_vec_close(i.cross(&j), k);
+        assert_vec_close(j.cross(&k), i);
+        assert_vec_close(k.cross(&i), j);
+        // Anti-commutativity
+        assert_vec_close(j.cross(&i), -k);
+    }
+
+    #[test]
+    fn test_mag() {
+        assert_close(Vec3::of(3., 4., 0.).mag(), 5.);
+        assert_close(Vec3::zero().mag(), 0.);
+        assert_close(Vec3::of(1., 1., 1.).mag(), 3f64.sqrt());
+    }
+
+    #[test]
+    fn test_normalized() {
+        let v = Vec3::of(3., 4., 0.);
+        let n = v.normalized();
+        assert_close(n.mag(), 1.);
+        assert_close(n.0, 0.6);
+        assert_close(n.1, 0.8);
+    }
+
+    #[test]
+    fn test_outer() {
+        let a = Vec3::of(1., 2., 3.);
+        let b = Vec3::of(4., 5., 6.);
+        let m = a.outer(&b);
+        assert_close(m[(0, 0)], 4.);
+        assert_close(m[(0, 1)], 5.);
+        assert_close(m[(0, 2)], 6.);
+        assert_close(m[(1, 0)], 8.);
+        assert_close(m[(1, 1)], 10.);
+        assert_close(m[(1, 2)], 12.);
+        assert_close(m[(2, 0)], 12.);
+        assert_close(m[(2, 1)], 15.);
+        assert_close(m[(2, 2)], 18.);
+    }
+}
