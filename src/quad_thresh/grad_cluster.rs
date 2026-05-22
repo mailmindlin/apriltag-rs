@@ -7,6 +7,13 @@ use crate::{dbg::debugln, detector::DetectorConfig, quad_thresh::MIN_CLUSTER_SIZ
 
 use super::{unionfind::{UnionFindId, UnionFindStatic}, linefit::Pt};
 
+/// Canonical key identifying a pair of adjacent black/white connected regions.
+///
+/// During gradient clustering, every black/white pixel boundary contributes a
+/// gradient point to the cluster that "belongs" to the region pair straddling
+/// that edge. `ClusterId` uniquely names such a pair by storing the union-find
+/// representative IDs of both regions in a normalized order (`rep0 >= rep1`),
+/// so `ClusterId::new(a, b) == ClusterId::new(b, a)`.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
 pub(crate) struct ClusterId {
 	rep0: UnionFindId,
@@ -21,12 +28,16 @@ pub(crate) struct ClusterId {
 // }
 
 impl ClusterId {
+	/// Construct a `ClusterId` from two region representatives, normalizing
+	/// their order so that `new(a, b) == new(b, a)`.
 	const fn new(repa: UnionFindId, repb: UnionFindId) -> Self {
 		let (rep0, rep1) = if repb < repa {
 			(repa, repb)
 		} else {
 			(repb, repa)
 		};
+		// The original representation stored both ids as a single u64 but
+		// I don't think there's any reason for us to do that
 		// Self {
 		//     value: (repa as u64) << 32 | (repb as u64)
 		// }
@@ -63,6 +74,19 @@ impl ClusterId {
 // }
 type ClusterHasher = RandomState;
 
+/// Scan rows `y0..y1` of `threshim` for black/white pixel boundaries and
+/// accumulate gradient points into `clustermap`.
+///
+/// For each pixel pair whose values differ (one black, one white) and whose
+/// connected components both exceed [`MIN_CLUSTER_SIZE`], a [`Pt`] is added to
+/// the cluster keyed by [`ClusterId`] of the two region representatives. The
+/// point is placed at the sub-pixel midpoint between the two pixels, and its
+/// gradient `(gx, gy)` points from black toward white (magnitude 255).
+///
+/// Connectivity is a hybrid 4/8 scheme: the right and below neighbours are
+/// always checked (4-connectivity), and both diagonal-below neighbours are
+/// checked while taking care to avoid emitting duplicate points when the
+/// previous column already contributed a matching diagonal.
 fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap: &mut Clusters, uf: &impl UnionFindStatic<(u32, u32), Id = u32>) {
 	let width = threshim.width();
 	for y in y0..y1 {
@@ -171,8 +195,15 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 	}
 }
 
+/// Map from a region-pair [`ClusterId`] to the list of gradient [`Pt`]s lying
+/// on the boundary between those two regions.
 pub(crate) type Clusters = HashMap<ClusterId, Vec<Pt>, ClusterHasher>;
 
+/// Merge two [`Clusters`] maps produced by separate row-range passes.
+///
+/// Entries that exist in only one map are moved as-is. Entries present in both
+/// maps have their point lists concatenated. The larger of the two input maps
+/// is used as the accumulator to minimise rehashing.
 fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
 	// Ensure c1 > c2 (fewer operations in next loop)
 	let (mut c1, c2) = if c2.len() > c1.len() {
@@ -200,7 +231,15 @@ fn merge_clusters(c1: Clusters, c2: Clusters) -> Clusters {
 	c1
 }
 
-pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, mut uf: (impl Sync + UnionFindStatic<(u32, u32), Id = u32>)) -> Clusters {
+/// Build the full gradient cluster map from a thresholded image.
+///
+/// The image is divided into horizontal row-chunks and each chunk is processed
+/// in parallel by [`do_gradient_clusters`]. The per-chunk [`Clusters`] maps are
+/// then merged pairwise via [`merge_clusters`].
+///
+/// `uf` must be a completed union-find over the thresholded image so that
+/// region representatives and sizes are stable before this call.
+pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, uf: impl Sync + UnionFindStatic<(u32, u32), Id = u32> ) -> Clusters {
 	let nclustermap = (0.2*(threshim.num_pixels() as f64)) as usize;
 
 	let sz = threshim.height() - 1;
