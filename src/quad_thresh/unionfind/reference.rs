@@ -137,15 +137,14 @@ impl UnionFindReference {
 		root
 	}
 
-	// Get UnionFind group for id
 	fn get_representative(&mut self, mut element: UnionFindId) -> UnionFindId {
-		// chase down the root
-		let root = self.find_representative(element);
-	
-		// go back and collapse the tree.
-		while self.data[element as usize].parent != root {
-			element = std::mem::replace(&mut self.data[element as usize].parent, root);
+		// Path halving: make every node point to its grandparent (single pass).
+		while self.data[element as usize].parent != element {
+			let parent = self.data[element as usize].parent;
+			let grandparent = self.data[parent as usize].parent;
+			self.data[element as usize].parent = grandparent;
+			element = grandparent;
 		}
-		root
+		element
 	}
 }
