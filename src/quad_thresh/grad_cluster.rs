@@ -265,13 +265,13 @@ pub(crate) fn gradient_clusters(config: &DetectorConfig, threshim: &ImageRefY8, 
 	}
 }
 
-#[cfg(all(test, false))]
+#[cfg(test)]
 mod test {
-	use crate::quad_thresh::linefit::Pt;
+	use crate::{quad_thresh::linefit::Pt, util::ImageY8};
+	use super::{ClusterId, Clusters, ClusterHasher, do_gradient_clusters, merge_clusters};
+	use super::super::unionfind::{UnionFind, UnionFindStatic};
 
-	use super::{ClusterEntry, merge_clusters};
-
-	fn random_point(seed: usize) -> Pt {
+	fn pt(seed: usize) -> Pt {
 		Pt {
 			x: seed as u16,
 			y: seed.rotate_right(16) as u16,
@@ -281,66 +281,206 @@ mod test {
 		}
 	}
 
+	fn make_clusters(entries: impl IntoIterator<Item = (ClusterId, Vec<Pt>)>) -> Clusters {
+		let mut map = Clusters::with_hasher(ClusterHasher::default());
+		for (k, v) in entries { map.insert(k, v); }
+		map
+	}
+
+	fn image_from_rows(rows: &[&[u8]]) -> ImageY8 {
+		let (h, w) = (rows.len(), rows[0].len());
+		let mut img = ImageY8::zeroed_packed(w, h);
+		for (y, row) in rows.iter().enumerate() {
+			for (x, &v) in row.iter().enumerate() {
+				img[(x, y)] = v;
+			}
+		}
+		img
+	}
+
+	/// Minimal [`UnionFindStatic`] stub: returns a fixed `(representative, size)`
+	/// per pixel without any path-compression or union logic.
+	struct StubUF {
+		width: usize,
+		cells: Vec<(u32, u32)>,
+	}
+
+	impl StubUF {
+		fn uniform(width: usize, height: usize, size: u32) -> Self {
+			let n = width * height;
+			Self { width, cells: (0..n as u32).map(|i| (i, size)).collect() }
+		}
+
+		fn set(&mut self, x: usize, y: usize, rep: u32, size: u32) {
+			self.cells[y * self.width + x] = (rep, size);
+		}
+	}
+
+	impl UnionFind<(u32, u32)> for StubUF {
+		type Id = u32;
+		fn index_to_id(&self, (x, y): (u32, u32)) -> u32 { y * self.width as u32 + x }
+		fn get_set(&mut self, idx: (u32, u32)) -> (u32, u32) { self.get_set_static(idx) }
+		fn connect_ids(&mut self, _a: u32, _b: u32) -> bool { false }
+	}
+
+	impl UnionFindStatic<(u32, u32)> for StubUF {
+		fn get_set_static(&self, (x, y): (u32, u32)) -> (u32, u32) {
+			self.cells[y as usize * self.width + x as usize]
+		}
+		fn get_set_hops(&self, _: (u32, u32)) -> usize { 1 }
+	}
+
+	fn run(img: &ImageY8, uf: &StubUF) -> Clusters {
+		let mut clusters = Clusters::with_hasher(ClusterHasher::default());
+		let threshim = img.as_ref();
+		do_gradient_clusters(&threshim, 0, img.height() - 1, &mut clusters, uf);
+		clusters
+	}
+
+	const BLACK: u8 = 0;
+	const WHITE: u8 = 255;
+	const GRAY:  u8 = 127;
+	const BIG:  u32 = 30; // > MIN_CLUSTER_SIZE (24)
+	const TINY: u32 = 1;  // < MIN_CLUSTER_SIZE (24)
+
+	// --- merge_clusters ---
+
 	#[test]
 	fn merge_empty() {
-		let e1 = ClusterEntry {
-			id: super::ClusterId { rep0: 0, rep1: 0 },
-			data: vec![random_point(0), random_point(1)],
-		};
-		let merged = merge_clusters(vec![e1], vec![]);
-		assert_eq!(merged.len(), 1);
+		let c = make_clusters([(ClusterId::new(0, 0), vec![pt(0), pt(1)])]);
+		let empty = Clusters::with_hasher(ClusterHasher::default());
+		assert_eq!(merge_clusters(c, empty).len(), 1);
 	}
 
 	#[test]
 	fn merge_no_dedup() {
-		let e1 = ClusterEntry {
-			id: super::ClusterId { rep0: 0, rep1: 0 },
-			data: vec![random_point(0), random_point(1)],
-		};
-		let e2 = ClusterEntry {
-			id: super::ClusterId { rep0: 0, rep1: 1 },
-			data: vec![random_point(2), random_point(3)],
-		};
-		let e3 = ClusterEntry {
-			id: super::ClusterId { rep0: 0, rep1: 2 },
-			data: vec![random_point(4), random_point(5)],
-		};
-		let e4 = ClusterEntry {
-			id: super::ClusterId { rep0: 0, rep1: 3 },
-			data: vec![random_point(6), random_point(7)],
-		};
-		let merged = merge_clusters(vec![e1, e2], vec![e3, e4]);
-		assert_eq!(merged.len(), 4);
+		let c1 = make_clusters([
+			(ClusterId::new(0, 0), vec![pt(0), pt(1)]),
+			(ClusterId::new(0, 1), vec![pt(2), pt(3)]),
+		]);
+		let c2 = make_clusters([
+			(ClusterId::new(0, 2), vec![pt(4), pt(5)]),
+			(ClusterId::new(0, 3), vec![pt(6), pt(7)]),
+		]);
+		assert_eq!(merge_clusters(c1, c2).len(), 4);
 	}
 
 	#[test]
 	fn merge_dedup() {
-		let id1 = super::ClusterId { rep0: 0, rep1: 0 };
-		let id2 = super::ClusterId { rep0: 0, rep1: 1 };
-		let id3 = super::ClusterId { rep0: 0, rep1: 2 };
-		let e1 = ClusterEntry {
-			id: id1.clone(),
-			data: vec![random_point(0), random_point(1)],
-		};
-		let e2 = ClusterEntry {
-			id: id2.clone(),
-			data: vec![random_point(2), random_point(3)],
-		};
-		let e3 = ClusterEntry {
-			id: id3.clone(),
-			data: vec![random_point(4), random_point(5)],
-		};
-		let e4 = ClusterEntry {
-			id: id1.clone(),
-			data: vec![random_point(6), random_point(7)],
-		};
-		let merged = merge_clusters(vec![e1, e2], vec![e3, e4]);
+		let id1 = ClusterId::new(0, 0);
+		let id2 = ClusterId::new(0, 1);
+		let id3 = ClusterId::new(0, 2);
+		let c1 = make_clusters([
+			(id1, vec![pt(0), pt(1)]),
+			(id2, vec![pt(2), pt(3)]),
+		]);
+		let c2 = make_clusters([
+			(id3, vec![pt(4), pt(5)]),
+			(id1, vec![pt(6), pt(7)]),
+		]);
+		let merged = merge_clusters(c1, c2);
 		assert_eq!(merged.len(), 3);
-		// Check that other two are still there
-		assert!(merged.iter().find(|it| it.id == id2).is_some());
-		assert!(merged.iter().find(|it| it.id == id3).is_some());
-		
-		let e_merged = merged.iter().find(|it| it.id == id1).unwrap();
-		assert_eq!(e_merged.data.len(), 4);
+		assert!(merged.contains_key(&id2));
+		assert!(merged.contains_key(&id3));
+		assert_eq!(merged[&id1].len(), 4);
+	}
+
+	// --- ClusterId ---
+
+	#[test]
+	fn cluster_id_symmetric() {
+		assert_eq!(ClusterId::new(1, 2), ClusterId::new(2, 1));
+		assert_ne!(ClusterId::new(1, 2), ClusterId::new(1, 3));
+	}
+
+	// --- do_gradient_clusters ---
+
+	#[test]
+	fn gradient_skips_gray() {
+		let row = vec![GRAY; 6];
+		let img = image_from_rows(&[&row, &row, &row, &row, &row]);
+		let uf = StubUF::uniform(6, 5, BIG);
+		assert!(run(&img, &uf).is_empty(), "gray-only image should produce no clusters");
+	}
+
+	#[test]
+	fn gradient_filters_small_regions() {
+		// Real black/white boundary, but every region is below MIN_CLUSTER_SIZE
+		const W: usize = 6;
+		let black = [BLACK; W];
+		let white = [WHITE; W];
+		let img = image_from_rows(&[&black, &black, &black, &white, &white, &white]);
+		let uf = StubUF::uniform(W, 6, TINY);
+		assert!(run(&img, &uf).is_empty(), "regions below MIN_CLUSTER_SIZE should be skipped");
+	}
+
+	#[test]
+	fn gradient_horizontal_edge() {
+		// Black rows 0-4, white rows 5-9. All boundary points are found via
+		// DO_CONN(., 1): dy=1, dv=(255-0)=255, so gy = dy*dv = 255 for every point.
+		const W: usize = 6;
+		const H: usize = 10;
+		let black = [BLACK; W];
+		let white = [WHITE; W];
+		let img = image_from_rows(&[
+			&black, &black, &black, &black, &black,
+			&white, &white, &white, &white, &white,
+		]);
+		let mut uf = StubUF::uniform(W, H, TINY);
+		for y in 0..5 { for x in 0..W { uf.set(x, y, 0, BIG); } }
+		for y in 5..H { for x in 0..W { uf.set(x, y, 1, BIG); } }
+
+		let clusters = run(&img, &uf);
+		assert_eq!(clusters.len(), 1, "one cluster for the black/white region pair");
+		let pts = &clusters[&ClusterId::new(0, 1)];
+		assert!(!pts.is_empty());
+		for p in pts {
+			assert_eq!(p.gy, 255, "gradient should point from black toward white (downward)");
+		}
+	}
+
+	#[test]
+	fn gradient_direction_flips_when_colors_swap() {
+		// White rows 0-4, black rows 5-9. dv = (0-255) = -255, so gy = -255.
+		const W: usize = 6;
+		const H: usize = 10;
+		let white = [WHITE; W];
+		let black = [BLACK; W];
+		let img = image_from_rows(&[
+			&white, &white, &white, &white, &white,
+			&black, &black, &black, &black, &black,
+		]);
+		let mut uf = StubUF::uniform(W, H, TINY);
+		for y in 0..5 { for x in 0..W { uf.set(x, y, 1, BIG); } }
+		for y in 5..H { for x in 0..W { uf.set(x, y, 0, BIG); } }
+
+		let clusters = run(&img, &uf);
+		assert_eq!(clusters.len(), 1);
+		for p in &clusters[&ClusterId::new(0, 1)] {
+			assert_eq!(p.gy, -255, "gradient should flip when white is above black");
+		}
+	}
+
+	#[test]
+	fn gradient_vertical_edge() {
+		// Black columns 0-2, white columns 3-5. Boundary at x=2/3.
+		// DO_CONN(1,0) and DO_CONN(1,1) both fire at x=2 with dx=1 and dv=255,
+		// giving gx = dx*dv = 255 for every boundary point.
+		const W: usize = 6;
+		const H: usize = 10;
+		let row: Vec<u8> = (0..W).map(|x| if x < 3 { BLACK } else { WHITE }).collect();
+		let rows: Vec<&[u8]> = (0..H).map(|_| row.as_slice()).collect();
+		let img = image_from_rows(&rows);
+		let mut uf = StubUF::uniform(W, H, TINY);
+		for y in 0..H {
+			for x in 0..3 { uf.set(x, y, 0, BIG); }
+			for x in 3..W { uf.set(x, y, 1, BIG); }
+		}
+
+		let clusters = run(&img, &uf);
+		assert_eq!(clusters.len(), 1, "one cluster for the black/white region pair");
+		for p in &clusters[&ClusterId::new(0, 1)] {
+			assert_eq!(p.gx, 255, "gradient should point rightward (from black toward white)");
+		}
 	}
 }
