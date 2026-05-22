@@ -78,8 +78,8 @@ impl Quad {
 
             for edge in 0..4 {
                 // indices of the end points.
-                let a = &self.corners[edge].vec().squish32();
-                let b = &self.corners[(edge + 1) % 4].vec().squish32();
+                let a = self.corners[edge].vec().squish32();
+                let b = self.corners[(edge + 1) % 4].vec().squish32();
 
                 // compute the normal to the current line estimate
                 let mut pn = Vec2::of((b.y() as f32 - a.y() as f32) as f64, (a.x() as f32 - b.x() as f32) as f64);
@@ -211,8 +211,8 @@ impl Quad {
         // now refit the corners of the quad
         for i in 0..4 {
             // solve for the intersection of lines (i) and (i+1)&3.
-            let (lineA_E, lineA_p) = &lines[i]; // Current
-            let (lineB_E, lineB_p) = &lines[(i + 1) % 4]; // Next
+            let (lineA_E, lineA_p) = lines[i]; // Current
+            let (lineB_E, lineB_p) = lines[(i + 1) % 4]; // Next
 
             // let Ax0 = lineA_p.rev_negx();
             // let Ax1 = lineB_p.rev_negy();
@@ -236,7 +236,7 @@ impl Quad {
                 // println!(" R refine_edges: \tW0={W0:.15?} L0={L0:.15}");
 
                 // compute intersection
-                self.corners[(i + 1) % 4] = Point2D::from_vec(lineA_E + &(Vec2::of(A00, A10) * L0));
+                self.corners[(i + 1) % 4] = Point2D::from_vec(lineA_E + (Vec2::of(A00, A10) * L0));
             } else {
                 // this is a bad sign. We'll just keep the corner we had.
                 debugln!("bad det {i}: {A00:15} {A11:15} {A10:15} {A01:15} {det}");

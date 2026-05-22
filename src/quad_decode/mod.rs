@@ -287,7 +287,7 @@ impl Quad {
             // let tag01y = (bity as f64 + 0.5) / (family.width_at_border as f64);
 
             // scale to [-1, 1]
-            let tag = (tag - &half) * 2.;
+            let tag = (tag - half) * 2.;
             // let tagx = (tag01x - 0.5) * 2.;
             // let tagy = (tag01y - 0.5) * 2.;
             let p = homography_project(H, tag.x(), tag.y());

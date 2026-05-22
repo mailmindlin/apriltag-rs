@@ -35,7 +35,7 @@ impl Sub<&Point2D> for Point2D {
     type Output = Vec2;
 
     fn sub(self, rhs: &Point2D) -> Self::Output {
-        self.0 - &rhs.0
+        self.0 - rhs.0
     }
 }
 
@@ -43,14 +43,14 @@ impl Sub<&Point2D> for &Point2D {
     type Output = Vec2;
 
     fn sub(self, rhs: &Point2D) -> Self::Output {
-        &self.0 - &rhs.0
+        self.0 - rhs.0
     }
 }
 
-impl Sub<&Vec2> for Point2D {
+impl Sub<Vec2> for Point2D {
     type Output = Point2D;
 
-    fn sub(self, rhs: &Vec2) -> Self::Output {
+    fn sub(self, rhs: Vec2) -> Self::Output {
         Point2D(self.0 - rhs)
     }
 }
@@ -90,8 +90,8 @@ impl Point2D {
     }
 
     #[inline(always)]
-    pub const fn vec(&self) -> &Vec2 {
-        &self.0
+    pub const fn vec(&self) -> Vec2 {
+        self.0
     }
 
     #[inline(always)]

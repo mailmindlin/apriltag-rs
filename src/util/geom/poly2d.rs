@@ -374,7 +374,7 @@ impl Poly2D {
         let b = self[1];
         let c = self[2];
 
-        Point2D::from_vec((*a.vec() + b.vec() + c.vec()) / 3.)
+        Point2D::from_vec((a.vec() + b.vec() + c.vec()) / 3.)
     }
 
     pub fn overlaps_polygon(&self, other: &Poly2D) -> bool {

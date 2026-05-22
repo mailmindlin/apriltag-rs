@@ -15,7 +15,7 @@ impl Line2D {
     }
 
     pub fn get_coordinate(&self, q: &Point2D) -> f64 {
-        (q - &self.p).dot(*self.u.vec())
+        (q - &self.p).dot(self.u.vec())
     }
 
     // Compute intersection of two line segments. If they intersect,
@@ -47,7 +47,7 @@ impl Line2D {
 
         Some(Point2D::from_vec(
             self.p.vec().fma(
-                *self.u.vec(),
+                self.u.vec(),
                 Vec2::dup(x00)
             )
         ))
@@ -82,7 +82,7 @@ impl LineSegment2D {
         Point2D::from_vec(
             self.line.p.vec()
             .fma(
-                *self.line.u.vec(),
+                self.line.u.vec(),
                 Vec2::dup(c)
             )
         )
