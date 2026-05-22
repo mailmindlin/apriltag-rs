@@ -1,10 +1,10 @@
-use std::ops::{Add, Mul, Sub, MulAssign, AddAssign, Div, Neg};
+use std::{iter::Sum, ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub}};
 
 use super::mat::Mat33;
 
 /// 3 element vector
 #[derive(Debug, Clone, Copy)]
-pub struct Vec3(pub f64, pub f64, pub f64);
+pub(crate) struct Vec3(pub f64, pub f64, pub f64);
 
 impl Vec3 {
     /// Create from constant values
@@ -52,7 +52,7 @@ impl Vec3 {
     /// Scale vector, in place
     /// 
     /// See also: [scale]
-    pub fn scale_mut(&mut self, rhs: f64) {
+    pub fn scale_inplace(&mut self, rhs: f64) {
         self.0 *= rhs;
         self.1 *= rhs;
         self.2 *= rhs;
@@ -178,9 +178,31 @@ impl AddAssign<&Vec3> for Vec3 {
     }
 }
 
+impl std::iter::Sum for Vec3 {
+	fn sum<I: Iterator<Item = Self>>(mut iter: I) -> Self {
+		// This lets us optimize away the first 
+		let Some(mut result) = iter.next() else { return Self::zero() };
+		for item in iter {
+			result += item;
+		}
+		result
+	}
+}
+
+impl<'a> std::iter::Sum<&'a Self> for Vec3 {
+	fn sum<I: Iterator<Item = &'a Self>>(mut iter: I) -> Self {
+		// This lets us optimize away the first 
+		let Some(mut result) = iter.next().copied() else { return Self::zero() };
+		for item in iter {
+			result += item;
+		}
+		result
+	}
+}
+
 /// Vector in-place scale
 impl MulAssign<f64> for Vec3 {
     fn mul_assign(&mut self, rhs: f64) {
-        self.scale_mut(rhs)
+        self.scale_inplace(rhs)
     }
 }
