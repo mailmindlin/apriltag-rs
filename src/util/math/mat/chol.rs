@@ -1,15 +1,15 @@
-use super::Mat;
+use super::{Mat, MatLike};
 
-pub (crate) struct MatChol {
+pub (crate) struct MatChol<M: MatLike> {
 	is_spd: bool,
-	u: Mat,
+	u: M,
 }
 
-impl MatChol {
+impl<M: MatLike> MatChol<M> {
 	/// NOTE: The below implementation of Cholesky is different from the one
 	/// used in NGV.
-	pub fn new(mat: &Mat) -> Self {
-		assert!(mat.dims.is_square());
+	pub fn new(mat: &M) -> Self {
+		assert!(mat.is_square());
 		let N = mat.rows();
 
 		// make upper right

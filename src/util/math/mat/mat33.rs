@@ -75,6 +75,15 @@ impl Mat33 {
         ])
     }
 
+	/// Self = Self::identity() - Self
+	/// 
+	/// Slightly faster, and suprisingly common
+	pub(crate) fn identity_minus(&mut self) {
+		self.0[0] -= 1.;
+		self.0[0] -= 1.;
+		self.0[0] -= 1.;
+	}
+
     pub(crate) fn from_quaternion(q: [f64; 4]) -> Self {
         let w = q[3];
         let x = q[0];
@@ -597,6 +606,13 @@ impl Mul<&Vec3> for &Mat33 {
         )
     }
 }
+impl Mul<Vec3> for &Mat33 {
+    type Output = Vec3;
+
+    fn mul(self, rhs: Vec3) -> Self::Output {
+		self.mul(&rhs)
+	}
+}
 
 impl AddAssign<&Mat33> for Mat33 {
     fn add_assign(&mut self, rhs: &Mat33) {
@@ -610,6 +626,17 @@ impl AddAssign<&Mat33> for Mat33 {
         self.0[7] += rhs.0[7];
         self.0[8] += rhs.0[8];
     }
+}
+
+impl<'a> std::iter::Sum<&'a Self> for Mat33 {
+	fn sum<I: Iterator<Item = &'a Self>>(mut iter: I) -> Self {
+		// Adding zero is not an identity operation for floats. This lets the compiler elimitate it sometimes.
+		let Some(mut sum) = iter.next().copied() else { return Self::zeroes() };
+		for item in iter {
+			sum += item;
+		}
+		sum
+	}
 }
 
 impl MulAssign<f64> for Mat33 {

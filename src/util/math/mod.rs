@@ -5,6 +5,7 @@ pub(crate) use vec2::{Vec2Builder, FMA};
 pub(crate) use vec3::Vec3;
 
 pub(crate) mod mat;
+pub(crate) use mat::{matrix_op, Matmul2, MatmulTranspose, TransposedMatmul};
 pub use mat::Mat33;
 pub(crate) mod poly;
 
