@@ -1,8 +1,8 @@
 mod vec2;
 mod vec3;
-pub use vec2::Vec2;
+pub(crate) use vec2::Vec2;
 pub(crate) use vec2::{Vec2Builder, FMA};
-pub use vec3::Vec3;
+pub(crate) use vec3::Vec3;
 
 pub(crate) mod mat;
 pub use mat::Mat33;
