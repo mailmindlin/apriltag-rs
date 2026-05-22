@@ -372,6 +372,10 @@ impl AprilTagDetector {
 			return Ok(Detections::default());
 		}
 
+		if im_orig.width() < 8 || im_orig.height() < 8 {
+			return Ok(Detections::default());
+		}
+
 		// Statistics relating to last processed frame
 		let mut tp = TimeProfile::default();
 		tp.stamp("init");
