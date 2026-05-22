@@ -10,12 +10,12 @@ pub(crate) struct Line2D {
 impl Line2D {
     pub fn from_points(p0: Point2D, p1: Point2D) -> Self {
         let p = p0;
-        let u = Point2D::from_vec((p1 - &p0).norm());
+        let u = Point2D::from_vec((p1 - p0).norm());
         Self { p, u }
     }
 
-    pub fn get_coordinate(&self, q: &Point2D) -> f64 {
-        (q - &self.p).dot(self.u.vec())
+    pub fn get_coordinate(&self, q: Point2D) -> f64 {
+        (q - self.p).dot(self.u.vec())
     }
 
     // Compute intersection of two line segments. If they intersect,
@@ -41,7 +41,7 @@ impl Line2D {
         // inverse of m
         let i = Vec2::of(m11, -m01) / det;
 
-        let b = other.p - &self.p;
+        let b = other.p - self.p;
 
         let x00 = i.dot(b);
 
@@ -68,9 +68,9 @@ impl LineSegment2D {
     }
 
     /// Find the point p on segment seg that is closest to point q.
-    pub fn closest_point(&self, q: &Point2D) -> Point2D {
-        let a = self.line.get_coordinate(&self.line.p);
-        let b = self.line.get_coordinate(&self.p1);
+    pub fn closest_point(&self, q: Point2D) -> Point2D {
+        let a = self.line.get_coordinate(self.line.p);
+        let b = self.line.get_coordinate(self.p1);
         let c = self.line.get_coordinate(q);
 
         let c = if a < b {
@@ -94,9 +94,9 @@ impl LineSegment2D {
     pub fn intersect_segment(&self, other: &LineSegment2D) -> Option<Point2D> {
         let tmp = self.intersect_line(&other.line)?;
 
-        let a = other.line.get_coordinate(&other.line.p);
-        let b = other.line.get_coordinate(&other.p1);
-        let c = other.line.get_coordinate(&tmp);
+        let a = other.line.get_coordinate(other.line.p);
+        let b = other.line.get_coordinate(other.p1);
+        let c = other.line.get_coordinate(tmp);
 
         // does intersection lie on second line?
         if (c<a && c<b) || (c>a && c>b) {
@@ -112,9 +112,9 @@ impl LineSegment2D {
     pub fn intersect_line(&self, line: &Line2D) -> Option<Point2D> {
         let tmp = self.line.intersect_line(line)?;
 
-        let a = self.line.get_coordinate(&self.line.p);
-        let b = self.line.get_coordinate(&self.p1);
-        let c = self.line.get_coordinate(&tmp);
+        let a = self.line.get_coordinate(self.line.p);
+        let b = self.line.get_coordinate(self.p1);
+        let c = self.line.get_coordinate(tmp);
 
         // does intersection lie on the first line?
         if (c<a && c<b) || (c>a && c>b) {

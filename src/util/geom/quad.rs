@@ -6,7 +6,7 @@ use super::Point2D;
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Quadrilateral([Point2D; 4]);
+pub(crate) struct Quadrilateral([Point2D; 4]);
 
 #[cfg(feature="compare_reference")]
 impl float_cmp::ApproxEq for Quadrilateral {

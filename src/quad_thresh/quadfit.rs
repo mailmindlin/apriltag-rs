@@ -696,6 +696,7 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 
 	// reject quads that are too small
 	if true {
+		// TODO: swap this calculation with a better triangle-area formula (could eliminate like 7 sqrt ops)
 		#[inline]
 		fn triangle_area(len1: f64, len2: f64, len3: f64) -> f64 {
 			let p = (len1 + len2 + len3) / 2.;
@@ -704,16 +705,16 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 		// println!(" R fit_quad: corners={corners:?}");
 
 		// get area of triangle formed by points 0, 1, 2, 0
-		let len_01 = corners[1].distance_to(&corners[0]);
-		let len_12 = corners[1].distance_to(&corners[2]);
-		let len_20 = corners[2].distance_to(&corners[0]);
+		let len_01 = corners[1].distance_to(corners[0]);
+		let len_12 = corners[1].distance_to(corners[2]);
+		let len_20 = corners[2].distance_to(corners[0]);
 		let area = triangle_area(len_01, len_12, len_20);
 		// println!(" R fit_quad: len01={len_01} len12={len_12} len20={len_20}");
 		// println!(" R fit_quad: area1={area}");
 
 		// get area of triangle formed by points 2, 3, 0, 2
-		let len_23 = corners[2].distance_to(&corners[3]);
-		let len_30 = corners[3].distance_to(&corners[0]);
+		let len_23 = corners[2].distance_to(corners[3]);
+		let len_30 = corners[3].distance_to(corners[0]);
 		let area = area + triangle_area(len_23, len_30, len_20);
 
 		if area < 0.95 * (tag_width as f64)*(tag_width as f64) {
@@ -725,9 +726,9 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 	// reject quads whose cumulative angle change isn't equal to 2PI
 	if true {
 		for i in 0..4 {
-			let corner0 = &corners[i];
-			let corner1 = &corners[(i + 1) % 4];
-			let corner2 = &corners[(i + 2) % 4];
+			let corner0 = corners[i];
+			let corner1 = corners[(i + 1) % 4];
+			let corner2 = corners[(i + 2) % 4];
 
 			let d1 = corner1 - corner0;
 			let d2 = corner2 - corner1;

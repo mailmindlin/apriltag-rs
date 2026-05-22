@@ -71,8 +71,8 @@ impl Poly2D {
         let sz = self.len();
 
         for i in 0..=sz {
-            let p0 = &self[i % sz];
-            let p1 = &self[(i + 1) % sz];
+            let p0 = self[i % sz];
+            let p1 = self[(i + 1) % sz];
 
             let this_theta = p0.angle_to(p1);
 
@@ -130,11 +130,11 @@ impl Poly2D {
         // must have at least 2 points. (XXX need 3?)
         assert!(insz >= 2);
 
-        let pleft = self.0.iter()
+        let &pleft = self.0.iter()
             .min_by(|p, q| f64::total_cmp(&p.x(), &q.x()))
             .unwrap(); // cannot be None since there must be at least one point.
 
-        let mut hull = Poly2D::of(&[*pleft]);
+        let mut hull = Poly2D::of(&[pleft]);
 
         // step 2. gift wrap. Keep searching for points that make the
         // smallest-angle left-hand turn. This implementation is carefully
@@ -151,7 +151,7 @@ impl Poly2D {
             // the right of" the other points. (i.e., every time we find a
             // point that is to the right of our current line, we change
             // lines.)
-            for thisq in self.0.iter() {
+            for &thisq in &self.0 {
                 if thisq == p {
                     continue;
                 }
@@ -193,7 +193,7 @@ impl Poly2D {
 
             // is this new point colinear with the last two?
             if hull.len() > 1 {
-                let o = &hull[hull.len() - 2];
+                let o = hull[hull.len() - 2];
 
                 let e = o - p;
 
@@ -205,9 +205,9 @@ impl Poly2D {
             // if it is colinear, overwrite the last one.
             if colinear {
                 let len = hull.len();
-                hull.0[len - 1] = *q;
+                hull.0[len - 1] = q;
             } else {
-                hull.add(*q);
+                hull.add(q);
             }
 
             p = q;
@@ -217,7 +217,7 @@ impl Poly2D {
     }
 
     // Find point p on the boundary of poly that is closest to q.
-    pub fn closest_boundary_point(&self, q: &Point2D) -> Option<Point2D> {
+    pub fn closest_boundary_point(&self, q: Point2D) -> Option<Point2D> {
         let mut min_dist = f64::INFINITY;
         let mut result = None;
 
@@ -229,7 +229,7 @@ impl Poly2D {
 
             let thisp = seg.closest_point(q);
 
-            let dist = q.distance_to(&thisp);
+            let dist = q.distance_to(thisp);
             if dist < min_dist {
                 result = Some(thisp);
                 min_dist = dist;
@@ -239,7 +239,7 @@ impl Poly2D {
         result
     }
 
-    pub fn contains_point(&self, q: &Point2D) -> bool {
+    pub fn contains_point(&self, q: Point2D) -> bool {
         // use winding. If the point is inside the polygon, we'll wrap
         // around it (accumulating 6.28 radians). If we're outside the
         // polygon, we'll accumulate zero.
@@ -292,7 +292,7 @@ impl Poly2D {
                     0 => {},
                     -2 | 2 => {
                         // get the previous point.
-                        let p0 = &self[i-1];
+                        let p0 = self[i-1];
 
                         // Consider the points p0 and p (the points around the
                         //polygon that we are tracing) and the query point q.
@@ -364,7 +364,7 @@ impl Poly2D {
 
         // if none of the edges cross, then the polygon is either fully
         // contained or fully outside.
-        self.contains_point(&other[0])
+        self.contains_point(other[0])
     }
 
     /// compute a point that is inside the polygon. (It may not be *far* inside though)
@@ -386,13 +386,13 @@ impl Poly2D {
         // if none of the edges cross, then the polygon is either fully
         // contained or fully outside.
         let p = other.get_interior_point();
-        if self.contains_point(&p) {
+        if self.contains_point(p) {
             return true;
         }
 
         let p = self.get_interior_point();
 
-        if other.contains_point(&p) {
+        if other.contains_point(p) {
             return true;
         }
 

@@ -1,4 +1,4 @@
-use std::{iter::Sum, ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub}};
+use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub};
 
 use super::mat::Mat33;
 
@@ -18,7 +18,7 @@ impl Vec3 {
     }
 
     /// Cross product
-    pub fn cross(&self, rhs: &Vec3) -> Self {
+    pub fn cross(self, rhs: Vec3) -> Self {
         Self(
             self.1 * rhs.2 - self.2 * rhs.1,
             self.2 * rhs.0 - self.0 * rhs.2,
@@ -27,7 +27,7 @@ impl Vec3 {
     }
 
     /// Magnitude squared
-    pub fn mag_sq(&self) -> f64 {
+    pub fn mag_sq(self) -> f64 {
         (self.0 * self.0) + (self.1 * self.1) + (self.2 * self.2)
     }
 
@@ -65,12 +65,12 @@ impl Vec3 {
     }
 
     /// Dot product
-    pub fn dot(&self, rhs: &Vec3) -> f64 {
+    pub fn dot(self, rhs: Vec3) -> f64 {
         (self.0 * rhs.0) + (self.1 * rhs.1) + (self.2 * rhs.2)
     }
 
     /// Outer product
-    pub fn outer(&self, rhs: &Vec3) -> Mat33 {
+    pub fn outer(self, rhs: Vec3) -> Mat33 {
         Mat33::of([
             self.0 * rhs.0, self.0 * rhs.1, self.0 * rhs.2,
             self.1 * rhs.0, self.1 * rhs.1, self.1 * rhs.2,

@@ -422,13 +422,13 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 	}
 
 	pub fn draw_line(&mut self, p0: Point2D, p1: Point2D, color: &P, width: usize) where P::Value: Copy {
-		let dist = p0.distance_to(&p1);
+		let dist = p0.distance_to(p1);
 		let delta = 0.5 / dist;
 		let num_steps = f64::ceil(dist * 2.) as usize;
 
 		let color = color.to_value();
 
-		let step = &p0 - &p1;
+		let step = p0 - p1;
 
 		let im_width = self.width();
 		let im_height = self.height();
@@ -436,7 +436,7 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 		// terrible line drawing code
 		for i in 0..num_steps {
 			let f = (i as f64) * delta;
-			let c = &p1 + (step * f);
+			let c = p1 + (step * f);
 			let x = c.x() as isize;
 			let y = c.y() as isize;
 	
