@@ -732,7 +732,12 @@ fn fit_quad_inner(mut cluster: Vec<Pt>, qtp: &AprilTagQuadThreshParams, im: &Ima
 
 			let d1 = corner1 - corner0;
 			let d2 = corner2 - corner1;
-			let cos_dtheta = d1.dot(d2) / f64::sqrt(d1.dot(d1) * d2.dot(d2));
+			let denominator = f64::sqrt(d1.dot(d1) * d2.dot(d2));
+			if denominator == 0. {
+				debugln!(" R fit_quad: \tIgnored (colocated corners)");
+				return None;
+			}
+			let cos_dtheta = d1.dot(d2) / denominator;
 
 			if (cos_dtheta > qtp.cos_critical_rad as f64 || cos_dtheta < -qtp.cos_critical_rad as f64) || (d1.x() * d2.y() < d1.y() * d2.x()) {
 				debugln!(" R fit_quad: \tIgnored (angle)");
