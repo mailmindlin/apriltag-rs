@@ -35,7 +35,7 @@ use crate::ocl::stage4::WrappedUnionFind;
 use crate::quad_thresh::{gradient_clusters, Clusters};
 use crate::quad_thresh::threshold::{self};
 use crate::quad_thresh::unionfind::UnionFind2D;
-use crate::util::image::{ImageWritePNM, ImageRefY8};
+use crate::util::image::ImageRefY8;
 use crate::util::pool::PoolGuard;
 use crate::DetectorBuildError;
 use crate::util::mem::SafeZero;
@@ -359,7 +359,7 @@ impl OpenCLDetector {
 		scope(|s| -> Result<(), OclError> {
 			let last_buf = img_src.buffer.clone();
 
-			fn spawn<'a>(s: Option<&Scope<'a>>, f: impl (FnOnce()) + Send + 'a) {
+			fn spawn<'a>(s: Option<&Scope<'a>>, f: impl FnOnce() + Send + 'a) {
 				s.unwrap().spawn(|_| f());
 			}
 
@@ -474,7 +474,7 @@ impl OpenCLDetector {
 			Ok(())
 		}).expect("Error building kernels");//TODO: forward error
 
-		println!("Made kernels");
+		// println!("Made kernels");
 
 		Ok(Kernels {
 			quad_decimate: kernel_quad_decimate.unwrap()?,
@@ -519,7 +519,7 @@ impl OpenCLDetector {
 			*kb.buffer.event_mut() = Some(evt.clone());
 			Ok(kb.buffer.clone())
 		}
-		println!("Will enqueue");
+		// println!("Will enqueue");
 
 		// let mut last_event = img_src.event();
 		let last_buf = &img_src.buffer;
@@ -538,7 +538,7 @@ impl OpenCLDetector {
 		} else {
 			last_buf.clone()
 		};
-		println!("Enqueued quad_decimate");
+		// println!("Enqueued quad_decimate");
 		let qd_buf = last_buf.clone();
 
 		// Quad Sigma
@@ -550,7 +550,7 @@ impl OpenCLDetector {
 			last_buf
 		};
 		let qs_buf = last_buf.clone();
-		println!("Enqueued quad_sigma");
+		// println!("Enqueued quad_sigma");
 
 		#[cfg(feature="debug")]
 		config.debug_image(debug_images::PREPROCESS, |mut f| {
@@ -608,8 +608,8 @@ impl OpenCLDetector {
 		// UnionFind Init
 		let uf_buf = enqueue_kernel(&mut kernels.unionfind_init, None)?;
 		tp.stamp("ufi enq");
-		println!("Enqueued ufi");
-		#[cfg(feature="debug")]
+		// println!("Enqueued ufi");
+		#[cfg(any(feature="debug", feature="bench"))]
 		let uf0_buf = uf_buf.clone();
 
 		let (uf_buf, db_buf) = {
@@ -627,7 +627,7 @@ impl OpenCLDetector {
 			(uf_buf.with_event(evt.clone()), kernels.connected_components.buffer.with_event(evt))
 		};
 
-		#[cfg(feature="debug")]
+		#[cfg(any(feature="debug", feature="bench"))]
 		let uf1_buf = uf_buf.clone();
 
 		let uf_buf = {
@@ -649,7 +649,7 @@ impl OpenCLDetector {
 		uf_buf.event().unwrap().wait_for().unwrap();
 		tp.stamp("await event");
 
-		let (threshim, mut uf) = rayon::join(
+		let (threshim, uf) = rayon::join(
 			|| self.core.download_image(th_buf).unwrap(),
 			|| {
 				let uf_data = self.core.fetch_ocl_buffer(&uf_buf).unwrap();
@@ -659,7 +659,7 @@ impl OpenCLDetector {
 			}
 		);
 		tp.stamp("Download uf");
-		println!("Enqueued uf");
+		// println!("Enqueued uf");
 
 		// Debug images
 		#[cfg(feature="debug")]
@@ -673,9 +673,9 @@ impl OpenCLDetector {
 
 		let quad_im = self.core.download_image(&last_buf);
 		tp.stamp("download quad_im");
-		println!("Download quad_im");
+		// println!("Download quad_im");
 		let clusters = gradient_clusters(config, &threshim.as_ref(), uf);
-		println!("Grad clusters");
+		// println!("Grad clusters");
 		
 		// let (quad_im, clusters) = rayon::join(
 		//     || self.core.download_image(&last_buf),

@@ -108,7 +108,6 @@ impl<V> LookupTable<V> {
         None
     }
 
-    #[cfg(feature="extra_debug")]
     pub(super) fn stats(&self) -> (f64, usize) {
         let mut longest_run = 0;
         let mut run = 0usize;
