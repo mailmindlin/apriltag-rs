@@ -24,7 +24,7 @@ pub struct GpuDeviceInfo {
 	pub driver: String,
 }
 
-use std::sync::{Mutex, Arc};
+use std::sync::Arc;
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
@@ -129,7 +129,7 @@ fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 				// Prevent overflow
 				let v = ((vorig.to_value() as i16) * 2).saturating_sub(vblur as i16);
 
-				img[(x, y)] = (v.clamp(0, 255) as u8);
+				img[(x, y)] = v.clamp(0, 255) as u8;
 			}
 		}
 	}
