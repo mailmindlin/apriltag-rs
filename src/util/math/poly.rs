@@ -209,4 +209,32 @@ mod test {
         assert_close!(deriv.coefs[0], 2.);
         assert_close!(deriv.coefs[1], 6.);
     }
+
+    #[test]
+    fn solve_linear() {
+        // 2x + 4 = 0 => x = -2
+        let p = Poly::new(&[4., 2.]);
+        let roots = p.solve_approx();
+        assert_eq!(roots.len(), 1);
+        assert_close!(roots[0], -2.);
+    }
+
+    #[test]
+    fn solve_quadratic() {
+        // x^2 - 5x + 6 = 0 => (x-2)(x-3) => x = 2, 3
+        let p = Poly::new(&[6., -5., 1.]);
+        let mut roots = p.solve_approx();
+        roots.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(roots.len(), 2);
+        assert_close!(roots[0], 2.);
+        assert_close!(roots[1], 3.);
+    }
+
+    #[test]
+    fn solve_no_real_roots() {
+        // x^2 + 1 = 0 => no real roots
+        let p = Poly::new(&[1., 0., 1.]);
+        let roots = p.solve_approx();
+        assert_eq!(roots.len(), 0);
+    }
 }
