@@ -79,7 +79,7 @@ impl Poly {
         let der_roots = p_der.solve_approx();
 
         // Go through all possibilities for roots of the polynomial.
-        for i in 0..der_roots.len() {
+        for i in 0..=der_roots.len() {
             let min = if i == 0 {
                 -MAX_ROOT
             } else {
@@ -124,7 +124,7 @@ impl Poly {
                     }
 
                     f = self.eval(root);
-                    df = self.eval(root);
+                    df = p_der.eval(root);
 
                     if f > 0. {
                         upper = root;

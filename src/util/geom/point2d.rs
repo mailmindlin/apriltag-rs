@@ -3,7 +3,7 @@ use std::{ops::{Add, Sub, Neg}, fmt::Debug};
 use crate::util::math::{Vec2, Vec2Builder};
 
 #[derive(Copy, Clone, PartialEq)]
-pub(crate) struct Point2D(Vec2);
+pub struct Point2D(Vec2);
 
 impl Debug for Point2D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

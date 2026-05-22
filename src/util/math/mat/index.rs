@@ -41,7 +41,7 @@ impl MatDims {
     /// Check if the element at `index` is contained within these dimensions
 	#[inline]
 	pub fn contains(&self, index: &MatIndex) -> bool {
-		index.row < self.rows || index.col < self.cols
+		index.row < self.rows && index.col < self.cols
 	}
 
     /// Helper to return an error if index is not [contained](Self::contains) within these dimensions

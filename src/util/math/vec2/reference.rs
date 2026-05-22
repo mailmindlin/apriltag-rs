@@ -5,7 +5,7 @@ use crate::util::math::Vec3;
 use super::{Vec2Builder, FMA};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) struct Vec2(f64, f64);
+pub struct Vec2(f64, f64);
 
 impl Vec2Builder for Vec2 {
     #[inline]

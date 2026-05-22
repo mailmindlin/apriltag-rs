@@ -378,8 +378,8 @@ impl Mat {
 
 				let mut m = Self::zeroes_dim(self.dims).unwrap();
 				m[(0,0)] = self[(1,1)] * invdet;
-				m[(0,1)] = self[(0,1)] * invdet;
-				m[(1,0)] = self[(1,0)] * invdet;
+				m[(0,1)] = -self[(0,1)] * invdet;
+				m[(1,0)] = -self[(1,0)] * invdet;
 				m[(1,1)] = self[(0,0)] * invdet;
 
 				Some(m)
@@ -416,7 +416,7 @@ impl Mat {
 			return Self::scalar(scalar);
 		}
 
-		let mut res = Self::zeroes_dim(self.dims).unwrap();
+		let mut res = Self::zeroes(self.dims.cols, self.dims.rows);
 		for i in 0..self.dims.rows {
 			for j in 0..self.dims.cols {
 				res[(j,i)] = self[(i,j)];
@@ -455,22 +455,26 @@ impl Mat {
 	/// Get element at index
 	pub fn get(&self, idx: MatIndex) -> Result<&MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		Ok(unsafe { self.data.get_unchecked(offset) })
 	}
 
 	/// Mutable [Self::get]
 	pub fn get_mut(&mut self, idx: MatIndex) -> Result<&mut MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		Ok(unsafe { self.data.get_unchecked_mut(offset) })
 	}
 
 	pub unsafe fn get_unchecked(&self, idx: MatIndex) -> &MatElement {
 		let offset = self.dims.compute_offset_unchecked(idx);
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		unsafe { self.data.get_unchecked(offset) }
 	}
 
 	pub unsafe fn get_unchecked_mut(&mut self, idx: MatIndex) -> &mut MatElement {
 		let offset = self.dims.compute_offset_unchecked(idx);
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		unsafe { self.data.get_unchecked_mut(offset) }
 	}
 
@@ -500,10 +504,10 @@ impl Mat {
 	}
 
 	pub fn transpose_matmul(&self, rhs: &Mat) -> Mat {
-		self.transpose().matmul(rhs)
+		self.transpose().matmul_dyn(rhs)
 	}
 
-	pub fn matmul(&self, rhs: &Mat) -> Mat {
+	pub fn matmul_dyn(&self, rhs: &Mat) -> Mat {
 		assert_eq!(self.cols(), rhs.rows(), "Dimension mismatch");
 
 		let mut result = Self::zeroes(self.rows(), rhs.cols());
@@ -523,7 +527,7 @@ impl Mat {
 
 	/// Find the index of the off-diagonal element with the largest magnitude
 	pub fn max_idx(&self, row: usize, maxcol: usize) -> Result<usize, OutOfBoundsError> {
-		self.dims.assert_contains(&MatIndex { row, col: maxcol })?;
+		self.dims.assert_contains(&MatIndex { row, col: maxcol.saturating_sub(1) })?;
 		
 		let mut argmax = 0;
 		let mut max = MatElement::NEG_INFINITY;
