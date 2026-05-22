@@ -175,7 +175,7 @@ impl MatPLU {
             let bstart = self.piv[i] as usize;
             x.data[xstart..xstart+b.cols()].copy_from_slice(&b.data[bstart..bstart+b.cols()]);
         }
-    
+
         // solve Ly = b
         for k in 0..self.lu.rows() {
             for i in (k+1)..self.lu.rows() {
@@ -185,14 +185,14 @@ impl MatPLU {
                 }
             }
         }
-    
+
         // solve Ux = y
         for k in (0..self.lu.cols()).rev() {
             let LUkk = self.lu[(k,k)].recip();
             for t in 0..b.cols() {
                 x[(k,t)] *= LUkk;
             }
-    
+
             for i in 0..k {
                 let LUik = -self.lu[(i,k)];
                 for t in 0..b.cols() {
@@ -200,7 +200,67 @@ impl MatPLU {
                 }
             }
         }
-    
+
         x
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Mat;
+
+    const EPS: f64 = 1e-8;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} != {b}");
+    }
+
+    fn assert_mat_close(a: &Mat, b: &Mat) {
+        assert_eq!(a.rows(), b.rows());
+        assert_eq!(a.cols(), b.cols());
+        for i in 0..a.rows() {
+            for j in 0..a.cols() {
+                assert_close(a[(i,j)], b[(i,j)]);
+            }
+        }
+    }
+
+    fn test_matrix() -> Mat {
+        Mat::create(3, 3, &[
+            2., 1., 1.,
+            4., 3., 3.,
+            8., 7., 9.,
+        ])
+    }
+
+    #[test]
+    fn plu_factors() {
+        let a = test_matrix();
+        let plu = a.plu();
+        let p = plu.p();
+        let l = plu.lower();
+        let u = plu.upper();
+        // P * A = L * U  =>  A = P^T * L * U
+        // But our P is constructed so that P^T * L * U = A
+        let lu = l.matmul_dyn(&u);
+        let pt_lu = p.transpose().matmul_dyn(&lu);
+        assert_mat_close(&pt_lu, &a);
+    }
+
+    #[test]
+    fn plu_det() {
+        let a = test_matrix();
+        let plu = a.plu();
+        assert_close(plu.det(), a.det());
+    }
+
+    #[test]
+    fn plu_solve() {
+        let a = test_matrix();
+        let b = Mat::create(3, 1, &[1., 2., 3.]);
+        let plu = a.plu();
+        let x = plu.solve(&b);
+        let ax = a.matmul_dyn(&x);
+        assert_mat_close(&ax, &b);
     }
 }
