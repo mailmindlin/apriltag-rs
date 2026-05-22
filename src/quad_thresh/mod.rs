@@ -56,7 +56,7 @@ pub struct AprilTagQuadThreshParams {
 impl Default for AprilTagQuadThreshParams {
 	fn default() -> Self {
 		Self {
-			min_cluster_pixels: 5,
+			min_cluster_pixels: 24,
 			max_nmaxima: 10,
 			cos_critical_rad: (10. * f64c::PI / 180.).cos() as f32,
 			max_line_fit_mse: 10.,
