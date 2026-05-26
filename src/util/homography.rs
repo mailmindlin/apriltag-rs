@@ -112,6 +112,99 @@ static void matrix_to_quat(const matd_t *R, double q[4])
 }
 */
 
+#[cfg(test)]
+mod test {
+    use super::homography_to_model_view;
+    use crate::util::math::mat::Mat;
+
+    const EPS: f64 = 1e-10;
+    const ROT_EPS: f64 = 1e-6;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} ≉ {b} (diff={})", (a - b).abs());
+    }
+
+    fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+        a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+    }
+
+    fn col(mv: &Mat, c: usize) -> [f64; 3] {
+        [mv[(0, c)], mv[(1, c)], mv[(2, c)]]
+    }
+
+    // Tag at z=-d directly in front: H = diag(F, G, 1), no rotation.
+    #[test]
+    fn identity_pose_rotation_is_identity() {
+        let h = Mat::create(3, 3, &[100., 0., 0., 0., 100., 0., 0., 0., 1.]);
+        let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
+
+        assert_close(mv[(0, 0)], 1.); assert_close(mv[(0, 1)], 0.); assert_close(mv[(0, 2)], 0.);
+        assert_close(mv[(1, 0)], 0.); assert_close(mv[(1, 1)], 1.); assert_close(mv[(1, 2)], 0.);
+        assert_close(mv[(2, 0)], 0.); assert_close(mv[(2, 1)], 0.); assert_close(mv[(2, 2)], 1.);
+    }
+
+    #[test]
+    fn identity_pose_translation() {
+        let h = Mat::create(3, 3, &[100., 0., 0., 0., 100., 0., 0., 0., 1.]);
+        let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
+        // No lateral translation
+        assert_close(mv[(0, 3)], 0.);
+        assert_close(mv[(1, 3)], 0.);
+        // Tag is in front of camera: TZ < 0
+        assert!(mv[(2, 3)] < 0., "TZ should be negative (tag in front), got {}", mv[(2, 3)]);
+    }
+
+    // For any valid homography the recovered rotation columns should be unit length
+    // and mutually orthogonal (columns 0 and 1 by construction; col 2 via cross product).
+    #[test]
+    fn rotation_columns_orthonormal() {
+        // Valid H: 15° yaw around Y, tag at z=-1, F=G=100, no skew.
+        // H = K*[r1,r2,t]: r1=[cos15,0,-sin15], r2=[0,1,0], t=[0,0,-1], K=diag(100,100,1)
+        let c = 15f64.to_radians().cos();
+        let s = 15f64.to_radians().sin();
+        let h = Mat::create(3, 3, &[
+            100.*c, 0., 0.,
+            0.,     100., 0.,
+            -s,     0., -1.,
+        ]);
+        let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
+
+        let r0 = col(&mv, 0);
+        let r1 = col(&mv, 1);
+        let r2 = col(&mv, 2);
+
+        assert!((dot3(r0, r0) - 1.).abs() < ROT_EPS, "col0 not unit: {}", dot3(r0, r0));
+        assert!((dot3(r1, r1) - 1.).abs() < ROT_EPS, "col1 not unit: {}", dot3(r1, r1));
+        assert!((dot3(r2, r2) - 1.).abs() < ROT_EPS, "col2 not unit: {}", dot3(r2, r2));
+        assert!(dot3(r0, r1).abs() < ROT_EPS, "col0 and col1 not orthogonal");
+        assert!(dot3(r0, r2).abs() < ROT_EPS, "col0 and col2 not orthogonal");
+        assert!(dot3(r1, r2).abs() < ROT_EPS, "col1 and col2 not orthogonal");
+    }
+
+    #[test]
+    fn last_row_is_homogeneous() {
+        let h = Mat::create(3, 3, &[100., 0., 0., 0., 100., 0., 0., 0., 1.]);
+        let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
+        assert_close(mv[(3, 0)], 0.);
+        assert_close(mv[(3, 1)], 0.);
+        assert_close(mv[(3, 2)], 0.);
+        assert_close(mv[(3, 3)], 1.);
+    }
+
+    // Sign convention: TZ must be negative (tag in front of camera).
+    #[test]
+    fn tz_negative_for_tag_in_front() {
+        // Homography with non-trivial rotation still has tag in front
+        let h = Mat::create(3, 3, &[
+            80., -10., 5.,
+            15., 95.,  2.,
+            0.05, -0.03, 1.,
+        ]);
+        let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
+        assert!(mv[(2, 3)] < 0., "TZ should be negative, got {}", mv[(2, 3)]);
+    }
+}
+
 /// overwrites upper 3x3 area of matrix M. Doesn't touch any other elements of M.
 fn quat_to_matrix(q: &[f64; 4], M: &mut Mat) {
     let w = q[0];

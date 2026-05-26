@@ -124,3 +124,127 @@ impl LineSegment2D {
         Some(tmp)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::{Line2D, LineSegment2D};
+    use crate::util::geom::Point2D;
+
+    const EPS: f64 = 1e-10;
+
+    fn pt(x: f64, y: f64) -> Point2D { Point2D::of(x, y) }
+
+    fn assert_pt_close(a: Point2D, b: Point2D) {
+        assert!((a.x() - b.x()).abs() < EPS && (a.y() - b.y()).abs() < EPS,
+            "expected {:?}, got {:?}", b, a);
+    }
+
+    // --- Line2D::intersect_line ---
+
+    #[test]
+    fn intersect_line_basic() {
+        // horizontal y=0 and vertical x=0.5 → intersect at (0.5, 0)
+        let h = Line2D::from_points(pt(0., 0.), pt(1., 0.));
+        let v = Line2D::from_points(pt(0.5, -1.), pt(0.5, 1.));
+        let p = h.intersect_line(&v).expect("lines should intersect");
+        assert_pt_close(p, pt(0.5, 0.));
+    }
+
+    #[test]
+    fn intersect_line_diagonal() {
+        // y=x and y=2-x → intersect at (1, 1)
+        let l1 = Line2D::from_points(pt(0., 0.), pt(2., 2.));
+        let l2 = Line2D::from_points(pt(0., 2.), pt(2., 0.));
+        let p = l1.intersect_line(&l2).expect("lines should intersect");
+        assert_pt_close(p, pt(1., 1.));
+    }
+
+    #[test]
+    fn intersect_line_parallel_returns_none() {
+        let l1 = Line2D::from_points(pt(0., 0.), pt(1., 0.));
+        let l2 = Line2D::from_points(pt(0., 1.), pt(1., 1.));
+        assert!(l1.intersect_line(&l2).is_none());
+    }
+
+    #[test]
+    fn intersect_line_symmetric() {
+        // intersection of A with B == intersection of B with A
+        let l1 = Line2D::from_points(pt(0., 0.), pt(3., 1.));
+        let l2 = Line2D::from_points(pt(1., 0.), pt(0., 3.));
+        let p1 = l1.intersect_line(&l2).unwrap();
+        let p2 = l2.intersect_line(&l1).unwrap();
+        assert_pt_close(p1, p2);
+    }
+
+    // --- LineSegment2D::closest_point ---
+
+    #[test]
+    fn closest_point_projects_to_interior() {
+        let seg = LineSegment2D::from_points(pt(0., 0.), pt(2., 0.));
+        let q = pt(1., 5.);
+        assert_pt_close(seg.closest_point(q), pt(1., 0.));
+    }
+
+    #[test]
+    fn closest_point_clamped_to_start() {
+        let seg = LineSegment2D::from_points(pt(0., 0.), pt(2., 0.));
+        assert_pt_close(seg.closest_point(pt(-3., 1.)), pt(0., 0.));
+    }
+
+    #[test]
+    fn closest_point_clamped_to_end() {
+        let seg = LineSegment2D::from_points(pt(0., 0.), pt(2., 0.));
+        assert_pt_close(seg.closest_point(pt(5., 1.)), pt(2., 0.));
+    }
+
+    #[test]
+    fn closest_point_reversed_segment() {
+        // Segment stored in reverse order should still clamp correctly
+        let seg = LineSegment2D::from_points(pt(2., 0.), pt(0., 0.));
+        assert_pt_close(seg.closest_point(pt(1., 7.)), pt(1., 0.));
+        assert_pt_close(seg.closest_point(pt(-1., 7.)), pt(0., 0.));
+        assert_pt_close(seg.closest_point(pt(5., 7.)), pt(2., 0.));
+    }
+
+    // --- LineSegment2D::intersect_segment ---
+
+    #[test]
+    fn intersect_segment_crossing() {
+        // X-crossing: (0,0)-(1,1) and (0,1)-(1,0)
+        let s1 = LineSegment2D::from_points(pt(0., 0.), pt(1., 1.));
+        let s2 = LineSegment2D::from_points(pt(0., 1.), pt(1., 0.));
+        let p = s1.intersect_segment(&s2).expect("segments cross");
+        assert_pt_close(p, pt(0.5, 0.5));
+    }
+
+    #[test]
+    fn intersect_segment_t_shape() {
+        // T: (0,1)-(2,1) crossed by (1,0)-(1,1) at exactly (1,1)
+        let horiz = LineSegment2D::from_points(pt(0., 1.), pt(2., 1.));
+        let vert  = LineSegment2D::from_points(pt(1., 0.), pt(1., 1.));
+        assert!(horiz.intersect_segment(&vert).is_some());
+    }
+
+    #[test]
+    fn intersect_segment_miss_parallel() {
+        let s1 = LineSegment2D::from_points(pt(0., 0.), pt(1., 0.));
+        let s2 = LineSegment2D::from_points(pt(0., 1.), pt(1., 1.));
+        assert!(s1.intersect_segment(&s2).is_none());
+    }
+
+    #[test]
+    fn intersect_segment_miss_collinear_gap() {
+        // Same line, non-overlapping
+        let s1 = LineSegment2D::from_points(pt(0., 0.), pt(1., 0.));
+        let s2 = LineSegment2D::from_points(pt(2., 0.), pt(3., 0.));
+        assert!(s1.intersect_segment(&s2).is_none());
+    }
+
+    #[test]
+    fn intersect_segment_lines_cross_but_segments_miss() {
+        // Lines y=x and y=2-x cross at (1,1), but segments don't reach it
+        let s1 = LineSegment2D::from_points(pt(0., 0.), pt(0.5, 0.5));
+        let s2 = LineSegment2D::from_points(pt(0., 2.), pt(0.5, 1.5));
+        assert!(s1.intersect_segment(&s2).is_none());
+    }
+}

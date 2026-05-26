@@ -426,6 +426,184 @@ impl Poly2D {
 }
 
 
+#[cfg(test)]
+mod test {
+    use super::Poly2D;
+    use crate::util::geom::Point2D;
+
+    fn pt(x: f64, y: f64) -> Point2D { Point2D::of(x, y) }
+
+    // Shoelace signed area: positive = CCW
+    fn signed_area(poly: &Poly2D) -> f64 {
+        let n = poly.len();
+        let mut area = 0f64;
+        for i in 0..n {
+            let p0 = poly[i];
+            let p1 = poly[(i + 1) % n];
+            area += p0.x() * p1.y() - p1.x() * p0.y();
+        }
+        area / 2.
+    }
+
+    // Unit square in CCW order
+    fn ccw_square() -> Poly2D {
+        Poly2D::of(&[pt(0., 0.), pt(1., 0.), pt(1., 1.), pt(0., 1.)])
+    }
+
+    // Unit square in CW order
+    fn cw_square() -> Poly2D {
+        Poly2D::of(&[pt(0., 0.), pt(0., 1.), pt(1., 1.), pt(1., 0.)])
+    }
+
+    // --- contains_point ---
+
+    #[test]
+    fn contains_point_inside() {
+        let poly = ccw_square();
+        assert!(poly.contains_point(pt(0.5, 0.5)));
+    }
+
+    #[test]
+    fn contains_point_outside() {
+        let poly = ccw_square();
+        assert!(!poly.contains_point(pt(2., 0.5)));
+        assert!(!poly.contains_point(pt(0.5, 2.)));
+        assert!(!poly.contains_point(pt(-1., 0.5)));
+    }
+
+    #[test]
+    fn contains_point_triangle() {
+        // Triangle (0,0),(4,0),(2,3)
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        assert!(tri.contains_point(pt(2., 1.)));   // centroid
+        assert!(!tri.contains_point(pt(0., 3.)));   // outside
+    }
+
+    #[test]
+    fn contains_point_concave() {
+        // L-shaped polygon (CCW)
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(2., 0.), pt(2., 1.),
+            pt(1., 1.), pt(1., 2.), pt(0., 2.),
+        ]);
+        assert!(poly.contains_point(pt(0.5, 0.5)));  // bottom-left
+        assert!(poly.contains_point(pt(0.5, 1.5)));  // top-left
+        assert!(!poly.contains_point(pt(1.5, 1.5))); // notch
+    }
+
+    // --- make_ccw ---
+
+    #[test]
+    fn make_ccw_already_ccw_unchanged() {
+        let mut poly = ccw_square();
+        let area_before = signed_area(&poly);
+        poly.make_ccw();
+        let area_after = signed_area(&poly);
+        assert!(area_after > 0., "should stay CCW");
+        assert!((area_before - area_after).abs() < 1e-10, "area should not change");
+    }
+
+    #[test]
+    fn make_ccw_reverses_cw() {
+        let mut poly = cw_square();
+        assert!(signed_area(&poly) < 0., "should start CW");
+        poly.make_ccw();
+        assert!(signed_area(&poly) > 0., "should become CCW");
+    }
+
+    #[test]
+    fn make_ccw_idempotent() {
+        let mut poly = cw_square();
+        poly.make_ccw();
+        let first = (0..poly.len()).map(|i| (poly[i].x(), poly[i].y())).collect::<Vec<_>>();
+        poly.make_ccw();
+        let second = (0..poly.len()).map(|i| (poly[i].x(), poly[i].y())).collect::<Vec<_>>();
+        assert_eq!(first, second, "make_ccw applied twice should be a no-op");
+    }
+
+    // --- convex_hull ---
+
+    #[test]
+    fn convex_hull_triangle_is_itself() {
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        let hull = tri.convex_hull();
+        assert_eq!(hull.len(), 3);
+        // All hull points are from the original
+        let orig: Vec<_> = (0..tri.len()).map(|i| (tri[i].x(), tri[i].y())).collect();
+        for i in 0..hull.len() {
+            let hp = (hull[i].x(), hull[i].y());
+            assert!(orig.contains(&hp), "hull point {:?} not in original", hp);
+        }
+    }
+
+    #[test]
+    fn convex_hull_excludes_interior_point() {
+        // Square corners + interior point: hull should be 4 points
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(1., 0.), pt(1., 1.), pt(0., 1.), pt(0.5, 0.5),
+        ]);
+        let hull = poly.convex_hull();
+        // Interior point should not appear in hull
+        let hull_pts: Vec<_> = (0..hull.len()).map(|i| (hull[i].x(), hull[i].y())).collect();
+        assert!(!hull_pts.contains(&(0.5, 0.5)), "interior point should not be in hull");
+        assert_eq!(hull.len(), 4);
+    }
+
+    #[test]
+    fn convex_hull_all_points_inside_or_on_boundary() {
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(3., 0.), pt(3., 3.), pt(0., 3.),
+            pt(1., 1.), pt(2., 1.), pt(1., 2.), // interior points
+        ]);
+        let hull = poly.convex_hull();
+        for i in 0..poly.len() {
+            let q = poly[i];
+            // each point is either on the hull boundary or inside the hull
+            let on_boundary = hull.closest_boundary_point(q)
+                .map(|p| q.distance_to(p) < 1e-9)
+                .unwrap_or(false);
+            assert!(on_boundary || hull.contains_point(q),
+                "point {:?} is neither inside nor on boundary of hull", q);
+        }
+    }
+
+    #[test]
+    fn convex_hull_is_ccw() {
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(3., 0.), pt(3., 3.), pt(0., 3.), pt(1.5, 1.5),
+        ]);
+        let hull = poly.convex_hull();
+        assert!(signed_area(&hull) > 0., "convex hull should be CCW");
+    }
+
+    // --- rasterize ---
+
+    #[test]
+    fn rasterize_unit_square() {
+        let poly = ccw_square();
+        let xs = poly.rasterize(0.5);
+        assert_eq!(xs.len(), 2);
+        assert!((xs[0] - 0.).abs() < 1e-9);
+        assert!((xs[1] - 1.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rasterize_above_polygon_empty() {
+        let poly = ccw_square();
+        let xs = poly.rasterize(2.0);
+        assert!(xs.is_empty());
+    }
+
+    #[test]
+    fn rasterize_sorted() {
+        // Triangle: (0,0),(4,0),(2,3). At y=1 should give two crossings in sorted order.
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        let xs = tri.rasterize(1.0);
+        assert_eq!(xs.len(), 2);
+        assert!(xs[0] <= xs[1], "x values should be sorted");
+    }
+}
+
 // Compute the crossings of the polygon along line y, storing them in
 // the array x. X must be allocated to be at least as long as
 // poly.len(). X will be sorted, ready for
