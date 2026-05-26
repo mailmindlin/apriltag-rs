@@ -143,7 +143,8 @@ impl QuickDecode {
 			}
 		}
 	
-        
+
+		#[cfg_attr(not(feature = "extra_debug"), expect(unused))]
 		if debug_enabled() {
 			use datasize::data_size;
 			debugln!("quick decode: capacity {}, size {:.0} kB", capacity, data_size(&qd.table) as f64 / 1024.0);
