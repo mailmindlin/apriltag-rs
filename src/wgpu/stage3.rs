@@ -333,7 +333,11 @@ impl GpuStage for GpuThreshim {
 
 		ctx.cpass.set_bind_group(1, bg_threshim, &[]);
 		ctx.cpass.set_pipeline(&self.threshim.0);
-		ctx.cpass.dispatch_workgroups(src.width() as u32, src.height() as u32, 1);
+		ctx.cpass.dispatch_workgroups(
+			(src.width() as u32).div_ceil(TILESZ as u32),
+			(src.height() as u32).div_ceil(TILESZ as u32),
+			1,
+		);
 
 		#[cfg(feature="debug")]
 		if ctx.config.debug() {
