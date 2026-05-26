@@ -292,8 +292,11 @@ impl GpuContext {
 	}
 
 	pub(super) fn make_queries(&self, count: u32) -> GpuTimestampQueries {
-		if self.device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-			GpuTimestampQueries::new(self, count as _).unwrap()
+		let features = self.device.features();
+		if features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES) {
+			GpuTimestampQueries::new_inside_passes(self, count as _).unwrap()
+		} else if features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS) {
+			GpuTimestampQueries::new_inside_encoders(self, count as _).unwrap()
 		} else {
 			GpuTimestampQueries::empty()
 		}

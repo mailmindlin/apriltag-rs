@@ -217,9 +217,10 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         
         // Debug features
         if config.debug() || cfg!(feature="bench") {
-            // request_features |= Features::TIMESTAMP_QUERY | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | Features::PIPELINE_STATISTICS_QUERY;
-            request_features |= Features::TIMESTAMP_QUERY | Features::PIPELINE_STATISTICS_QUERY;
-            request_features |= Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+            request_features |= Features::TIMESTAMP_QUERY
+                | Features::TIMESTAMP_QUERY_INSIDE_PASSES
+                | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
+                | Features::PIPELINE_STATISTICS_QUERY;
         }
 
         // Enable MAPPABLE_PRIMARY_BUFFERS for iGPUs
