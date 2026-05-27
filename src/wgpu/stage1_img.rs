@@ -19,6 +19,7 @@ pub(super) enum GpuQuadDecimate {
 	ThreeHalves {
 		local_dims: (u32, u32),
 		args_bgl: wgpu::BindGroupLayout,
+		sampler: wgpu::Sampler,
 		compute_pipeline: wgpu::ComputePipeline,
 	},
 }
@@ -65,6 +66,12 @@ impl GpuQuadDecimate {
 				wgpu::BindGroupLayoutEntry {
 					binding: 1,
 					visibility: wgpu::ShaderStages::COMPUTE,
+					ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+					count: None,
+				},
+				wgpu::BindGroupLayoutEntry {
+					binding: 2,
+					visibility: wgpu::ShaderStages::COMPUTE,
 					ty: wgpu::BindingType::StorageTexture {
 						access: wgpu::StorageTextureAccess::WriteOnly,
 						format: wgpu::TextureFormat::R8Uint,
@@ -89,9 +96,25 @@ impl GpuQuadDecimate {
 			entry_point: "main",
 		}).await?;
 
+		let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: Some("quad_decimate->sampler32"),
+			address_mode_u: wgpu::AddressMode::MirrorRepeat,
+			address_mode_v: wgpu::AddressMode::MirrorRepeat,
+			address_mode_w: wgpu::AddressMode::MirrorRepeat,
+			mag_filter: wgpu::FilterMode::Nearest,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+			lod_min_clamp: 0.,
+			lod_max_clamp: 32.,
+			compare: None,
+			anisotropy_clamp: 1,
+			border_color: None,
+		});
+
 		Ok(Self::ThreeHalves {
 			local_dims,
 			args_bgl,
+			sampler,
 			compute_pipeline,
 		})
 	}
@@ -203,7 +226,7 @@ impl GpuStage for GpuQuadDecimate {
 
 				(dst, local_width, local_height)
 			},
-			Self::ThreeHalves { local_dims, args_bgl, compute_pipeline } => {
+			Self::ThreeHalves { local_dims, args_bgl, sampler, compute_pipeline } => {
 				let swidth = src.width() / 3 * 2;
 				let sheight = src.height() / 3 * 2;
 				assert_eq!(swidth % 2, 0, "Output dimension must be multiple of two");
@@ -221,6 +244,10 @@ impl GpuStage for GpuQuadDecimate {
 						},
 						BindGroupEntry {
 							binding: 1,
+							resource: wgpu::BindingResource::Sampler(&sampler),
+						},
+						BindGroupEntry {
+							binding: 2,
 							resource: wgpu::BindingResource::TextureView(&dst.as_view()),
 						},
 					],
