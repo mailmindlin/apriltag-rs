@@ -31,18 +31,18 @@ use self::stage4_bke::GpuBke;
 use self::util::{GpuPixel, GpuTexture, GpuBuffer2, GpuTextureY8, GpuImageDownload, GpuStage, GpuBuffer1, GpuBufferFetch, GpuImageLike, GpuTimestampQueries, GpuContext};
 pub use self::error::{WgpuDetectError, WgpuBuildError};
 
-struct GpuStageContext<'a> {
-	pub(super) context: &'a GpuContext,
-	pub(super) tp: &'a mut TimeProfile,
-	pub(super) config: &'a DetectorConfig,
+struct GpuStageContext<'params, 'pass> {
+	pub(super) context: &'params GpuContext,
+	pub(super) tp: &'params mut TimeProfile,
+	pub(super) config: &'params DetectorConfig,
 	pub(super) next_read: bool,
 	pub(super) next_align: usize,
-	pub(super) cpass: ComputePass<'a>,
+	pub(super) cpass: ComputePass<'pass>,
 	pub(super) stage_name: Option<&'static str>,
-	pub(super) queries: &'a mut GpuTimestampQueries,
+	pub(super) queries: &'params mut GpuTimestampQueries,
 }
 
-impl<'a> GpuStageContext<'a> {
+impl<'params, 'pass> GpuStageContext<'params, 'pass> {
 	fn device(&self) -> &wgpu::Device {
 		&self.context.device
 	}
