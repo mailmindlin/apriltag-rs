@@ -27,14 +27,14 @@ fn load_image(path: &Path) -> io::Result<ImageRGB8> {
     let reader = ImageReader::open(path)?;
     let image = reader.decode().unwrap().into_rgb8();
 
-    let mut result = ImageRGB8::new(image.width() as usize, image.height() as usize);
+    let mut result = ImageRGB8::zeroed(image.width() as usize, image.height() as usize);
     for (x, y, value) in image.enumerate_pixels() {
         result[(x as usize, y as usize)] = value.0;
     }
     Ok(result)
 }
 
-#[cfg(feature="dep:opencv")]
+#[cfg(feature="opencv")]
 fn show_opencv(img: ImageRGB8) {
     use opencv::prelude::*;
     use opencv::core::*;
@@ -68,12 +68,21 @@ fn main() {
         for ((x, y), px2) in img2.enumerate_pixels() {
             let [r1, g1, b1] = img[(x, y)].to_value();
             let [r2, g2, b2] = px2.to_value();
-            let mut rgb = [r1.abs_diff(r2), g1.abs_diff(g2), b1.abs_diff(b2)];
+            let rgb = [r1.abs_diff(r2), g1.abs_diff(g2), b1.abs_diff(b2)];
             different |= rgb != [0,0,0];
-            if rgb != [0,0,0] {
+            let rgb = if rgb != [0,0,0] {
                 println!("Different at {:?}", (x, y));
-                rgb[0] = 255;
-            }
+                // rgb[0] = 255;
+                let s = ((r2 as i16) - (r1 as i16)) + ((g2 as i16) - (g1 as i16)) + ((b2 as i16) - (b1 as i16));
+                if s > 0 {
+                    [r1, 0, 0]
+                } else {
+                    [0, g2, 0]
+                }
+            } else {
+                // [r1, g2, 0]
+                [0,0,0]
+            };
             img[(x, y)] = rgb;
         }
         println!("Different: {different}");
@@ -92,6 +101,6 @@ fn main() {
         }
     }
 
-    #[cfg(feature="dep:opencv")]
+    #[cfg(feature="opencv")]
     show_opencv(img);
 }

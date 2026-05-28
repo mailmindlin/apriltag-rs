@@ -1,4 +1,4 @@
-use std::{time::{Instant, Duration}, collections::HashMap, fmt::Display};
+use std::{time::{Instant, Duration}, collections::HashMap, fmt::Display, borrow::Cow};
 
 /// Tracks statistics of multiple time profiles
 #[derive(Default)]
@@ -11,22 +11,21 @@ pub struct TimeProfileStatistics {
 
 impl TimeProfileStatistics {
     pub fn add(&mut self, tp: &TimeProfile) {
-        let mut last_time = tp.now;
+        let mut last_time = tp.start();
         for stamp in tp.stamps.iter() {
-            let duration = stamp.timestamp - last_time;
-            last_time = stamp.timestamp;
-            match self.values.entry(stamp.name.clone()) {
+            let name = stamp.name();
+
+            let duration = stamp.wall - last_time;
+            last_time = stamp.wall;
+            
+            match self.values.entry(name.into()) {
                 std::collections::hash_map::Entry::Occupied(mut e) => e.get_mut().push(duration),
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(Vec::new()).push(duration);
-                    self.keys.push(stamp.name.clone());
+                    self.keys.push(name.into());
                 },
             }
         }
-    }
-
-    pub fn display(&self) {
-        print!("{self}");
     }
 }
 
@@ -67,10 +66,15 @@ impl Display for TimeProfileStatistics {
         Ok(())
     }
 }
-#[derive(Clone)]
-pub struct TimeProfile {
-    now: Instant,
 
+/// Records 
+#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs"))]
+#[derive(Clone, Debug)]
+pub struct TimeProfile {
+    /// Start timestamp
+    now: Instant,
+	now_proc: Option<cpu_time::ProcessTime>,
+    /// Named timestamps
     stamps: Vec<TimeProfileEntry>,
 }
 
@@ -78,17 +82,19 @@ impl Default for TimeProfile {
     fn default() -> Self {
         Self {
             now: Instant::now(),
+			now_proc: cpu_time::ProcessTime::try_now().ok(),
             stamps: Default::default(),
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct TimeProfileEntry {
     /// Entry name
-    name: String,
+    name: Cow<'static, str>,
     /// Entry timestamp
-    timestamp: Instant,
+    wall: Instant,
+	proc: Option<cpu_time::ProcessTime>,
 }
 
 impl TimeProfileEntry {
@@ -96,14 +102,22 @@ impl TimeProfileEntry {
         &self.name
     }
     pub(crate) fn timestamp(&self) -> &Instant {
-        &self.timestamp
+        &self.wall
     }
 }
 
 impl TimeProfile {
     /// Get start time
-    pub(crate) fn start(&self) -> &Instant {
-        &self.now
+    pub(crate) fn start(&self) -> Instant {
+        self.now
+    }
+
+    pub(crate) fn set_start(&mut self, value: Instant) {
+        self.now = value;
+        #[cfg(debug_assertions)]
+        if let Some(first_entry) = self.stamps.first() {
+            assert!(first_entry.wall >= value);
+        }
     }
 
     /// Clear all records
@@ -112,12 +126,27 @@ impl TimeProfile {
         self.now = Instant::now();
     }
 
-    /// Record a timestamp
+    /// Record a timestamp right now
     #[inline]
-    pub fn stamp(&mut self, name: &str) {
+    pub fn stamp(&mut self, name: impl Into<Cow<'static, str>>) {
+        let name = name.into();
+        let timestamp = Instant::now();
+		let proc = cpu_time::ProcessTime::try_now().ok();
+        self.stamp_at_inner(name, timestamp, proc)
+    }
+
+    /// Mark a specific time
+    pub fn stamp_at(&mut self, name: impl Into<Cow<'static, str>>, timestamp: Instant) {
+        let name = name.into();
+        self.stamp_at_inner(name, timestamp, None);
+    }
+
+    #[inline]
+    fn stamp_at_inner(&mut self, name: Cow<'static, str>, timestamp: Instant, proc: Option<cpu_time::ProcessTime>) {
         let entry = TimeProfileEntry {
-            name: String::from(name),
-            timestamp: Instant::now(),
+            name,
+            wall: timestamp,
+			proc,
         };
 
         self.stamps.push(entry);
@@ -133,7 +162,7 @@ impl TimeProfile {
         let first = stamps.first().unwrap();
         let last = stamps.last().unwrap();
 
-        last.timestamp - first.timestamp
+        last.wall - first.wall
     }
 
     pub(crate) fn entries(&self) -> &[TimeProfileEntry] {
@@ -143,29 +172,60 @@ impl TimeProfile {
 
 impl Display for TimeProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut last_time = self.now;
-
-        let mut i = 0;
-
         let stamps = &self.stamps;
+
+        // Find maximums for scaling output
         let max_name_length = stamps.iter()
             .map(|stamp| stamp.name.len())
             .max()
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max(1);
 
-        let total_time = stamps.last()
-            .map(|stamp| stamp.timestamp - self.now)
-            .unwrap_or(Duration::ZERO);
+        let total_time = match stamps.last() {
+            Some(last_stamp) => last_stamp.wall - self.now,
+            None => Duration::ZERO,
+        };
 
-        for stamp in stamps.iter() {
-            let cumtime = stamp.timestamp - self.now;
+		let total_proc =  stamps.iter().rev()
+			.find_map(|stamp| stamp.proc)
+			;
 
-            let parttime = stamp.timestamp - last_time;
+		if f.alternate() {
+			write!(f, "{:>2} {:width$} {:>12} ms {:>12} ms {:>4}", "#", "Name", "Wall", "Wall (cum)", "%", width=max_name_length)?;
+			if total_proc.is_some() {
+				write!(f, " {:>12} ms {:>4}", "Proc", "P%")?;
+			}
+			writeln!(f)?;
+		}
+        let mut last_time = self.now;
+		let mut last_proc = self.now_proc;
+        for (i, stamp) in stamps.iter().enumerate() {
+            let cumtime = stamp.wall - self.now;
 
-            writeln!(f, "{:2} {:0width$} {:12.6} ms {:12.6} ms {:3.0}%", i, stamp.name, parttime.as_secs_f64() * 1000., cumtime.as_secs_f64() * 1000., 100. * parttime.as_secs_f64() / total_time.as_secs_f64(), width=max_name_length)?;
+            let parttime = stamp.wall - last_time;
 
-            i += 1;
-            last_time = stamp.timestamp;
+            write!(f, "{:2} {:0width$} {:12.6} ms {:12.6} ms {:3.0}%",
+                i,
+                stamp.name,
+                parttime.as_secs_f64() * 1000.,
+                cumtime.as_secs_f64() * 1000.,
+                100. * parttime.as_secs_f64() / total_time.as_secs_f64(),
+                width=max_name_length
+            )?;
+			
+			if let Some(proc) = stamp.proc {
+				if let Some(last_proc_) = last_proc {
+					let proc_part = proc.duration_since(last_proc_);
+					write!(f, " {:12.6} ms",
+						proc_part.as_secs_f64() * 1000.,
+					)?;
+				}
+				last_proc = stamp.proc;
+			}
+
+			writeln!(f)?;
+
+            last_time = stamp.wall;
         }
         Ok(())
     }

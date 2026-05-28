@@ -1,20 +1,41 @@
 #![cfg(feature="debug")]
 
-use rand::thread_rng;
+use rand::{rngs::StdRng, SeedableRng};
 
-use crate::{util::{ImageY8, image::{ImageWritePNM, pixel::PixelConvert}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
+use crate::{util::{ImageY8, image::{ImageWritePNM, pixel::PixelConvert, ImageDimensions}, color::RandomColor}, quad_decode::Quad, AprilTagDetection};
 use std::fs::File;
 #[cfg(feature="debug_ps")]
 use crate::util::image::{PostScriptWriter, ImageWritePostscript, VectorPathWriter};
+
+
+macro_rules! std_hash_u64 {
+	() => {
+		{
+			let mut hasher = std::collections::hash_map::DefaultHasher::default();
+			std::hash::Hash::hash(file!(), &mut hasher);
+			std::hash::Hash::hash(&line!(), &mut hasher);
+			std::hash::Hasher::finish(&hasher) as u64
+		}
+	};
+}
+
+fn sort_quads(dims: &ImageDimensions, quads: &[Quad]) -> Vec<Quad> {
+	let mut quads = quads.to_vec();
+	quads.sort_by_cached_key(|quad| {
+		(quad.corners[0].y() as usize) * dims.width + (quad.corners[0].x() as usize)
+	});
+	quads
+}
 
 pub(super) fn debug_quads(mut f: File, mut im_quads: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	im_quads.darken();
 	im_quads.darken();
 	let mut im_quads = im_quads.map(|p| p.to_rgb());
 
-	let mut rng = thread_rng();
-
-	for quad in quads.iter() {
+	let quads = sort_quads(im_quads.dimensions(), quads);
+	
+	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
+	for quad in quads.into_iter() {
 		let color = rng.gen_color_rgb(128).into();
 
 		im_quads.draw_line(quad.corners[0], quad.corners[1], &color, 1);
@@ -30,7 +51,9 @@ pub(super) fn debug_quads_fixed(mut f: File, mut im_quads: ImageY8, quads: &[Qua
 	im_quads.darken();
 	im_quads.darken();
 
-	let mut rng = thread_rng();
+	let quads = sort_quads(im_quads.dimensions(), quads);
+
+	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 
 	for quad in quads.iter() {
 		let color = rng.gen_color_gray(100).into();
@@ -61,7 +84,7 @@ pub(super) fn debug_output_ps(mut f: File, mut img: ImageY8, detections: &[April
 		img.write_postscript(&mut f)?;
 	}
 
-	let mut rng = thread_rng();
+	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 	for det in detections.iter() {
 		let rgb = rng.gen_color_rgb(100);
 
@@ -85,7 +108,10 @@ pub(super) fn debug_output_pnm(mut f: File, mut img: ImageY8, detections: &[Apri
 
 	let mut out = img.map(|p| p.to_rgb());
 
-	let mut rng = thread_rng();
+	let mut detections = detections.to_vec();
+	detections.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+
+	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 	for det in detections.iter() {
 		let rgb = rng.gen_color_rgb::<u8>(100);
 
@@ -105,7 +131,7 @@ pub(super) fn debug_output_pnm(mut f: File, mut img: ImageY8, detections: &[Apri
 #[cfg(feature="debug_ps")]
 pub(super) fn debug_quads_ps(mut f: File, mut img: ImageY8, quads: &[Quad]) -> std::io::Result<()> {
 	let mut f = PostScriptWriter::new(&mut f)?;
-	let mut rng = thread_rng();
+	let mut rng = StdRng::seed_from_u64(std_hash_u64!());
 
 	println!("Img dims = {:?}", img.dimensions());
 

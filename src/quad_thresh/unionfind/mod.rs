@@ -1,8 +1,7 @@
 use crate::{util::ImageY8, detector::DetectorConfig};
 use rayon::prelude::*;
 
-use self::uf2d::UnionFind2D;
-
+pub(crate) use self::uf2d::UnionFind2D;
 
 mod uf2d;
 mod atomic;
@@ -10,37 +9,55 @@ mod reference;
 
 pub(super) type UnionFindId = u32;
 
-pub(super) trait UnionFind<I> {
+pub(crate) trait UnionFind<I> {
+    /// Element ID
+    type Id: Eq;
+
     /// Get set representative and cardinality
-    fn get_set(&mut self, index: I) -> (UnionFindId, u32);
+    fn get_set(&mut self, index: I) -> (Self::Id, u32);
 
-    fn index_to_id(&self, idx: I) -> UnionFindId;
+    /// Compute the element ID for an index. Useful for caching.
+    fn index_to_id(&self, idx: I) -> Self::Id;
 
+    /// Connect the elements at two indices into the same set
+    /// 
+    /// See also: [connect_ids](Self::connect_ids)
     fn connect(&mut self, a: I, b: I) -> bool {
         let id_a = self.index_to_id(a);
         let id_b = self.index_to_id(b);
         self.connect_ids(id_a, id_b)
     }
 
-    fn connect_ids(&mut self, a: UnionFindId, b: UnionFindId) -> bool;
+    /// Connect the elements at two IDs into the same set
+    /// 
+    /// See also: [connect](Self::connect)
+    fn connect_ids(&mut self, a: Self::Id, b: Self::Id) -> bool;
 }
 
-pub(super) trait UnionFindStatic<I>: UnionFind<I> {
-    fn get_set_static(&self, index: I) -> (UnionFindId, u32);
+pub(crate) trait UnionFindStatic<I>: UnionFind<I> {
+    /// Get set ID/size without updating any data
+    fn get_set_static(&self, index: I) -> (Self::Id, u32);
+    /// Number of hops to find the set ID for an index (without updating any data)
     fn get_set_hops(&self, index: I) -> usize;
 }
 
 pub(super) trait UnionFindAtomic<I>: UnionFind<I> + UnionFindStatic<I> {
+    /// Connect two indices
+    /// 
+    /// This has the guarauntees of [Relaxed](std::sync::atomic::Ordering::Relaxed) ordering
     fn connect_atomic(&self, a: I, b: I) -> bool {
         let id_a = self.index_to_id(a);
         let id_b = self.index_to_id(b);
         self.connect_ids_atomic(id_a, id_b)
     }
 
-    fn connect_ids_atomic(&self, a: UnionFindId, b: UnionFindId) -> bool;
+    /// Connect two IDs atomically
+    /// 
+    /// This has the guarauntees of [Relaxed](std::sync::atomic::Ordering::Relaxed) ordering
+    fn connect_ids_atomic(&self, a: Self::Id, b: Self::Id) -> bool;
 }
 
-fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -97,7 +114,7 @@ fn do_unionfind_line2(uf: &impl UnionFindAtomic<(u32, u32)>, im: &ImageY8, y: us
     }
 }
 
-fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -122,6 +139,9 @@ fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usi
         if v == 127 {
 			continue;
 		}
+
+		#[cfg(feature="uf_blackonly")]
+		if v == 0 { continue; }
 
 		let idx_xy = uf.index_to_id((x as _, y as _));
 		let idx_up = uf.index_to_id((x as _, y as u32 - 1));
@@ -154,7 +174,7 @@ fn do_unionfind_line2b(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usi
     }
 }
 
-fn do_unionfind_line2c(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8, y: usize) {
+fn do_unionfind_line2c(uf: &mut impl UnionFind<(u32, u32), Id = u32>, im: &ImageY8, y: usize) {
     assert!(y > 0);
 	// debug_assert_eq!(im.width(), uf.width as usize);
 	// #[cfg(debug_assertions)]
@@ -218,13 +238,15 @@ fn do_unionfind_first_line(uf: &mut impl UnionFind<(u32, u32)>, im: &ImageY8) {
 			continue;
 		}
 		let v1 = im[(x - 1, 0)];
+		#[cfg(feature="uf_blackonly")]
+		if v0 != 255 { continue; }
 		if v0 == v1 {
 			uf.connect((x as _, 0), (x as u32 - 1, 0));
 		}
 	}
 }
 
-pub(super) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(u32, u32)> {
+pub(crate) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) -> impl UnionFindStatic<(u32, u32), Id = u32> {
     if config.single_thread() {
         let mut uf = UnionFind2D::new(threshim.width(), threshim.height());
 	    do_unionfind_first_line(&mut uf, threshim);
@@ -236,7 +258,7 @@ pub(super) fn connected_components(config: &DetectorConfig, threshim: &ImageY8) 
         let mut uf = UnionFind2D::new_concurrent(threshim.width(), threshim.height());
 	    do_unionfind_first_line(&mut uf, threshim);
 		let height = threshim.height();
-		let chunksize = 1 + height / (config.nthreads * 2);
+		let chunksize = 1 + height / (config.nthreads().get() * 2);
         // each task will process [y0, y1). Note that this attaches
         // each cell to the right and down, so row y1 *is* potentially modified.
         //

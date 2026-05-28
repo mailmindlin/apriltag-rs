@@ -1,7 +1,8 @@
-use std::{path::{PathBuf, Path}, time::Duration, io};
+use std::{path::{PathBuf, Path}, time::Duration, io, fs::create_dir_all, panic::AssertUnwindSafe};
 
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8}, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
+use rayon::prelude::*;
 use clap::{Parser, arg, command};
 
 const HAMM_HIST_MAX: usize = 10;
@@ -36,15 +37,24 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+
     #[arg(long)]
     debug_path: Option<PathBuf>,
+    #[arg(long, default_value_t=false)]
+    gpu: bool,
     input_files: Vec<PathBuf>,
 }
 
-fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector {
+fn build_detector(args: &Args) -> AprilTagDetector {
     let mut builder = AprilTagDetector::builder();
+    if args.gpu {
+        builder.set_gpu_mode(apriltag_rs::AccelerationRequest::Required)
+    } else {
+        builder.set_gpu_mode(apriltag_rs::AccelerationRequest::Disabled)
+    }
+
     if args.family.len() == 0 {
-        panic!("No AprilTag families to detect");
+        panic!("No AprilTag families to detect. Use --family [family name]");
     }
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
@@ -67,11 +77,18 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
     if let Some(path) = &args.debug_path {
-        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+        builder.config.debug_path = Some(path.to_owned());
     }
 
+    if let Some(path) = builder.config.debug_path.as_ref() {
+        if !path.exists() {
+            create_dir_all(path).unwrap();
+        }
+    }
+    
+
     builder.build()
-        .unwrap()
+        .expect("Error building detector")
 }
 
 fn load_image(path: &Path) -> io::Result<ImageY8> {
@@ -93,15 +110,76 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
     Ok(result)
 }
 
+fn detect_with(detector: &AprilTagDetector, image: &ImageY8, quiet: bool) -> Detections {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| detector.detect(image))) {
+        Ok(Ok(detections)) => {
+            println!("Found {} tags", detections.detections.len());
+            if !quiet {
+                for (i, det) in detections.detections.iter().enumerate() {
+                    println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
+                        i,
+                        det.family.bits.len(),
+                        det.family.min_hamming,
+                        det.id,
+                        det.hamming,
+                        det.decision_margin
+                    );
+                }
+            }
+            detections
+        },
+        Ok(Err(e)) => {
+            convert_images(detector);
+            panic!("Error detecting AprilTags: {e:?}");
+        }
+        Err(e) => {
+            convert_images(detector);
+            std::panic::resume_unwind(e);
+        },
+    }
+}
+
+fn convert_images(det: &AprilTagDetector) {
+    let debug_path = match &det.params.debug_path {
+        Some(dbp) => dbp.as_path(),
+        None => return,
+    };
+    let rd = match std::fs::read_dir(debug_path) {
+        Ok(rd) => rd,
+        Err(e) => {
+            eprintln!("Image conversion: Unable to read dir {}: {e:?}", debug_path.display());
+            return;
+        }
+    };
+
+    rd
+        .par_bridge()
+        .for_each(|path| {
+            let path = path.unwrap();
+            if !path.file_type().unwrap().is_file() {
+                return;
+            }
+            if !path.file_name().to_str().unwrap().ends_with(".pnm") {
+                return;
+            }
+            let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
+            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
+            for ((x, y), value) in img.enumerate_pixels() {
+                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
+            }
+            buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
+                .unwrap();
+        });
+}
+
 fn main() {
-    let args = Args::parse();
+    let mut args = Args::parse();
     if args.debug {
         println!("Arguments:");
         println!(" - threads: {}", args.threads);
     }
-    let detector = build_detector(&args, None);
-    // args.opencl = true;
-    // let detector_gpu = build_detector(&args, Some("gpu"));
+    args.gpu = false;
+    let detector = build_detector(&args);
 
     let quiet = args.quiet;
     let mut acc = TimeProfileStatistics::default();
@@ -135,25 +213,14 @@ fn main() {
 
             println!("image: {} {}x{}", input.display(), im.width(), im.height());
 
-            let detections = detector.detect(&im)
-                .expect("Error detecting AprilTags");
-            // let detections_gpu = detector_gpu.detect(&im)
-            //     .expect("Error detecting AprilTags");
+            println!("==== CPU ====");
+            let detections = detect_with(&detector, &im, quiet);
+            if !quiet {
+                print!("{}", detections.tp);
+            }
+            
 
-            println!("Found {} tags", detections.detections.len());
-
-            for (i, det) in detections.detections.iter().enumerate() {
-                if !quiet {
-                    println!("detection {:3}: id ({:2}x{:2})-{:4}, hamming {}, margin {:8.3}",
-                           i,
-                           det.family.bits.len(),
-                           det.family.min_hamming,
-                           det.id,
-                           det.hamming,
-                           det.decision_margin
-                    );
-                }
-
+            for det in detections.detections.iter() {
                 hamm_hist[det.hamming as usize] += 1;
                 total_hamm_hist[det.hamming as usize] += 1;
             }
@@ -194,26 +261,8 @@ fn main() {
     }
 
     if args.iters > 1 {
-        acc.display();
+        println!("{acc}");
     }
 
-    if args.debug {
-        let path = args.debug_path.unwrap_or(PathBuf::from("."));
-        for path in std::fs::read_dir(path).unwrap() {
-            let path = path.unwrap();
-            if !path.file_type().unwrap().is_file() {
-                continue;
-            }
-            if !path.file_name().to_str().unwrap().ends_with(".pnm") {
-                continue;
-            }
-            let img = ImageRGB8::create_from_pnm(&path.path()).unwrap();
-            let mut buf = IImageBuffer::<Rgb<u8>, _>::new(img.width() as u32, img.height() as u32);
-            for ((x, y), value) in img.enumerate_pixels() {
-                *buf.get_pixel_mut(x as u32, y as u32) = Rgb(value.0);
-            }
-            buf.save_with_format(path.path().with_extension("png"), image::ImageFormat::Png)
-                .unwrap();
-        }
-    }
+    convert_images(&detector);
 }

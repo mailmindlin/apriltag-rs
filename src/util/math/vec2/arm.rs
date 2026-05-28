@@ -1,4 +1,4 @@
-use std::{ops::{Add, Sub, Neg, Div, Mul, MulAssign}};
+use std::ops::{Add, Sub, Neg, Div, Mul, MulAssign};
 #[cfg(target_arch="aarch64")]
 use core::arch::aarch64::{float64x2_t, vdupq_n_f64, vcombine_f64, vdup_n_f64, vfmaq_f64, vgetq_lane_f64, vpaddd_f64, vmulq_f64, vget_lane_u64, vreinterpret_u64_u32, vqmovn_u64, vceqq_f64, vaddq_f64, vsubq_f64, vdivq_f64, vnegq_f64};
 #[cfg(not(target_arch="aarch64"))]

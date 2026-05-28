@@ -9,37 +9,6 @@ pub trait Dimensions2D<T: Debug + Mul<T, Output = T> + Copy = usize>: Debug {
     }
 
     fn contains(&self, index: &Index2D<T>) -> bool;
-
-    fn offset(&self, index: &Index2D<T>) -> T {
-        match self.offset_checked(index) {
-            Some(value) => value,
-            None => panic!("Index {:?} out of bounds for dimensions {:?}", index, self),
-        }
-    }
-    fn offset_checked(&self, index: &Index2D<T>) -> Option<T> {
-        if !self.contains(&index) {
-            None
-        } else {
-            Some(self.offset_unchecked(index))
-        }
-    }
-    fn offset_unchecked(&self, index: &Index2D<T>) -> T;
-
-    fn index_for_offset(&self, offset: T) -> Index2D<T> {
-        match self.index_for_offset_checked(offset) {
-            Some(value) => value,
-            None => panic!("Offset {:?} out of bounds for dimensions {:?}", offset, self),
-        }
-    }
-    fn index_for_offset_checked(&self, offset: T) -> Option<Index2D<T>> {
-        let index = self.index_for_offset_unchecked(offset);
-        if !self.contains(&index) {
-            None
-        } else {
-            Some(index)
-        }
-    }
-    fn index_for_offset_unchecked(&self, offset: T) -> Index2D<T>;
 }
 
 /// Index into 2d

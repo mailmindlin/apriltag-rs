@@ -1,8 +1,9 @@
+#![cfg(feature="opencv")]
+
 use std::path::PathBuf;
-use std::time::Instant;
 
 use apriltag_rs::util::ImageY8;
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, TimeProfile, AccelerationRequest};
 use clap::{Parser, command};
 use opencv::core::{TickMeter, Point, Scalar};
 use opencv::videoio::{VideoCapture, VideoCaptureAPIs, VideoCaptureProperties};
@@ -43,6 +44,8 @@ struct Args {
     /// Spend more time trying to align edges of tags
     #[arg(short, long, default_value_t=true)]
     refine_edges: bool,
+    #[arg(long, default_value_t=false)]
+    opencl: bool,
     #[arg(long)]
     debug_path: Option<PathBuf>,
     #[arg(long)]
@@ -54,6 +57,12 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     if args.family.len() == 0 {
         panic!("No AprilTag families to detect");
     }
+    if args.opencl {
+        builder.set_gpu_mode(AccelerationRequest::Required);
+    } else {
+        builder.set_gpu_mode(AccelerationRequest::Disabled);
+    }
+
     for family_name in args.family.iter() {
         let family = if let Some(family) = AprilTagFamily::for_name(&family_name) {
             family
@@ -75,17 +84,19 @@ fn build_detector(args: &Args, path_override: Option<&str>) -> AprilTagDetector 
     builder.config.nthreads = args.threads;
     builder.config.debug = args.debug;
     builder.config.refine_edges = args.refine_edges;
-    if let Some(path) = &args.debug_path {
-        builder.config.debug_path = Some(path.to_str().unwrap().to_owned());
+    if let Some(path) = path_override {
+        builder.config.debug_path = Some(format!("./debug/{path}").into());
+    } else if let Some(path) = &args.debug_path {
+        builder.config.debug_path = Some(path.clone());
     }
 
     builder.build()
-        .unwrap()
+        .expect("Error building AprilTagDetector")
 }
 
 fn main() {
     println!("Parsing args");
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     println!("Enabling video capture");
 
@@ -141,23 +152,27 @@ fn main() {
             let src = gray.at_row::<u8>(y as i32).unwrap();
             dst.as_slice_mut().copy_from_slice(src);
         }
-        // for ((x, y), dst) in im.enumerate_pixels_mut() {
-        //     let v = *gray.at_2d::<u8>(y as i32, x as i32).unwrap();
-
-        //     *dst = v.into();
-        // }
 
         tp.stamp("bufer_copy");
 
         let detections = match detector.detect(&im) {
             Ok(dets) => dets,
             Err(e) => {
-                eprintln!("Detection error: {e:?}");
+                eprintln!("Error detecting AprilTags: {e:?}");
+                continue;
+            }
+        };
+        tp.stamp("detect");
+
+        let detections2 = match detector1.detect(&im) {
+            Ok(dets) => dets,
+            Err(e) => {
+                eprintln!("Error detecting AprilTags: {e:?}");
                 continue;
             }
         };
 
-        tp.stamp("detect");
+        tp.stamp("detect2");
 
         // Draw detection outlines
         for det in detections.detections {
@@ -222,5 +237,7 @@ fn main() {
         println!("{tp}");
 
         println!("{}", detections.tp);
+
+        println!("Ocl: {:?}/{}", detector1.has_gpu(), detections2.tp);
     }
 }

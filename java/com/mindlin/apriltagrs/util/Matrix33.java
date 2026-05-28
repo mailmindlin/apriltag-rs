@@ -2,6 +2,9 @@ package com.mindlin.apriltagrs.util;
 
 import java.util.Objects;
 
+/**
+ * 3x3 matrix
+ */
 public final class Matrix33 {
     private final double[] elements;
 
@@ -28,9 +31,9 @@ public final class Matrix33 {
 
     /**
      * Converts a rotation matrix into a quaternion
-     * @return
+     * @return quaternion, in wijk order
      */
-    public double[] as_quaternion() {
+    public double[] asQuaternion() {
         double[] decision = new double[] {
             get(0, 0),
             get(1, 1),
@@ -39,14 +42,7 @@ public final class Matrix33 {
         };
 
         // Argmax
-        double max = decision[0];
-        int choice = 0;
-        for (int i = 1; i < decision.length; i++) {
-            if (decision[i] > max) {
-                max = decision[i];
-                choice = i;
-            }
-        }
+        int choice = MathUtil.argmax(decision);
 
         double[] quat = new double[4];
         if (choice == 3) {

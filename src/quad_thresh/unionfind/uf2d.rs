@@ -2,14 +2,15 @@ use super::{UnionFind, UnionFindAtomic, atomic::UnionFindConcurrent, UnionFindSt
 
 type UnionFindId = u32;
 
-pub(super) struct UnionFind2D<U: UnionFind<UnionFindId>> {
+pub(crate) struct UnionFind2D<U: UnionFind<UnionFindId, Id = u32>> {
 	width: u32,
 	#[cfg(debug_assertions)]
 	height: u32,
 	inner: U,
 }
 
-impl<U: UnionFind<u32>> UnionFind<(u32, u32)> for UnionFind2D<U> {
+impl<U: UnionFind<u32, Id = u32>> UnionFind<(u32, u32)> for UnionFind2D<U> {
+	type Id = u32;
     fn index_to_id(&self, (x, y): (u32, u32)) -> UnionFindId {
 		#[cfg(debug_assertions)]
 		debug_assert!(y < self.height);
@@ -33,7 +34,7 @@ impl<U: UnionFind<u32>> UnionFind<(u32, u32)> for UnionFind2D<U> {
 	}
 }
 
-impl<U: UnionFindStatic<u32>> UnionFindStatic<(u32, u32)> for UnionFind2D<U> {
+impl<U: UnionFindStatic<u32, Id = u32>> UnionFindStatic<(u32, u32)> for UnionFind2D<U> {
     fn get_set_static(&self, index: (u32, u32)) -> (super::UnionFindId, u32) {
 		let id = self.index_to_id(index);
         self.inner.get_set_static(id)
@@ -45,7 +46,7 @@ impl<U: UnionFindStatic<u32>> UnionFindStatic<(u32, u32)> for UnionFind2D<U> {
     }
 }
 
-impl<U: UnionFindAtomic<u32>> UnionFindAtomic<(u32, u32)> for UnionFind2D<U> {
+impl<U: UnionFindAtomic<u32, Id = u32>> UnionFindAtomic<(u32, u32)> for UnionFind2D<U> {
     fn connect_ids_atomic(&self, a: UnionFindId, b: UnionFindId) -> bool {
         self.inner.connect_atomic(a, b)
     }
@@ -92,6 +93,20 @@ impl UnionFind2D<UnionFindConcurrent> {
 			#[cfg(debug_assertions)]
 			height,
 			inner: UnionFindConcurrent::new(len)
+		}
+	}
+}
+
+impl<U: UnionFindStatic<u32, Id = u32>> UnionFind2D<U> {
+    pub fn wrap(width: usize, height: usize, inner: U) -> Self {
+		let width = width.try_into().unwrap();
+		#[cfg(debug_assertions)]
+		let height = height.try_into().unwrap();
+		Self {
+			width,
+			#[cfg(debug_assertions)]
+			height,
+			inner,
 		}
 	}
 }

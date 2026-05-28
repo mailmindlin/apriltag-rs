@@ -26,7 +26,9 @@ pub trait Pixel: Copy {
 
     type Value;
 
+    /// Number of subpixels per pixel
     const CHANNEL_COUNT: usize;
+
     fn channels(&self) -> &[Self::Subpixel];
     fn channels_mut(&mut self) -> &mut [Self::Subpixel];
 
@@ -48,6 +50,10 @@ pub trait PixelConvert: Pixel {
 
 pub trait DefaultAlignment: Pixel {
     const DEFAULT_ALIGNMENT: usize;
+}
+
+impl<P: DefaultAlignment> DefaultAlignment for MaybeUninit<P> where <P as Pixel>::Subpixel: SafeZero {
+    const DEFAULT_ALIGNMENT: usize = <P as DefaultAlignment>::DEFAULT_ALIGNMENT;
 }
 
 impl<T: Primitive> Primitive for MaybeUninit<T> {

@@ -7,7 +7,7 @@ use super::math::mat::Mat;
 /// [ 0  G  B  0 ]
 /// [ 0  0  C  D ]
 /// [ 0  0 -1  0 ]
-pub fn homography_to_model_view(H: &Mat, F: f64, G: f64, A: f64, B: f64, _C: f64, _D: f64) -> Mat {
+pub(crate) fn homography_to_model_view(H: &Mat, F: f64, G: f64, A: f64, B: f64, _C: f64, _D: f64) -> Mat {
     // Note that every variable that we compute is proportional to the scale factor of H.
     let R20 = -H[(2, 0)];
     let R21 = -H[(2, 1)];

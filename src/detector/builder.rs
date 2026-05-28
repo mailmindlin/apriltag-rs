@@ -1,42 +1,7 @@
 use std::{sync::Arc, ops::Deref};
 
-use rayon::ThreadPoolBuildError;
-
-use crate::{AprilTagFamily, quickdecode::QuickDecode, AddFamilyError};
-use super::{AprilTagDetector, DetectorConfig};
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum OpenClMode {
-	/// Do not use OpenCL
-	Disabled,
-	/// Attempt to use OpenCL if available
-	Prefer,
-	/// Attempt to use OpenCL if GPU available
-	PreferGpu,
-	/// Attempt to use OpenCL if device index is available
-	PreferDeviceIdx(usize),
-	/// Force using OpenCL (build error if unavailable)
-	Required,
-	/// Force using OpenCL on some GPU
-	RequiredGpu,
-	/// Force using a specific OpenCL device (build error if OpenCL or device is unavailable)
-	RequiredDeviceIdx(usize),
-}
-
-impl OpenClMode {
-	pub const fn is_required(&self) -> bool {
-		match self {
-			Self::Required | Self::RequiredGpu | Self::RequiredDeviceIdx(_) => true,
-			_ => false,
-		}
-	}
-}
-
-impl Default for OpenClMode {
-    fn default() -> Self {
-        Self::Prefer
-    }
-}
+use crate::{AprilTagFamily, quickdecode::QuickDecode, AddFamilyError, DetectorBuildError};
+use super::{AprilTagDetector, DetectorConfig, config::AccelerationRequest};
 
 #[derive(Clone)]
 pub struct DetectorBuilder {
@@ -45,8 +10,6 @@ pub struct DetectorBuilder {
 	pub(crate) tag_families: Vec<Arc<QuickDecode>>,
 	// static_buffers: Option<(usize, usize, usize)>,
 	// dynamic_buffers: bool,
-	#[cfg(feature="opencl")]
-	ocl: OpenClMode,
 }
 
 impl Default for DetectorBuilder {
@@ -56,8 +19,6 @@ impl Default for DetectorBuilder {
 			tag_families: Default::default(),
 			// static_buffers: None,
 			// dynamic_buffers: true,
-			#[cfg(feature="opencl")]
-			ocl: OpenClMode::default(),
 		}
     }
 }
@@ -69,11 +30,6 @@ impl From<AprilTagDetector> for DetectorBuilder {
             tag_families: value.tag_families,
 			// static_buffers: None,
 			// dynamic_buffers: true,
-			#[cfg(feature="opencl")]
-			ocl: match value.ocl {
-				Some(ocl) => ocl.mode,
-				None => OpenClMode::default(),
-			},
         }
     }
 }
@@ -85,8 +41,6 @@ impl DetectorBuilder {
 			tag_families: Vec::new(),
 			// static_buffers: None,
 			// dynamic_buffers: true,
-			#[cfg(feature="opencl")]
-			ocl: OpenClMode::default(),
 		}
 	}
 
@@ -108,26 +62,18 @@ impl DetectorBuilder {
 	/// Prefer OpenCL, if available
 	/// 
 	/// This function will work even if the feature-flag `opencl` is not provided
-	pub fn prefer_opencl(#[allow(unused_mut)] mut self) -> Self {
+	pub fn prefer_gpu(#[allow(unused_mut)] mut self) -> Self {
 		#[cfg(feature="opencl")]
-		self.use_opencl(OpenClMode::Prefer);
+		self.set_gpu_mode(AccelerationRequest::Prefer);
 		self
 	}
 
-	pub fn opencl_mode(&self) -> &OpenClMode {
-		#[cfg(feature="opencl")]
-		{
-			self.ocl = mode;
-		}
-		#[cfg(not(feature="opencl"))]
-		&OpenClMode::Disabled
+	pub fn gpu_mode(&self) -> &AccelerationRequest {
+		&self.config.acceleration
 	}
 
-	pub fn use_opencl(&mut self, #[allow(unused_variables)] mode: OpenClMode) {
-		#[cfg(feature="opencl")]
-		{
-			self.ocl = mode;
-		}
+	pub fn set_gpu_mode(&mut self, mode: AccelerationRequest) {
+		self.config.acceleration = mode;
 	}
 
 	/// Clear AprilTag families to detect
@@ -145,30 +91,4 @@ impl DetectorBuilder {
 	pub fn build(self) -> Result<AprilTagDetector, DetectorBuildError> {
         AprilTagDetector::new(self.config, self.tag_families)
 	}
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum DetectorBuildError {
-	/// There was an error creating the threadpool
-	Threadpool(ThreadPoolBuildError),
-	/// There was an error allocating buffers
-	BufferAllocationFailure,
-	/// OpenCL was required, but is not available
-	OpenCLNotAvailable,
-	#[cfg(feature="opencl")]
-	OpenCLError(ocl::Error),
-}
-
-impl From<ThreadPoolBuildError> for DetectorBuildError {
-    fn from(value: ThreadPoolBuildError) -> Self {
-        Self::Threadpool(value)
-    }
-}
-
-#[cfg(feature="opencl")]
-impl From<ocl::Error> for DetectorBuildError {
-    fn from(value: ocl::Error) -> Self {
-        Self::OpenCLError(value)
-    }
 }

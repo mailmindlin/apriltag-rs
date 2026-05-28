@@ -136,23 +136,24 @@ impl<'a, P: Pixel + 'a> IntoIterator for RowsMut<'a, P> {
 
 pub struct RowsMutIter<'a, P: Pixel> {
     chunks: ChunksMut<'a, P::Subpixel>,
-    width: usize,
+    width_spx: usize,
     pub(super) y: usize,
 }
 
 impl<'a, P: Pixel + 'a> RowsMutIter<'a, P> {
     pub(super) fn new(data: &'a mut [P::Subpixel], dims: &'a ImageDimensions) -> Self {
         // Truncate trailing stride if not a full row
-        let end = if data.len() % dims.stride < dims.width {
+        let width_spx = dims.width_subpixels::<P>();
+        let end = if data.len() % dims.stride < width_spx {
             data.len() - (data.len() % dims.stride)
         } else {
-            data.len() - (data.len() % dims.stride) + dims.width
+            data.len() - (data.len() % dims.stride) + width_spx
         };
 
-        let chunks = (&mut data[..end]).chunks_mut(dims.stride * <P as Pixel>::CHANNEL_COUNT);
+        let chunks = (&mut data[..end]).chunks_mut(dims.stride);
         Self {
             chunks,
-            width: dims.width,
+            width_spx,
             y: 0,
         }
     }
@@ -163,7 +164,7 @@ impl<'a, P: Pixel + 'a> Iterator for RowsMutIter<'a, P> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let chunk = self.chunks.next()?;
-        let chunk = &mut chunk[..self.width];
+        let chunk = &mut chunk[..self.width_spx];
 
         let y = self.y;
         self.y += 1;
@@ -173,7 +174,7 @@ impl<'a, P: Pixel + 'a> Iterator for RowsMutIter<'a, P> {
 
 #[cfg(test)]
 mod test {
-    use crate::util::ImageY8;
+    use crate::util::{ImageY8, ImageRGB8};
 
     #[test]
     fn count_rows() {
@@ -191,5 +192,35 @@ mod test {
             .into_iter()
             .count();
         assert_eq!(15, num_rows);
+    }
+
+    #[test]
+    fn count_rows_rgb() {
+        let img = ImageRGB8::zeroed_with_stride(10, 15, 40);
+        let num_rows = img.rows()
+            .into_iter()
+            .count();
+        assert_eq!(15, num_rows);
+    }
+
+    #[test]
+    fn count_rows_mut_rgb() {
+        let mut img = ImageRGB8::zeroed_with_stride(10, 15, 40);
+        let num_rows = img.rows_mut()
+            .into_iter()
+            .count();
+        assert_eq!(15, num_rows);
+    }
+
+    #[test]
+    fn access_data() {
+        let mut img = ImageRGB8::zeroed_with_stride(10, 15, 40);
+        img[(5, 0)] = [1, 2, 3];
+        let (y, row0) = img.rows()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(y, 0);
+        assert_eq!(row0[5], [1,2,3]);
     }
 }

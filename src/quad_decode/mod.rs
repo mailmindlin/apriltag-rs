@@ -5,7 +5,7 @@ mod sharpening;
 
 use std::sync::{Mutex, Arc};
 
-use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, image::{ImageBuffer, ImageY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
+use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, image::{ImageBuffer, ImageY8, ImageRefY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
 
 use greymodel::Graymodel;
 use homography::homography_project;
@@ -27,7 +27,7 @@ impl float_cmp::ApproxEq for Quad {
     }
 }
 
-fn value_for_pixel(im: &ImageY8, p: Point2D) -> Option<f64> {
+fn value_for_pixel(im: &ImageRefY8, p: Point2D) -> Option<f64> {
     let x1 = f64::floor(p.x() - 0.5) as isize;
     if x1 < 0 {
         return None;
@@ -63,7 +63,7 @@ pub(crate) struct QuadDecodeInfo<'a> {
     pub(crate) det_params: &'a DetectorConfig,
     /// Tag families to look for
     pub(crate) tag_families: &'a [Arc<QuickDecode>],
-    pub(crate) im_orig: &'a ImageY8,
+    pub(crate) im_orig: &'a ImageRefY8<'a>,
     /// Samples image (debug only)
     #[cfg(feature="debug")]
     pub(crate) im_samples: Option<&'a Mutex<ImageY8>>,
@@ -153,7 +153,7 @@ impl Quad {
     /// coordinates are given in bit coordinates. ([0, fam.d]).
     ///
     /// { initial x, initial y, delta x, delta y, WHITE=1 }
-    fn sample_threshold(H: &Mat33, family: &AprilTagFamily, im: &ImageY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
+    fn sample_threshold(H: &Mat33, family: &AprilTagFamily, im: &ImageRefY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
         struct Pattern {
             initial: Vec2,
             delta: Vec2,
@@ -267,7 +267,7 @@ impl Quad {
     /// we score this separately for white and black pixels and return
     /// the minimum average threshold for black/white pixels. This is
     /// to penalize thresholds that are too close to an extreme.
-    fn decision_margin(H: &Mat33, family: &AprilTagFamily, decode_sharpening: f64, im: &ImageY8, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel, im_samples: Option<&Mutex<ImageY8>>) -> (u64, f32) {
+    fn decision_margin(H: &Mat33, family: &AprilTagFamily, decode_sharpening: f64, im: &ImageRefY8, whitemodel: SolvedGraymodel, blackmodel: SolvedGraymodel, im_samples: Option<&Mutex<ImageY8>>) -> (u64, f32) {
         let mut black_score = 0f32;
         let mut white_score = 0f32;
         let mut black_score_count = 1usize;

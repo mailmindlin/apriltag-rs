@@ -3,12 +3,12 @@ use std::{path::Path, io};
 
 use crate::util::mem::SafeZero;
 
-use super::pixel::PixelConvert;
+use super::pixel::{PixelConvert, DefaultAlignment};
 use super::{ImageBuffer, SubpixelArray};
 
 use super::{PNM, pnm::PNMFormat, ImageWritePNM, Luma, pixel::{Primitive, Pixel}};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct Rgb<T>(pub [T; 3]);
 
@@ -74,13 +74,10 @@ impl<T: SafeZero> SafeZero for Rgb<T> {}
     }
 }*/
 
-impl<T: Primitive> ImageBuffer<Rgb<T>> {
+impl DefaultAlignment for Rgb<u8> {
     /// Least common multiple of 64 (sandy bridge cache line) and 48 (stride needed
     /// for 16byte-wide RGB processing). (It's possible that 48 would be enough).
     const DEFAULT_ALIGNMENT: usize = 192;
-    pub fn new(width: usize, height: usize) -> Self where T: SafeZero {
-        Self::zeroed_with_alignment(width, height, Self::DEFAULT_ALIGNMENT)
-    }
 }
 
 impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
@@ -90,7 +87,7 @@ impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
         match pnm.format {
             PNMFormat::Binary => todo!("Support binary files"),
             PNMFormat::Gray => {
-                let mut im = Self::new(pnm.width, pnm.height);
+                let mut im = Self::zeroed(pnm.width, pnm.height);
 
                 let mut max_x = 0;
                 let mut max_y = 0;
@@ -103,7 +100,7 @@ impl ImageBuffer<Rgb<u8>, Box<[u8]>> {
                 Ok(im)
             },
             PNMFormat::RGB => {
-                let mut im = Self::new(pnm.width, pnm.height);
+                let mut im = Self::zeroed(pnm.width, pnm.height);
                 let width = pnm.width;
 
                 for ((x, y), dst) in im.enumerate_pixels_mut() {
@@ -126,6 +123,7 @@ impl<Container: Deref<Target=SubpixelArray<Rgb<u8>>>> ImageWritePNM for ImageBuf
         writeln!(f, "{} {}", self.width(), self.height())?;
         writeln!(f, "255")?;
         for (_, row) in self.rows() {
+            debug_assert_eq!(row.as_slice().len(), self.width() * <Rgb<u8> as Pixel>::CHANNEL_COUNT);
             f.write_all(row.as_slice())?;
         }
 
