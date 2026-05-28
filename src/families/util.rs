@@ -13,7 +13,8 @@ use super::Code;
 ///  5 4 3  ==>  1 4 7 ==>  3 4 5    (rotate90 applied twice)
 ///  2 1 0       0 3 6      6 7 8
 /// ```
-pub const fn rotate90(w: Code, num_bits: u64) -> Code {
+pub const fn rotate90(w: Code, num_bits: u8) -> Code {
+	debug_assert!(num_bits as u32 <= Code::BITS, "num_bits is greater than actual number of bits");
 	/*let mut wr = 0;
 
 	for r in (0..d).rev() {
@@ -37,11 +38,11 @@ pub const fn rotate90(w: Code, num_bits: u64) -> Code {
 		(num_bits, 0)
 	};
 
-	let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l);
+	let w = ((w >> l) << (p/4 + l)) | (w >> (3 * p/4 + l) << l) | (w & l as u64);
 	w & (1u64 << num_bits) - 1
 }
 
-pub const fn rotations(code: u64, num_bits: u64) -> [u64; 4] {
+pub const fn rotations(code: u64, num_bits: u8) -> [u64; 4] {
 	let r0 = code;
 	let r1 = rotate90(code, num_bits);
 	let r2 = rotate90(r1, num_bits);

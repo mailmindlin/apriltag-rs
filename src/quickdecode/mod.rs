@@ -1,19 +1,8 @@
-mod table;
-use std::{alloc::AllocError, sync::Arc};
+use std::{alloc::AllocError, array, iter, sync::Arc};
 
 use datasize::DataSize;
 
-use crate::families::{AprilTagFamily, Rotation, rotate90};
-
-use self::table::LookupTable;
-
-#[derive(Default, Copy, Clone, DataSize, Debug)]
-struct QuickDecodeValue {
-    /// Tag ID
-	id: u16,
-	/// How many errors were corrected?
-	hamming: u8,
-}
+use crate::{families::{AprilTagFamily, Rotation, rotate90}, util::mem::try_calloc};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct QuickDecodeResult {
@@ -23,14 +12,6 @@ pub(crate) struct QuickDecodeResult {
 	pub hamming: u8,
 	/// Number of rotations [0, 3]
 	pub rotation: Rotation,
-}
-
-/// Helper for quickly decoding an AprilTag code
-#[derive(Clone)]
-pub(crate) struct QuickDecode {
-	pub family: Arc<AprilTagFamily>,
-	table: LookupTable<QuickDecodeValue>,
-	pub bits_corrected: usize,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -52,133 +33,252 @@ impl From<AllocError> for AddFamilyError {
     }
 }
 
+// NUM_CHUNKS must be strictly greater than HAMMING_MAX. With 4 chunks and at
+// most 3 correctable bit errors, the pigeonhole principle guarantees at least
+// one chunk is error-free — so the correct canonical code always appears in
+// that chunk's candidate list during lookup.
+const NUM_CHUNKS: usize = 4;
+
+#[derive(Clone, Copy, DataSize)]
+enum MaxHamming {
+	_0 = 0,
+	_1,
+	_2,
+	_3,
+}
+
+impl TryFrom<usize> for MaxHamming {
+	type Error = AddFamilyError;
+
+	fn try_from(value: usize) -> Result<Self, Self::Error> {
+		Ok(match value {
+			0 => Self::_0,
+			1 => Self::_1,
+			2 => Self::_2,
+			3 => Self::_3,
+			_ => return Err(AddFamilyError::BigHamming(value))
+		})
+	}
+}
+
+/// Decodes an observed AprilTag codeword to a tag ID, correcting up to
+/// `maxhamming` bit errors.
+///
+/// # Algorithm
+///
+/// A naïve search would compare the observed code against every canonical code
+/// in the family — O(N) full Hamming distance computations. QuickDecode reduces
+/// that to O(1) average case using a chunk-indexed lookup table.
+///
+/// The codeword is split into `NUM_CHUNKS` equal bit-slices ("chunks"). For
+/// each chunk we maintain a bucket index that maps a chunk value to the list of
+/// canonical codes that have that exact value in that chunk position.
+///
+/// **Why this finds the answer:** with at most `maxhamming` bit errors spread
+/// across `NUM_CHUNKS > maxhamming` chunks, the pigeonhole principle guarantees
+/// at least one chunk is error-free. The correct canonical code will therefore
+/// appear in that chunk's bucket, so iterating all `NUM_CHUNKS` buckets and
+/// computing the full Hamming distance for each candidate is both necessary and
+/// sufficient.
+///
+/// The full Hamming check is required because a chunk match is only a
+/// necessary condition — a candidate whose chunk matches but whose other bits
+/// differ too much is rejected here.
+///
+/// **Rotation:** AprilTag codes are orientation-independent. `decode_codeword`
+/// tries all four 90° rotations of the input; the `rotation` field of the
+/// result records how many times the input was rotated before a match was found,
+/// which tells the caller how to orient the detected tag.
+#[derive(Clone, DataSize)]
+pub(crate) struct QuickDecode {
+	pub family: Arc<AprilTagFamily>,
+    /// Bitmask applied after shifting to extract one chunk: `(1 << chunk_size) - 1`.
+    chunk_mask: u32,
+    /// Bit shift for each chunk: `shifts[i] = i * chunk_size`.
+    shifts: [usize; NUM_CHUNKS],
+
+    /// Bucket boundaries, one table per chunk.
+    ///
+    /// For chunk `i` and chunk value `v`, the canonical codes whose chunk `i`
+    /// equals `v` have their indices stored at
+    /// `chunk_ids[i][chunk_offsets[i][v]..chunk_offsets[i][v+1]]`.
+    ///
+    /// Length is `(1 << chunk_size) + 1` (one extra entry for the sentinel).
+    chunk_offsets: [Box<[u16]>; NUM_CHUNKS],
+
+    /// Packed code-index arrays, one per chunk (indices into `family.codes`).
+    ///
+    /// Codes are grouped by their chunk value; `chunk_offsets` gives the range
+    /// for each group. See [`chunk_offsets`] for the access pattern.
+    chunk_ids: [Box<[u16]>; NUM_CHUNKS],
+
+    maxhamming: MaxHamming,
+}
+
 impl QuickDecode {
     /// Maximum number of codes allowed in a family
     pub const NUM_CODES_MAX: usize = u16::MAX as usize;
     /// Maximum hamming
-    pub const HAMMING_MAX: usize = 3;
+    pub const HAMMING_MAX: u8 = 3;
 
-	/// Create new QuickDecode for some AprilTag family
+	/// Build a `QuickDecode` table for `family`, correcting up to `bits_corrected` errors.
+	///
+	/// The table is built with a two-pass counting sort (radix-sort style) for
+	/// each chunk:
+	///
+	/// 1. **Frequency count** — tally how many codes fall into each chunk bucket.
+	///    Counts are stored at `chunk_offsets[v+1]` so that the prefix-sum pass
+	///    can write final offsets in-place without a separate shift.
+	///
+	/// 2. **Prefix sum** — convert raw counts into start positions. After this
+	///    pass `chunk_offsets[v]` is the index in `chunk_ids` where bucket `v`
+	///    begins and `chunk_offsets[v+1]` is where it ends (exclusive).
+	///
+	/// 3. **Populate** — iterate codes again, writing each code's index into
+	///    `chunk_ids` at the position given by a per-bucket write cursor. The
+	///    cursor starts at `chunk_offsets[v]` and advances with each write,
+	///    filling the bucket contiguously.
 	pub(crate) fn new(family: Arc<AprilTagFamily>, bits_corrected: usize) -> Result<Self, AddFamilyError> {
-        // Parameter validation
 		if family.codes.len() >= Self::NUM_CODES_MAX {
 			return Err(AddFamilyError::TooManyCodes(family.codes.len()));
 		}
-        if bits_corrected > Self::HAMMING_MAX {
-            return Err(AddFamilyError::BigHamming(bits_corrected));
-        }
-	
+		let bits_corrected: MaxHamming = bits_corrected.try_into()?;
+
 		let nbits = family.bits.len();
 
-		let capacity = {
-			let ncodes = family.codes.len();
-			let mut capacity = ncodes;
-			if bits_corrected >= 1 {
-				capacity += ncodes * nbits;
-			}
-			if bits_corrected >= 2 {
-				capacity += ncodes * nbits * (nbits - 1);
-			}
-			if bits_corrected >= 3 {
-				capacity += ncodes * nbits * (nbits - 1) * (nbits - 2);
-			}
-			capacity * 3
-		};
+		let chunk_size = nbits.div_ceil(NUM_CHUNKS);
+		let capacity = 1u32 << chunk_size;
+		let chunk_mask = capacity - 1;
 
-		// Create QuickDecode with capacity
-		let mut qd = {
-			let table = LookupTable::with_capacity(capacity)?;
-	
-			Self {
-				family: family.clone(),
-				table,
-				bits_corrected,
-			}
-		};
+		let shifts: [_; NUM_CHUNKS] = array::from_fn(|i| i.wrapping_mul(chunk_size));
 
+		// +1 for the sentinel entry used during lookup: offsets[v+1] - offsets[v] = bucket size.
+		let mut chunk_offsets: [Box<[u16]>; NUM_CHUNKS] = array::try_from_fn(|_| try_calloc(capacity as usize + 1))?;
+		let mut chunk_ids: [Box<[u16]>; NUM_CHUNKS] = array::try_from_fn(|_| try_calloc(family.codes.len()))?;
 
-		for (i, code) in family.codes.iter().enumerate() {
-			// add exact code (hamming = 0)
-			qd.add(*code, i, 0);
-			
-			match bits_corrected {
-				0 => {},
-				1 => {
-					// add hamming 1
-					for j in 0..nbits {
-						let code_dist1 = code ^ (1u64 << j);
-						qd.add(code_dist1, i, 1);
-					}
-				},
-				2 => {
-					// add hamming 2
-					for j in 0..nbits {
-						let code_dist1 = code ^ (1u64 << j);
-						qd.add(code_dist1, i, 1);
-						for k in 0..j {
-							let code_dist2 = code_dist1 ^ (1u64 << k);
-							qd.add(code_dist2, i, 2);
-						}
-					}
-				},
-				3 => {
-					// add hamming 3
-					for j in 0..nbits {
-						let code_dist1 = code ^ (1u64 << j);
-						qd.add(code_dist1, i, 1);
-						for k in 0..j {
-							let code_dist2 = code_dist1 ^ (1u64 << k);
-							qd.add(code_dist2, i, 2);
-							for m in 0..k {
-								let code_dist3 = code_dist2 ^ (1u64 << m);
-								qd.add(code_dist3, i, 3);
-							}
-						}
-					}
-				},
-				_ => {
-					// println!("Error: maxhamming beyond 3 not supported");
-					return Err(AddFamilyError::BigHamming(bits_corrected));
-				},
+		// Pass 1: count how many codes land in each bucket.
+		// Write to [v+1] so the prefix sum can run without a separate shift step.
+		for &code in &family.codes {
+			for (&shift, chunk_offset) in iter::zip(&shifts, &mut chunk_offsets) {
+				let val = (code >> shift) as u32 & chunk_mask;
+				chunk_offset[val as usize + 1] += 1;
 			}
 		}
-	
-        
-        #[cfg(feature="extra_debug")]
+
+		// Pass 2: prefix sum — turn counts into start offsets.
+		// After this: chunk_offsets[v] = start of bucket v, chunk_offsets[v+1] = exclusive end.
+		for chunk_offset in &mut chunk_offsets {
+			for j in 0..capacity {
+				chunk_offset[j as usize + 1] += chunk_offset[j as usize];
+			}
+		}
+
+		// Pass 3: populate chunk_ids.
+		// `cursors` is a mutable copy of chunk_offsets used as per-bucket write heads.
+		let mut cursors = chunk_offsets.each_ref().try_map(|chunk_offset| -> Result<_, AllocError> {
+			let mut cursor = try_calloc(capacity as usize + 1)?;
+			cursor.copy_from_slice(&chunk_offset);
+			Ok(cursor)
+		})?;
+
+		for (i, &code) in family.codes.iter().enumerate() {
+			for j in 0..NUM_CHUNKS {
+				let val = (code >> shifts[j]) as u32 & chunk_mask;
+				let write_pos = cursors[j][val as usize];
+				chunk_ids[j][write_pos as usize] = i as u16;
+				cursors[j][val as usize] += 1;
+			}
+		}
+
+		drop(cursors);
+
+		let qd = Self { family, chunk_mask, shifts, chunk_offsets, chunk_ids, maxhamming: bits_corrected };
+
+		#[cfg(feature = "extra_debug")]
 		{
 			use datasize::data_size;
-            println!("quick decode: capacity {}, size {:.0} kB", capacity, data_size(&qd.table) as f64 / 1024.0);
+			eprintln!("quick decode: capacity {}, size {:.1} kB", capacity, data_size(&qd) as f64 / 1024.0);
 
-            let (avg_run, longest_run) = qd.table.stats();
-            println!("quick decode: longest run: {}, average run {:.3}", longest_run, avg_run);
+			let (run_min, run_mean, run_max) = qd.stats();
+			println!("quick decode: shortest run: {}, average run {:.3}, longest run: {}", run_min, run_mean, run_max);
 		}
 
 		Ok(qd)
 	}
 
-	fn add(&mut self, code: u64, id: usize, hamming: u8) {
-        let id = id.try_into().unwrap(); // We already checked for this overflow
-        self.table.add(code, QuickDecodeValue { id, hamming })
-            .ok() // Drop value on error
-            .expect("No bucket for code"); // Shouldn't happen
-	}
-
+	/// Decode an observed codeword, correcting up to `maxhamming` bit errors.
+	///
+	/// Returns `None` if no canonical code is within the Hamming distance threshold.
+	///
+	/// # Rotation handling
+	///
+	/// The outer loop iterates `[Identity, Deg90, Deg180, Deg270]`. On each
+	/// iteration `rcode` is the observed code rotated by the current amount.
+	/// When a match is found, the `rotation` field records the current
+	/// `Rotation` value — i.e. how many 90° CCW turns were applied to the
+	/// observed code before it matched the canonical (unrotated) form.
+	///
+	/// Consequently, a physically-rotated tag produces a result whose `rotation`
+	/// is the *inverse* rotation: apply that many CCW turns to undo the camera
+	/// orientation and recover the upright view.
+	///
+	/// # Uniqueness
+	///
+	/// The tag family's minimum inter-code Hamming distance (e.g. 11 for
+	/// tag36h11) ensures that within `maxhamming ≤ 3` errors there is at most
+	/// one matching code, so returning the first match found is correct.
 	pub fn decode_codeword(&self, mut rcode: u64) -> Option<QuickDecodeResult> {
 		let dim = self.family.bits.len().try_into()
             .expect("AprilTag family has too many bits");
-		
+
 		for rotation in Rotation::values() {
-            if let Some(entry) = self.table.get(rcode) {
-                return Some(QuickDecodeResult {
-                    id: entry.id,
-                    hamming: entry.hamming,
-                    rotation,
-                });
-            }
-            rcode = rotate90(rcode, dim);
+			// Check all NUM_CHUNKS buckets. We don't know which chunk is
+			// error-free, so we must check all of them. The correct code is
+			// guaranteed to appear in at least one bucket (pigeonhole), and the
+			// full Hamming check below rejects false positives.
+			for i in 0..NUM_CHUNKS {
+				let val = (rcode >> self.shifts[i]) as usize & self.chunk_mask as usize;
+				let start = self.chunk_offsets[i][val];
+				let end = self.chunk_offsets[i][val + 1];
+
+				for &id in &self.chunk_ids[i][start as usize..end as usize] {
+					let correct_code = self.family.codes[id as usize];
+					let hamming = (correct_code ^ rcode).count_ones() as u8;
+					if hamming <= self.maxhamming as _ {
+						return Some(QuickDecodeResult {
+							id,
+							hamming,
+							rotation,
+						});
+					}
+				}
+			}
+			rcode = rotate90(rcode, dim);
 		}
 
 		None
+	}
+
+	#[cfg(feature = "extra_debug")]
+	fn stats(&self) -> (u16, f64, u16) {
+		let mut run_min = u16::MAX;
+		let mut run_max = 0;
+		let mut run_sum = 0usize;
+		let mut run_count = 0;
+		for chunk_offset in &self.chunk_offsets {
+			for &[start, end] in chunk_offset.array_windows() {
+				let dist = end - start;
+				if dist < run_min {
+					run_min = dist;
+				}
+				if dist > run_max {
+					run_max = dist;
+				}
+				run_sum += dist as usize;
+				run_count += 1;
+			}
+		}
+		(run_min, run_sum as f64 / run_count as f64, run_max)
 	}
 }
 
@@ -235,7 +335,7 @@ mod test {
 	fn decode_all_rotations() {
 		let family = AprilTagFamily::for_name("tag36h11").unwrap();
 		let qd = QuickDecode::new(family.clone(), 0).unwrap();
-		let nbits = family.bits.len() as u64;
+		let nbits = family.bits.len() as u8;
 
 		for (id, &code) in family.codes.iter().enumerate().take(5) {
 			let [r0, r1, r2, r3] = rotations(code, nbits);
@@ -308,7 +408,7 @@ mod test {
 	#[test]
 	fn decode_tag16h5() {
 		let family = AprilTagFamily::for_name("tag16h5").unwrap();
-		let nbits = family.bits.len() as u64;
+		let nbits = family.bits.len() as u8;
 		let qd = QuickDecode::new(family.clone(), 1).unwrap();
 		let code = family.codes[0];
 

@@ -10,6 +10,8 @@
     // anonymous_lifetime_in_impl_trait,
     // array_chunks,
     ptr_as_uninit,
+	array_try_from_fn,
+	array_try_map,
 )]
 #![allow(non_snake_case)]
 
