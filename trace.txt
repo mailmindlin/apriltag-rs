@@ -1,0 +1,78 @@
+detection   0: id (36x11)-   0, hamming 0, margin  233.613
+ 0 init                      0.000042 ms     0.000042 ms   0%
+ 1 decimate                  0.042250 ms     0.042292 ms   3%
+ 2 blur/sharp                0.000042 ms     0.042334 ms   0%
+ 3 tile_minmax               0.066000 ms     0.108334 ms   4%
+ 4 blur                      0.037416 ms     0.145750 ms   2%
+ 5 threshold                 0.072792 ms     0.218542 ms   4%
+ 6 unionfind                 0.375625 ms     0.594167 ms  23%
+ 7 make clusters             0.645083 ms     1.239250 ms  40%
+ 8 fit quads to clusters     0.256959 ms     1.496209 ms  16%
+ 9 quads                     0.000625 ms     1.496834 ms   0%
+10 decode+refinement         0.127708 ms     1.624542 ms   8%
+11 reconcile                 0.000500 ms     1.625042 ms   0%
+12 debug output              0.000125 ms     1.625167 ms   0%
+13 cleanup                   0.000125 ms     1.625292 ms   0%
+
+
+detection   0: id (36x11)-   0, hamming 0, margin  233.613
+ 0 init                      0.000125 ms     0.000125 ms   0%
+ 1 Buffer start              0.016667 ms     0.016792 ms   0%
+ 2 Buffer upload             0.078916 ms     0.095708 ms   1%
+ 3 quad_decimate buffer      0.002792 ms     0.098500 ms   0%
+ 4 quad_decimate kernel      0.205542 ms     0.304042 ms   3%
+ 5 quad_decimate             0.009958 ms     0.314000 ms   0%
+ 6 tile_minmax buffer        0.006583 ms     0.320583 ms   0%
+ 7 tile_minmax kernel        0.104084 ms     0.424667 ms   2%
+ 8 tile_minmax               0.002000 ms     0.426667 ms   0%
+ 9 tile_blur buffer          0.004583 ms     0.431250 ms   0%
+10 tile_blur kernel          0.365458 ms     0.796708 ms   6%
+11 tile_blur                 0.002792 ms     0.799500 ms   0%
+12 threshim buffer           0.008708 ms     0.808208 ms   0%
+13 threshim kernel           0.136584 ms     0.944792 ms   2%
+14 threshim                  0.003125 ms     0.947917 ms   0%
+15 Start read                0.000500 ms     0.948417 ms   0%
+16 Mapped                    1.871625 ms     2.820042 ms  32%
+17 Unmap                     0.006166 ms     2.826208 ms   0%
+18 read quad_im              0.002250 ms     2.828458 ms   0%
+19 Start read                0.000167 ms     2.828625 ms   0%
+20 Mapped                    0.680583 ms     3.509208 ms  12%
+21 Unmap                     0.003917 ms     3.513125 ms   0%
+22 read threshim             0.001292 ms     3.514417 ms   0%
+23 cc start                  0.000583 ms     3.515000 ms   0%
+24 Buffer start              0.000167 ms     3.515167 ms   0%
+25 Buffer upload             0.102875 ms     3.618042 ms   2%
+26 cc upload                 0.000208 ms     3.618250 ms   0%
+27 ufi buffer                0.003542 ms     3.621792 ms   0%
+28 ufi kernel                0.162083 ms     3.783875 ms   3%
+29 ufi                       0.007167 ms     3.791042 ms   0%
+30 cc kernel                 0.083916 ms     3.874958 ms   1%
+31 cc                        0.002750 ms     3.877708 ms   0%
+32 unionfind                 0.930125 ms     4.807833 ms  16%
+33 make clusters             0.674000 ms     5.481833 ms  11%
+34 fit quads to clusters     0.261209 ms     5.743042 ms   4%
+35 quads                     0.007916 ms     5.750958 ms   0%
+36 decode+refinement         0.139167 ms     5.890125 ms   2%
+37 reconcile                 0.000458 ms     5.890583 ms   0%
+38 debug output              0.000042 ms     5.890625 ms   0%
+39 cleanup                   0.000208 ms     5.890833 ms   0%
+
+
+ 0 init                      0.000042 ms     0.000042 ms   0%
+ 1 Buffer start              0.000250 ms     0.000292 ms   0%
+ 2 Buffer upload             0.080916 ms     0.081208 ms   1%
+ 3 ocl kernels               1.124500 ms     1.205708 ms  19%
+ 4 quad_decimate enq         0.009667 ms     1.215375 ms   0%
+ 5 tile_minmax enq           0.002458 ms     1.217833 ms   0%
+ 6 threshold enq             0.002542 ms     1.220375 ms   0%
+ 7 ufi enq                   0.000958 ms     1.221333 ms   0%
+ 8 cc enq                    0.001125 ms     1.222458 ms   0%
+ 9 kernel enqueue            0.000375 ms     1.222833 ms   0%
+10 fetch1                    3.348584 ms     4.571417 ms  58%
+11 make clusters             0.937125 ms     5.508542 ms  16%
+12 fit quads to clusters     0.197250 ms     5.705792 ms   3%
+13 quads                     0.000208 ms     5.706000 ms   0%
+14 decode+refinement         0.082625 ms     5.788625 ms   1%
+15 reconcile                 0.000708 ms     5.789333 ms   0%
+16 debug output              0.000042 ms     5.789375 ms   0%
+17 cleanup                   0.000375 ms     5.789750 ms   0%
