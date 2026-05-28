@@ -17,16 +17,17 @@ const TILESZ = 4u;
 @compute
 @workgroup_size(1,1)
 fn k03_tile_minmax(@builtin(global_invocation_id) tile_id: vec3<u32>) {
+    let dims = textureDimensions(img_src);
     let pixel_base = tile_id.xy * vec2u(TILESZ);
 
-    var v_max = 0u;
     var v_min = 255u;
+    var v_max = 0u;
 
-    // Scan every pixel in the tile
+    // Scan every pixel in the tile, clamping to image bounds
     for (var dy = 0u; dy < TILESZ; dy++) {
         for (var dx = 0u; dx < TILESZ; dx++) {
-            let b = pixel_base + vec2u(dx, dy);
-            let v = textureLoad(img_src, b, 0).r;
+            let px = min(pixel_base + vec2u(dx, dy), dims - vec2u(1u));
+            let v = textureLoad(img_src, px, 0).r;
             v_min = min(v_min, v);
             v_max = max(v_max, v);
         }
