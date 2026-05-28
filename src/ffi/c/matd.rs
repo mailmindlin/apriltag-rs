@@ -137,22 +137,19 @@ impl matd_ptr {
         assert_eq!(data.len(), (nrows * ncols) as usize, "Data length mismatch");
         
         let (layout, arr_offset) = Self::layout(nrows, ncols);
-        let ptr = unsafe { alloc_zeroed(layout) };
-        if ptr.is_null() {
-            return Err(AllocError);
-        }
+        let Some(ptr) = NonNull::new(unsafe { alloc_zeroed(layout) }) else {
+			return Err(AllocError);
+		};
 
         // Write data
         unsafe {
-            let data_ptr = ptr.byte_offset(arr_offset as isize) as *mut c_double;
-            std::ptr::copy_nonoverlapping(data.as_ptr(), data_ptr, data.len());
+            let data_ptr = ptr.byte_offset(arr_offset as isize).cast::<c_double>();
+            std::ptr::copy_nonoverlapping(data.as_ptr(), data_ptr.as_ptr(), data.len());
         }
 
-        let mut res = Self(ptr as *const c_void);
-        unsafe {
-            *res.ncols_mut() = ncols;
-            *res.nrows_mut() = nrows;
-        }
+        let mut res = Self(ptr.cast());
+		*res.ncols_mut() = ncols;
+		*res.nrows_mut() = nrows;
         Ok(res)
     }
 }
@@ -161,7 +158,7 @@ impl Drop for matd_ptr {
     fn drop(&mut self) {
         let ptr = self.0.as_ptr() as *mut u8;
         unsafe {
-            let (layout, _) = Self::layout(*self.nrows(), *self.ncols());
+            let (layout, _) = Self::layout(self.nrows(), self.ncols());
             dealloc(ptr, layout);
         }
     }

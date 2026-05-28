@@ -61,7 +61,7 @@ optional = true
 version = "0.2.154"
 optional = true
 [dependencies.nix]
-version = "0.28.0"
+version = "0.31.3"
 optional = true
 [dependencies.errno]
 version = "0.3.8"
