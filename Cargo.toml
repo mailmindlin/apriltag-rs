@@ -29,7 +29,7 @@ default = ["python", "jni", "cffi"]
 
 [dependencies]
 arrayvec = "0.7.4"
-rand = "0.8.5"
+rand = "0.10.1"
 rayon = "1.10.0"
 datasize = "0.2.15"
 clap = { version = "4.5.4", features=["derive"] }

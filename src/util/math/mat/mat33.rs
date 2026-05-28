@@ -620,15 +620,15 @@ impl MulAssign<f64> for Mat33 {
 
 #[cfg(test)]
 mod test {
-    use rand::{thread_rng, Rng};
+    use rand::{RngExt, rng};
 
     use super::Mat33;
 
     fn random() -> Mat33 {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut values = [0f64; 9];
         for v in values.iter_mut() {
-            *v = rng.gen();
+            *v = rng.random();
         }
         Mat33::of(values)
     }
