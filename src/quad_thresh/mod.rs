@@ -6,14 +6,16 @@ pub(super) mod threshold;
 pub(super) use grad_cluster::{gradient_clusters, Clusters};
 use std::{f64::consts as f64c};
 
-use crate::{detector::AprilTagDetector, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageY8, ImageDimensions, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile, DetectorConfig};
+use crate::{detector::AprilTagDetector, util::{image::{ImageY8, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile};
 
 use self::{unionfind::connected_components, quadfit::fit_quads};
 
 #[cfg(feature="debug")]
 use std::fs::File;
 #[cfg(feature="debug")]
-use self::{unionfind::UnionFindStatic, dbg::debug_images};
+use self::unionfind::UnionFindStatic;
+#[cfg(feature="debug")]
+use crate::{DetectorConfig, dbg::debug_images, util::{mem::calloc, color::RandomColor, image::{ImageWritePNM, ImageBuffer, Rgb, ImageDimensions}}};
 
 /// Minimum size for blobs
 const MIN_CLUSTER_SIZE: usize = 24;
@@ -241,13 +243,13 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
 pub(crate) fn apriltag_quad_thresh(td: &AprilTagDetector, tp: &mut TimeProfile, im: &ImageY8, threshim: ImageY8) -> Vec<Quad> {
 	////////////////////////////////////////////////////////
 	// step 2. find connected components.
-	let mut uf = connected_components(&td.params, &threshim);
+	let uf = connected_components(&td.params, &threshim);
 
 	tp.stamp("unionfind");
 
 	// make segmentation image.
 	#[cfg(feature="debug")]
-	debug_unionfind(&td.params, tp, threshim.dimensions(), &mut uf);
+	debug_unionfind(&td.params, tp, threshim.dimensions(), &uf);
 
 	let clusters = gradient_clusters(&td.params, &threshim.as_ref(), uf);
 	drop(threshim);
