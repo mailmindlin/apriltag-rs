@@ -284,7 +284,7 @@ impl DetectorConfig {
 				Err(e) => panic!("Unable to create debug file {} ({e:?})", path.display()),
 			};
 			callback(f)
-				.expect(&format!("Error writing {name}"));
+				.unwrap_or_else(|err| panic!("Error writing {name}: {err:?}"));
 		}
 	}
 

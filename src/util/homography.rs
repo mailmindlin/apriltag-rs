@@ -112,6 +112,27 @@ static void matrix_to_quat(const matd_t *R, double q[4])
 }
 */
 
+/// overwrites upper 3x3 area of matrix M. Doesn't touch any other elements of M.
+fn quat_to_matrix(q: &[f64; 4], M: &mut Mat) {
+    let w = q[0];
+    let x = q[1];
+    let y = q[2];
+    let z = q[3];
+
+    M[(0, 0)] = w*w + x*x - y*y - z*z;
+    M[(0, 1)] = 2.*x*y - 2.*w*z;
+    M[(0, 2)] = 2.*x*z + 2.*w*y;
+
+    M[(1, 0)] = 2.*x*y + 2.*w*z;
+    M[(1, 1)] = w*w - x*x + y*y - z*z;
+    M[(1, 2)] = 2.*y*z - 2.*w*x;
+
+    M[(2, 0)] = 2.*x*z - 2.*w*y;
+    M[(2, 1)] = 2.*y*z + 2.*w*x;
+    M[(2, 2)] = w*w - x*x - y*y + z*z;
+}
+
+
 #[cfg(test)]
 mod test {
     use super::homography_to_model_view;
@@ -203,24 +224,4 @@ mod test {
         let mv = homography_to_model_view(&h, 100., 100., 0., 0., 0., 0.);
         assert!(mv[(2, 3)] < 0., "TZ should be negative, got {}", mv[(2, 3)]);
     }
-}
-
-/// overwrites upper 3x3 area of matrix M. Doesn't touch any other elements of M.
-fn quat_to_matrix(q: &[f64; 4], M: &mut Mat) {
-    let w = q[0];
-    let x = q[1];
-    let y = q[2];
-    let z = q[3];
-
-    M[(0, 0)] = w*w + x*x - y*y - z*z;
-    M[(0, 1)] = 2.*x*y - 2.*w*z;
-    M[(0, 2)] = 2.*x*z + 2.*w*y;
-
-    M[(1, 0)] = 2.*x*y + 2.*w*z;
-    M[(1, 1)] = w*w - x*x + y*y - z*z;
-    M[(1, 2)] = 2.*y*z - 2.*w*x;
-
-    M[(2, 0)] = 2.*x*z - 2.*w*y;
-    M[(2, 1)] = 2.*y*z + 2.*w*x;
-    M[(2, 2)] = w*w - x*x - y*y + z*z;
 }

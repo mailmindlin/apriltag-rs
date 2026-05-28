@@ -132,11 +132,11 @@ impl Detection {
     }
 
     #[getter]
-    fn family(&self) -> PyResult<super::PyAprilTagFamily> {
+    fn family(&self) -> super::PyAprilTagFamily {
         let det = &self.detection;
-        Ok(super::PyAprilTagFamily {
+        super::PyAprilTagFamily {
 			family: det.family.clone()
-		})
+		}
     }
 
     #[getter]
@@ -155,16 +155,16 @@ impl Detection {
     }
 
     #[getter]
-    fn center(&self) -> PyResult<(f64, f64)> {
+    fn center(&self) -> (f64, f64) {
         let det = &self.detection;
-        Ok((det.center.x(), det.center.y()))
+        (det.center.x(), det.center.y())
     }
 
     #[getter]
-    fn corners(&self) -> PyResult<Vec<(f64, f64)>> {
+    fn corners(&self) -> Vec<(f64, f64)> {
         let det = &self.detection;
         let res = det.corners.as_array().map(|p| (p[0], p[1]));
-        Ok(res.to_vec())
+        res.to_vec()
     }
 
     #[getter]
@@ -172,13 +172,13 @@ impl Detection {
         self.detection.H
     }
 
-    fn __str__(&self) -> PyResult<String> {
+    fn __str__(&self) -> String {
         let det = &self.detection;
-        Ok(format!("AprilTagDetection({} #{})", &det.family.name, det.id))
+        format!("AprilTagDetection({} #{})", det.family.name, det.id)
     }
 
-    fn __repr__(&self) -> PyResult<String> {
+    fn __repr__(&self) -> String {
         let det = &self.detection;
-        Ok(format!("{det:?}"))
+        format!("{det:?}")
     }
 }

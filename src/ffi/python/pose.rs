@@ -81,7 +81,7 @@ impl PoseEstimator {
 	}
 
 	fn __repr__(&self) -> String {
-		format!("{:?}", &self.config)
+		format!("{:?}", self.config)
 	}
 }
 

@@ -6,7 +6,7 @@ pub(crate) mod python;
 
 #[cfg(all(feature="cffi", not(feature="cbindgen")))]
 mod c;
-#[cfg(all(feature="cbindgen"))]
+#[cfg(feature="cbindgen")]
 pub mod c;
 
 mod util;

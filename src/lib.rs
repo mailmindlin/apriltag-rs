@@ -8,7 +8,7 @@
 )]
 #![cfg_attr(feature="cffi", feature(ptr_as_uninit))]
 #![allow(non_snake_case)]
-// #![allow(unused)]
+#![allow(unused)]
 #![allow(clippy::collapsible_if)]
 // #![forbid(clippy::print_stdout)]
 

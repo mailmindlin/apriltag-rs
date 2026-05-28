@@ -177,7 +177,7 @@ impl QuickDecode {
 		// `cursors` is a mutable copy of chunk_offsets used as per-bucket write heads.
 		let mut cursors = chunk_offsets.each_ref().try_map(|chunk_offset| -> Result<_, AllocError> {
 			let mut cursor = try_calloc(capacity as usize + 1)?;
-			cursor.copy_from_slice(&chunk_offset);
+			cursor.copy_from_slice(chunk_offset);
 			Ok(cursor)
 		})?;
 

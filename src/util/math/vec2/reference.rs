@@ -66,7 +66,7 @@ impl Vec2 {
     }
 
     #[inline]
-    pub fn gradient(self) -> Vec3 {
+    pub(crate) fn gradient(self) -> Vec3 {
         let xx = self.x() * self.x();
         let xy = self.x() * self.y();
         let yy = self.y() * self.y();

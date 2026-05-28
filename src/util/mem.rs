@@ -1,7 +1,7 @@
 use std::{mem::MaybeUninit, alloc::AllocError};
 
 /// Marker trait for types that zeroed-out memory is a valid representation
-pub unsafe trait SafeZero {}
+pub(crate) unsafe trait SafeZero {}
 
 unsafe impl SafeZero for u8 {}
 unsafe impl SafeZero for u16 {}

@@ -128,7 +128,7 @@ fn do_gradient_clusters(threshim: &ImageRefY8, y0: usize, y1: usize, clustermap:
 
 			let mut DO_CONN = |dx: isize, dy: usize| {
 				// NB: Arguments must be [-1, 1] or we'll overflow .gx, .gy
-				debug_assert!(-1 <= dx && dx <= 1);
+				debug_assert!((-1..=1).contains(&dx));
 				debug_assert!(dy <= 1);
 
 				let off_x = (x as isize + dx) as usize;

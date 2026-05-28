@@ -164,9 +164,7 @@ fn quad_segment_maxima(qtp: &AprilTagQuadThreshParams, cluster_len: usize, lfps:
 					continue;
 				}
 
-				for m3 in (m2+1)..maxima.len() {
-					let (i3, _i3_err) = maxima[m3];
-
+				for &(i3, _i3_err) in &maxima[(m2+1)..] {
 					let line23 = fit_line_error(lfps, i2, i3);
 					if line23.mse > qtp.max_line_fit_mse as f64 {
 						// #[cfg(feature="extra_debug")]
