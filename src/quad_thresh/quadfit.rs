@@ -233,9 +233,7 @@ fn quad_segment_agg(cluster: &[Pt], lfps: &[LineFitPoint]) -> Option<[usize; 4]>
 	}
 
 	// Implement ordering for MaxHeap
-	impl Eq for RemoveVertex {
-		fn assert_receiver_is_total_eq(&self) {}
-	}
+	impl Eq for RemoveVertex {}
 	impl PartialOrd for RemoveVertex {
 		fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 			Some(f64::partial_cmp(&self.err, &other.err)?.reverse())
