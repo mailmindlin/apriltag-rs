@@ -184,9 +184,9 @@ impl QuickDecode {
 
 #[cfg(test)]
 mod test {
-    use crate::AprilTagFamily;
+    use crate::{AprilTagFamily, families::{Rotation, rotations}};
 
-    use super::QuickDecode;
+    use super::{QuickDecode, QuickDecodeResult};
 
 	#[test]
 	fn build_qd() {
@@ -206,5 +206,125 @@ mod test {
 		let family = AprilTagFamily::for_name("tag36h11").unwrap();
 		let qd = QuickDecode::new(family, 0).unwrap();
 		qd.decode_codeword(51559569327).unwrap();
+	}
+
+	/// Decoding the canonical codeword for each tag should return the correct id,
+	/// hamming=0, and rotation=Identity.
+	#[test]
+	fn decode_returns_correct_id_and_fields() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 0).unwrap();
+		for (id, &code) in family.codes.iter().enumerate().take(10) {
+			let result = qd.decode_codeword(code).unwrap_or_else(|| panic!("code[{id}] not found"));
+			assert_eq!(result, QuickDecodeResult { id: id as u16, hamming: 0, rotation: Rotation::Identity },
+				"wrong result for code[{id}]");
+		}
+	}
+
+	/// All four rotations of a codeword must decode to the same tag id, with the
+	/// rotation field indicating how many CCW turns bring the observed code back
+	/// to the canonical one stored in the table.
+	///
+	/// The decode loop tries rotations in order [Identity, Deg90, Deg180, Deg270],
+	/// rotating the input each iteration, so:
+	///   rots[0] (canonical)   → found on iter 0 → Identity
+	///   rots[1] (rotate once) → found on iter 3 → Deg270
+	///   rots[2] (rotate twice)→ found on iter 2 → Deg180
+	///   rots[3] (rotate 3x)   → found on iter 1 → Deg90
+	#[test]
+	fn decode_all_rotations() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 0).unwrap();
+		let nbits = family.bits.len() as u64;
+
+		for (id, &code) in family.codes.iter().enumerate().take(5) {
+			let [r0, r1, r2, r3] = rotations(code, nbits);
+			let cases = [
+				(r0, Rotation::Identity),
+				(r1, Rotation::Deg270),
+				(r2, Rotation::Deg180),
+				(r3, Rotation::Deg90),
+			];
+			for (rotated, expected_rotation) in cases {
+				let result = qd.decode_codeword(rotated)
+					.unwrap_or_else(|| panic!("code[{id}] rotation {expected_rotation:?} not found"));
+				assert_eq!(result.id, id as u16);
+				assert_eq!(result.hamming, 0);
+				assert_eq!(result.rotation, expected_rotation,
+					"wrong rotation for code[{id}] rotated to {rotated}");
+			}
+		}
+	}
+
+	#[test]
+	fn decode_hamming1() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 1).unwrap();
+		// min_hamming=11, so a 1-bit flip unambiguously maps back to codes[5]
+		let code = family.codes[5];
+		let result = qd.decode_codeword(code ^ 1).unwrap();
+		assert_eq!(result, QuickDecodeResult { id: 5, hamming: 1, rotation: Rotation::Identity });
+	}
+
+	#[test]
+	fn decode_hamming2() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 2).unwrap();
+		let code = family.codes[5];
+		let result = qd.decode_codeword(code ^ 0b11).unwrap();
+		assert_eq!(result, QuickDecodeResult { id: 5, hamming: 2, rotation: Rotation::Identity });
+	}
+
+	#[test]
+	fn decode_hamming3() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 3).unwrap();
+		let code = family.codes[5];
+		let result = qd.decode_codeword(code ^ 0b111).unwrap();
+		assert_eq!(result, QuickDecodeResult { id: 5, hamming: 3, rotation: Rotation::Identity });
+	}
+
+	/// A 1-bit-corrupted code must return None when bits_corrected=0.
+	#[test]
+	fn decode_hamming1_rejected_when_bits_corrected_zero() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 0).unwrap();
+		let code = family.codes[0];
+		assert!(qd.decode_codeword(code ^ 1).is_none());
+	}
+
+	/// A code that differs by many bits from every valid codeword must return None.
+	#[test]
+	fn decode_miss_returns_none() {
+		let family = AprilTagFamily::for_name("tag36h11").unwrap();
+		let qd = QuickDecode::new(family.clone(), 3).unwrap();
+		// Flipping 5 bits exceeds bits_corrected=3, and min_hamming=11 guarantees
+		// the result is also at least 11-5=6 bits away from every other code.
+		let corrupted = family.codes[0] ^ 0b1_1111;
+		assert!(qd.decode_codeword(corrupted).is_none());
+	}
+
+	/// Verify correct behaviour on a family with fewer bits (tag16h5: 16 bits, min_hamming=5).
+	#[test]
+	fn decode_tag16h5() {
+		let family = AprilTagFamily::for_name("tag16h5").unwrap();
+		let nbits = family.bits.len() as u64;
+		let qd = QuickDecode::new(family.clone(), 1).unwrap();
+		let code = family.codes[0];
+
+		// Exact match
+		let result = qd.decode_codeword(code).unwrap();
+		assert_eq!(result, QuickDecodeResult { id: 0, hamming: 0, rotation: Rotation::Identity });
+
+		// Rotated once: decode loop finds it on iter 3 → Deg270
+		let [_, r1, _, _] = rotations(code, nbits);
+		let result = qd.decode_codeword(r1).unwrap();
+		assert_eq!(result.id, 0);
+		assert_eq!(result.hamming, 0);
+		assert_eq!(result.rotation, Rotation::Deg270);
+
+		// Hamming 1 (min_hamming=5, so unambiguous)
+		let result = qd.decode_codeword(code ^ 1).unwrap();
+		assert_eq!(result, QuickDecodeResult { id: 0, hamming: 1, rotation: Rotation::Identity });
 	}
 }
