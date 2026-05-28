@@ -3,7 +3,7 @@ use std::{ops::{Index, IndexMut, SubAssign, Sub, Add, AddAssign, Mul, MulAssign}
 
 use crate::util::mem::{calloc, try_calloc};
 
-use super::{plu::MatPLU, MatChol, svd::{MatSVD, SvdOptions}, MatDims, MatIndex, OutOfBoundsError};
+use super::{MatChol, MatDims, MatIndex, MatLike, Matmul, OutOfBoundsError, plu::MatPLU, svd::{MatSVD, SvdOptions}};
 
 #[derive(Clone, Debug)]
 pub struct Mat {
@@ -12,6 +12,31 @@ pub struct Mat {
 }
 
 type MatElement = f64;
+
+impl MatLike for Mat {
+	fn rows(&self) -> usize {
+		self.dims.rows
+	}
+
+	fn cols(&self) -> usize {
+		self.dims.cols
+	}
+
+	fn data(&self) -> &[f64] {
+		&self.data
+	}
+
+	fn data_mut(&mut self) -> &mut [f64] {
+		&mut self.data
+	}
+	
+	fn transpose(&self) -> Self {
+		self.transpose()
+	}
+	fn max_idx(&self, row: usize, maxcol: usize) -> Result<usize, OutOfBoundsError> {
+		self.max_idx(row, maxcol)
+	}
+}
 
 #[cfg(feature="compare_reference")]
 impl float_cmp::ApproxEq for Mat {
@@ -224,19 +249,19 @@ impl Mat {
 	}
 
 	/// Compute cholesky decomposition
-	pub(crate) fn chol(&self) -> MatChol {
+	pub(crate) fn chol(&self) -> MatChol<Self> {
 		MatChol::new(self)
 	}
 	
-	pub(crate) fn plu(&self) -> MatPLU {
+	pub(crate) fn plu(&self) -> MatPLU<Self> {
 		MatPLU::new(self)
 	}
 
-	pub(crate) fn svd(&self) -> MatSVD {
+	pub(crate) fn svd(&self) -> MatSVD<Self> {
 		MatSVD::new(self)
 	}
 
-	pub(crate) fn svd_with_flags(&self, options: SvdOptions) -> MatSVD {
+	pub(crate) fn svd_with_flags(&self, options: SvdOptions) -> MatSVD<Self> {
 		MatSVD::new_with_flags(self, options)
 	}
 
@@ -378,8 +403,8 @@ impl Mat {
 
 				let mut m = Self::zeroes_dim(self.dims).unwrap();
 				m[(0,0)] = self[(1,1)] * invdet;
-				m[(0,1)] = self[(0,1)] * invdet;
-				m[(1,0)] = self[(1,0)] * invdet;
+				m[(0,1)] = -self[(0,1)] * invdet;
+				m[(1,0)] = -self[(1,0)] * invdet;
 				m[(1,1)] = self[(0,0)] * invdet;
 
 				Some(m)
@@ -416,7 +441,7 @@ impl Mat {
 			return Self::scalar(scalar);
 		}
 
-		let mut res = Self::zeroes_dim(self.dims).unwrap();
+		let mut res = Self::zeroes(self.dims.cols, self.dims.rows);
 		for i in 0..self.dims.rows {
 			for j in 0..self.dims.cols {
 				res[(j,i)] = self[(i,j)];
@@ -455,22 +480,26 @@ impl Mat {
 	/// Get element at index
 	pub fn get(&self, idx: MatIndex) -> Result<&MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		Ok(unsafe { self.data.get_unchecked(offset) })
 	}
 
 	/// Mutable [Self::get]
 	pub fn get_mut(&mut self, idx: MatIndex) -> Result<&mut MatElement, OutOfBoundsError> {
 		let offset = self.dims.compute_offset(idx)?;
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		Ok(unsafe { self.data.get_unchecked_mut(offset) })
 	}
 
 	pub unsafe fn get_unchecked(&self, idx: MatIndex) -> &MatElement {
 		let offset = self.dims.compute_offset_unchecked(idx);
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		unsafe { self.data.get_unchecked(offset) }
 	}
 
 	pub unsafe fn get_unchecked_mut(&mut self, idx: MatIndex) -> &mut MatElement {
 		let offset = self.dims.compute_offset_unchecked(idx);
+		debug_assert!(offset < self.data.len(), "offset {offset} out of bounds (len {})", self.data.len());
 		unsafe { self.data.get_unchecked_mut(offset) }
 	}
 
@@ -500,10 +529,10 @@ impl Mat {
 	}
 
 	pub fn transpose_matmul(&self, rhs: &Mat) -> Mat {
-		self.transpose().matmul(rhs)
+		self.transpose().matmul_dyn(rhs)
 	}
 
-	pub fn matmul(&self, rhs: &Mat) -> Mat {
+	pub fn matmul_dyn(&self, rhs: &Mat) -> Mat {
 		assert_eq!(self.cols(), rhs.rows(), "Dimension mismatch");
 
 		let mut result = Self::zeroes(self.rows(), rhs.cols());
@@ -523,7 +552,7 @@ impl Mat {
 
 	/// Find the index of the off-diagonal element with the largest magnitude
 	pub fn max_idx(&self, row: usize, maxcol: usize) -> Result<usize, OutOfBoundsError> {
-		self.dims.assert_contains(&MatIndex { row, col: maxcol })?;
+		self.dims.assert_contains(&MatIndex { row, col: maxcol.saturating_sub(1) })?;
 		
 		let mut argmax = 0;
 		let mut max = MatElement::NEG_INFINITY;
@@ -674,20 +703,63 @@ impl MulAssign<f64> for Mat {
     }
 }
 
+/*impl Matmul for Mat {
+	type Output = Mat;
+
+	fn matmul(&self, rhs: &Self) -> Self::Output {
+		Self::matmul(self, rhs)
+	}
+}*/
+impl<M1: MatLike> Matmul<M1> for Mat {
+	type Output = Mat;
+
+	fn matmul(&self, rhs: &M1) -> Self::Output {
+		assert_eq!(self.cols(), rhs.rows(), "Dimension mismatch");
+
+		let mut result = Self::zeroes(self.rows(), rhs.cols());
+
+		for i in 0..result.rows() {
+			for j in 0..result.cols() {
+				let mut acc: MatElement = 0.;
+				for k in 0..self.cols() {
+					acc += self[(i, k)] * rhs[(k, j)];
+				}
+				result[(i, j)] = acc;
+			}
+		}
+
+		result
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use super::Mat;
+
+	const EPS: f64 = 1e-8;
+
+	fn assert_close(a: f64, b: f64) {
+		assert!((a - b).abs() < EPS, "{a} != {b}");
+	}
+
+	fn assert_mat_close(a: &Mat, b: &Mat) {
+		assert_eq!(a.rows(), b.rows());
+		assert_eq!(a.cols(), b.cols());
+		for i in 0..a.rows() {
+			for j in 0..a.cols() {
+				assert_close(a[(i,j)], b[(i,j)]);
+			}
+		}
+	}
+
 	#[test]
 	fn scalar() {
 		let s = Mat::scalar(1.0);
 
 		assert!(s.is_scalar());
 
-		if let Some(sc) = s.as_scalar() {
-			assert_eq!(sc, 1.0);
-		} else {
-			assert!(false);
-		}
+		let sc = s.as_scalar().unwrap();
+		assert_eq!(sc, 1.0);
 	}
 
 	#[test]
@@ -703,5 +775,106 @@ mod test {
 		}
 
 		assert!(!m.is_scalar());
+	}
+
+	#[test]
+	fn transpose_double() {
+		let a = Mat::create(2, 3, &[1., 2., 3., 4., 5., 6.]);
+		let att = a.transpose().transpose();
+		assert_mat_close(&a, &att);
+	}
+
+	#[test]
+	fn transpose_shape() {
+		let a = Mat::create(2, 3, &[1., 2., 3., 4., 5., 6.]);
+		let at = a.transpose();
+		assert_eq!(at.rows(), 3);
+		assert_eq!(at.cols(), 2);
+		assert_close(at[(0,0)], 1.);
+		assert_close(at[(1,0)], 2.);
+		assert_close(at[(0,1)], 4.);
+	}
+
+	#[test]
+	fn det_2x2() {
+		let a = Mat::create(2, 2, &[3., 8., 4., 6.]);
+		assert_close(a.det(), 3. * 6. - 8. * 4.);
+	}
+
+	#[test]
+	fn det_3x3() {
+		let a = Mat::create(3, 3, &[
+			6., 1., 1.,
+			4., -2., 5.,
+			2., 8., 7.,
+		]);
+		assert_close(a.det(), -306.);
+	}
+
+	#[test]
+	fn inv_2x2() {
+		let a = Mat::create(2, 2, &[4., 7., 2., 6.]);
+		let ai = a.inv().unwrap();
+		let product = a.matmul_dyn(&ai);
+		assert_mat_close(&product, &Mat::identity(2));
+	}
+
+	#[test]
+	fn inv_3x3() {
+		let a = Mat::create(3, 3, &[
+			1., 2., 3.,
+			0., 1., 4.,
+			5., 6., 0.,
+		]);
+		let ai = a.inv().unwrap();
+		let product = a.matmul_dyn(&ai);
+		assert_mat_close(&product, &Mat::identity(3));
+	}
+
+	#[test]
+	fn inv_singular() {
+		let a = Mat::create(2, 2, &[1., 2., 2., 4.]);
+		assert!(a.inv().is_none());
+	}
+
+	#[test]
+	fn matmul_identity() {
+		let a = Mat::create(2, 2, &[1., 2., 3., 4.]);
+		let i = Mat::identity(2);
+		assert_mat_close(&a.matmul_dyn(&i), &a);
+		assert_mat_close(&i.matmul_dyn(&a), &a);
+	}
+
+	#[test]
+	fn matmul_known() {
+		let a = Mat::create(2, 2, &[1., 2., 3., 4.]);
+		let b = Mat::create(2, 2, &[5., 6., 7., 8.]);
+		let c = a.matmul_dyn(&b);
+		assert_close(c[(0,0)], 19.);
+		assert_close(c[(0,1)], 22.);
+		assert_close(c[(1,0)], 43.);
+		assert_close(c[(1,1)], 50.);
+	}
+
+	#[test]
+	fn scale_mat() {
+		let a = Mat::create(2, 2, &[1., 2., 3., 4.]);
+		let s = a.scale(3.);
+		assert_close(s[(0,0)], 3.);
+		assert_close(s[(0,1)], 6.);
+		assert_close(s[(1,0)], 9.);
+		assert_close(s[(1,1)], 12.);
+	}
+
+	#[test]
+	fn vec_operations() {
+		let v = Mat::create(3, 1, &[3., 4., 0.]);
+		assert_close(v.vec_mag(), 5.);
+
+		let w = Mat::create(3, 1, &[1., 0., 0.]);
+		assert_close(v.vec_dot(&w), 3.);
+
+		let n = v.vec_normalize();
+		assert_close(n.vec_mag(), 1.);
 	}
 }

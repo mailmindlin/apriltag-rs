@@ -5,7 +5,7 @@ mod sharpening;
 
 use std::sync::{Mutex, Arc};
 
-use crate::{detector::DetectorConfig, util::{geom::{Point2D, quad::Quadrilateral}, math::{mat::Mat33, Vec2, Vec2Builder}, image::{ImageBuffer, ImageY8, ImageRefY8}}, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, AprilTagDetection};
+use crate::{AprilTagDetection, dbg::debugln, detector::DetectorConfig, families::AprilTagFamily, quickdecode::{QuickDecode, QuickDecodeResult}, util::{geom::{Point2D, quad::Quadrilateral}, image::{ImageBuffer, ImageRefY8, ImageY8}, math::{Vec2, Vec2Builder, mat::Mat33}}};
 
 use greymodel::Graymodel;
 use homography::homography_project;
@@ -48,6 +48,7 @@ fn value_for_pixel(im: &ImageRefY8, p: Point2D) -> Option<f64> {
     }
     let y = p.y() - 0.5 - (y1 as f64);
 
+	#[allow(clippy::unnecessary_cast)]
     let v = 0.
      + im[(x1 as usize, y1 as usize)] as f64 * (1.-x) * (1.-y)
      + im[(x2 as usize, y1 as usize)] as f64 *      x * (1.-y)
@@ -105,7 +106,7 @@ fn homography_compute2(c: [[f64; 4]; 4]) -> Result<Mat33, HomographySolveError> 
 
             if max_val < EPSILON {
                 //TODO
-                println!("Warning: Matrix is singular");
+                log::warn!("Matrix is singular");
                 return Err(HomographySolveError::SingularMatrix);
             }
             max_val_idx.unwrap()
@@ -286,7 +287,7 @@ impl Quad {
             // let tag01y = (bity as f64 + 0.5) / (family.width_at_border as f64);
 
             // scale to [-1, 1]
-            let tag = (tag - &half) * 2.;
+            let tag = (tag - half) * 2.;
             // let tagx = (tag01x - 0.5) * 2.;
             // let tagy = (tag01y - 0.5) * 2.;
             let p = homography_project(H, tag.x(), tag.y());
@@ -344,15 +345,13 @@ impl Quad {
 
         // XXX Tunable
         if (whitemodel.interpolate(Vec2::zero()) - blackmodel.interpolate(Vec2::zero()) < 0.) != qd.family.reversed_border {
-            #[cfg(feature="extra_debug")]
-            println!("Quad_decode: bad border");
+            debugln!("Quad_decode: bad border");
             return None;
         }
 
         let (rcode, score) = Self::decision_margin(H, &qd.family, info.det_params.decode_sharpening, info.im_orig, whitemodel, blackmodel, im_samples);
 
-        #[cfg(feature="extra_debug")]
-        println!(" R quad_decode: codeword={rcode}");
+        debugln!(" R quad_decode: codeword={rcode}");
         let entry = qd.decode_codeword(rcode)?;
 
         Some((score, entry))
@@ -402,6 +401,7 @@ impl Quad {
         }
         let (decision_margin, entry) = decode_res?;
 
+		#[allow(clippy::absurd_extreme_comparisons)]
         if decision_margin < 0. || entry.hamming >= 255 {
             return None;
         }
@@ -449,7 +449,7 @@ impl Quad {
         // apply this optimization BEFORE the other work.
         //if (td->quad_decimate > 1 && td->refine_edges) {
         if info.det_params.refine_edges {
-            self.refine_edges(&info.det_params, info.im_orig);
+            self.refine_edges(info.det_params, info.im_orig);
         }
 
         #[cfg(feature="compare_reference")]
@@ -503,8 +503,8 @@ impl Quad {
 
     fn update_homographies(&mut self) -> Result<Mat33, HomographySolveError> {
         let mut corr_arr = [[0f64; 4]; 4];
-        for i in 0..4 {
-            corr_arr[i] = [
+		for (i, c) in corr_arr.iter_mut().enumerate() {
+            *c = [
                 if i == 0 || i == 3 { -1. } else { 1. },
                 if i == 0 || i == 1 { -1. } else { 1. },
                 self.corners[i].x(),

@@ -1,6 +1,6 @@
 use std::{sync::Arc, cmp::Ordering};
 
-use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::mat::Mat33}, TimeProfile};
+use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::Mat33}, TimeProfile};
 
 /// Represents the detection of a tag.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,8 +31,7 @@ pub struct AprilTagDetection {
 
 	/// The 3x3 homography matrix describing the projection from an
 	/// "ideal" tag (with corners at (-1,-1), (1,-1), (1,1), and (-1,
-	/// 1)) to pixels in the image. This matrix will be freed by
-	/// apriltag_detection_destroy.
+	/// 1)) to pixels in the image.
 	pub H: Mat33,
 
 	/// The center of the detection in image pixel coordinates.
@@ -121,7 +120,7 @@ impl AprilTagDetection {
 
 		// at this point, we should only be undecided if the tag detections
 		// are *exactly* the same. How would that happen?
-		println!("uh oh, no preference for overlappingdetection");
+		log::warn!("uh oh, no preference for overlappingdetection");
 
 		Ordering::Equal
 	}
@@ -132,6 +131,9 @@ pub struct Detections {
 	pub detections: Vec<AprilTagDetection>,
 	pub nquads: u32,
 	pub tp: TimeProfile,
+	/// GPU-side timing profile, if hardware acceleration was used and
+	/// the device supports timestamp queries.
+	pub gpu_tp: Option<TimeProfile>,
 }
 
 fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> Vec<T> {
@@ -242,44 +244,6 @@ fn remove_indices<T: Clone>(mut elements: Vec<T>, mut drop_idxs: Vec<usize>) -> 
 	}
 }
 
-#[cfg(test)]
-mod test {
-    use super::remove_indices;
-
-    #[test]
-    fn drop_idxs_noop() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        let idxs = vec![];
-
-        let res = remove_indices(elems.clone(), idxs);
-        assert_eq!(res, elems);
-    }
-
-    #[test]
-    fn drop_idxs_one() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        assert_eq!(vec![1, 2, 3, 4, 5], remove_indices(elems.clone(), vec![0]));
-        assert_eq!(vec![0, 1, 2, 3, 5], remove_indices(elems.clone(), vec![4]));
-        assert_eq!(vec![0, 1, 3, 4, 5], remove_indices(elems.clone(), vec![2]));
-    }
-
-    #[test]
-    fn drop_idxs_many() {
-        let elems = vec![0, 1, 2, 3, 4, 5];
-        assert_eq!(vec![1, 3, 5], remove_indices(elems.clone(), vec![0, 2, 4]));
-        assert_eq!(vec![0, 2, 4], remove_indices(elems.clone(), vec![1, 3, 5]));
-        assert_eq!(vec![0, 5], remove_indices(elems.clone(), vec![1, 2, 3, 4]));
-        assert_eq!(vec![5], remove_indices(elems.clone(), vec![0, 1, 2, 3, 4]));
-    }
-
-    #[test]
-    #[should_panic]
-    #[cfg(debug_assertions)]
-    fn drop_error() {
-        remove_indices(vec![1, 2], vec![0, 0]);
-    }
-}
-
 /// Step 3. Reconcile detections--- don't report the same tag more
 /// than once. (Allow non-overlapping duplicate detections.)
 pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Vec<AprilTagDetection> {
@@ -339,4 +303,42 @@ pub(super) fn reconcile_detections(mut detections: Vec<AprilTagDetection>) -> Ve
 	// } else {
 	// 	detections
 	// }
+}
+
+#[cfg(test)]
+mod test {
+    use super::remove_indices;
+
+    #[test]
+    fn drop_idxs_noop() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        let idxs = vec![];
+
+        let res = remove_indices(elems.clone(), idxs);
+        assert_eq!(res, elems);
+    }
+
+    #[test]
+    fn drop_idxs_one() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        assert_eq!(vec![1, 2, 3, 4, 5], remove_indices(elems.clone(), vec![0]));
+        assert_eq!(vec![0, 1, 2, 3, 5], remove_indices(elems.clone(), vec![4]));
+        assert_eq!(vec![0, 1, 3, 4, 5], remove_indices(elems.clone(), vec![2]));
+    }
+
+    #[test]
+    fn drop_idxs_many() {
+        let elems = vec![0, 1, 2, 3, 4, 5];
+        assert_eq!(vec![1, 3, 5], remove_indices(elems.clone(), vec![0, 2, 4]));
+        assert_eq!(vec![0, 2, 4], remove_indices(elems.clone(), vec![1, 3, 5]));
+        assert_eq!(vec![0, 5], remove_indices(elems.clone(), vec![1, 2, 3, 4]));
+        assert_eq!(vec![5], remove_indices(elems.clone(), vec![0, 1, 2, 3, 4]));
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn drop_error() {
+        remove_indices(vec![1, 2], vec![0, 0]);
+    }
 }

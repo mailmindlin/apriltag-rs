@@ -245,7 +245,6 @@ mod test {
 	fn enumerate_pixels() {
 		let img = ImageY8::zeroed(10, 10);
 		let num_pixels = img.enumerate_pixels()
-			.into_iter()
 			.count();
 		assert_eq!(num_pixels, 100);
 	}
@@ -254,7 +253,6 @@ mod test {
 	fn enumerate_pixels_mut() {
 		let mut img = ImageY8::zeroed(10, 10);
 		let num_pixels = img.enumerate_pixels_mut()
-			.into_iter()
 			.count();
 		assert_eq!(num_pixels, 100);
 	}
@@ -265,7 +263,7 @@ mod test {
 		img[(0, 0)] = 1;
 		img[(1, 1)] = 2;
 		
-		let mut it = img.enumerate_pixels().into_iter();
+		let mut it = img.enumerate_pixels();
 		assert_eq!(it.next(), Some(((0, 0), &Luma([1]))));
 		assert_eq!(it.next(), Some(((1, 0), &Luma([0]))));
 		assert_eq!(it.next(), Some(((0, 1), &Luma([0]))));
@@ -279,7 +277,7 @@ mod test {
 		img[(0, 0)] = 1;
 		img[(1, 1)] = 2;
 		
-		let mut it = img.enumerate_pixels_mut().into_iter();
+		let mut it = img.enumerate_pixels_mut();
 		assert_eq!(it.next(), Some(((0, 0), &mut Luma([1]))));
 		assert_eq!(it.next(), Some(((1, 0), &mut Luma([0]))));
 		assert_eq!(it.next(), Some(((0, 1), &mut Luma([0]))));
@@ -293,7 +291,7 @@ mod test {
 		img[(0, 0)] = [1, 2, 3];
 		img[(1, 1)] = [4, 5, 6];
 		
-		let mut it = img.enumerate_pixels().into_iter();
+		let mut it = img.enumerate_pixels();
 		assert_eq!(it.next(), Some(((0, 0), &Rgb([1, 2, 3]))));
 		assert_eq!(it.next(), Some(((1, 0), &Rgb([0, 0, 0]))));
 		assert_eq!(it.next(), Some(((0, 1), &Rgb([0, 0, 0]))));
@@ -307,7 +305,7 @@ mod test {
 		img[(0, 0)] = [1, 2, 3];
 		img[(1, 1)] = [4, 5, 6];
 		
-		let mut it = img.enumerate_pixels_mut().into_iter();
+		let mut it = img.enumerate_pixels_mut();
 		assert_eq!(it.next(), Some(((0, 0), &mut Rgb([1, 2, 3]))));
 		assert_eq!(it.next(), Some(((1, 0), &mut Rgb([0, 0, 0]))));
 		assert_eq!(it.next(), Some(((0, 1), &mut Rgb([0, 0, 0]))));
@@ -319,7 +317,7 @@ mod test {
 	fn enumerate_pixels_test() {
 		let mut img = ImageY8::zeroed_with_stride(323, 150, 384);
 		
-		let it = img.enumerate_pixels_mut().into_iter();
+		let it = img.enumerate_pixels_mut();
 		it.count();
 	}
 }

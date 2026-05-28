@@ -2,7 +2,7 @@ use std::{num::NonZeroU64, mem::size_of};
 
 use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
-use crate::{quad_thresh::threshold::TILESZ, wgpu::util::GpuImageLike, DetectorBuildError, DetectorConfig};
+use crate::{DetectorBuildError, DetectorConfig, dbg::debugln, quad_thresh::threshold::TILESZ, wgpu::util::GpuImageLike};
 
 use super::{util::{ComputePipelineDescriptor, DataStore, GpuTexture, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
@@ -94,10 +94,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_tile_minmax"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_minmax = shader.create_compute_pipeline(ComputePipelineDescriptor {
@@ -143,10 +143,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_tile_blur"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_blur = shader.create_compute_pipeline(ComputePipelineDescriptor {
@@ -207,10 +207,10 @@ impl GpuThreshim {
 			let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("threshim->pl_threshim"),
 				bind_group_layouts: &[
-					&const_bgl,
-					&params_bgl,
+					Some(&const_bgl),
+					Some(&params_bgl),
 				],
-				push_constant_ranges: &[],
+				..Default::default()
 			});
 
 			let cp_minmax = shader.create_compute_pipeline(ComputePipelineDescriptor {
@@ -254,14 +254,14 @@ impl GpuStage for GpuThreshim {
         size_of::<u32>()
     }
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		// Create output buffer
 		let dst = ctx.dst_texture(src.width(), src.height());
 
 		let tw = src.width() / TILESZ;
 		let th = src.height() / TILESZ;
-		let tiles0 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, Some("minmax_tiles"));
-		let tiles1 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, Some("blur_tiles"));
+		let tiles0 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, "minmax_tiles");
+		let tiles1 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, "blur_tiles");
 
 		ctx.cpass.set_bind_group(0, &self.const_bg, &[]);
 
@@ -322,8 +322,7 @@ impl GpuStage for GpuThreshim {
 			})
 		};
 		
-		#[cfg(feature="extra_debug")]
-		println!("Dispatch wg=({tw}, {th})");
+		debugln!("Dispatch wg=({tw}, {th})");
 		ctx.cpass.set_bind_group(1, bg_minmax, &[]);
 		ctx.cpass.set_pipeline(&self.tile_minmax.0);
 		ctx.cpass.dispatch_workgroups(tw as u32, th as u32, 1);
@@ -334,7 +333,11 @@ impl GpuStage for GpuThreshim {
 
 		ctx.cpass.set_bind_group(1, bg_threshim, &[]);
 		ctx.cpass.set_pipeline(&self.threshim.0);
-		ctx.cpass.dispatch_workgroups(src.width() as u32, src.height() as u32, 1);
+		ctx.cpass.dispatch_workgroups(
+			(src.width() as u32).div_ceil(TILESZ as u32),
+			(src.height() as u32).div_ceil(TILESZ as u32),
+			1,
+		);
 
 		#[cfg(feature="debug")]
 		if ctx.config.debug() {

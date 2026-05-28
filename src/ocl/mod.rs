@@ -26,14 +26,16 @@ use ocl::{
 };
 use rayon::Scope;
 
-use crate::dbg::debug_images;
+use crate::dbg::{debug_enabled, debugln};
+#[cfg(feature="debug")]
+use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 use crate::detector::config::AccelerationRequest;
 use crate::ocl::stage2::OclQuadSigma;
 use crate::ocl::stage4::WrappedUnionFind;
-use crate::quad_thresh::{gradient_clusters, Clusters, debug_unionfind};
+use crate::quad_thresh::{gradient_clusters, Clusters};
 use crate::quad_thresh::threshold::{self};
 use crate::quad_thresh::unionfind::UnionFind2D;
-use crate::util::image::{ImageWritePNM, ImageRefY8};
+use crate::util::image::ImageRefY8;
 use crate::util::pool::PoolGuard;
 use crate::DetectorBuildError;
 use crate::util::mem::SafeZero;
@@ -53,6 +55,8 @@ const PROG_UNIONFIND: &str = include_str!("./04_unionfind_simple.cl");
 pub(crate) enum OclBuildError {
 	#[error("OpenCL disabled")]
 	Disabled,
+	#[error("{0}")]
+	Other(String),
 	#[error("OpenCL inner error: {0:?}")]
 	Inner(#[from] OclError),
 	#[error("OpenCL core error: {0:?}")]
@@ -74,8 +78,8 @@ impl Into<SpatialDims> for ImageDimensions {
 	}
 }
 
-impl SafeZero for Uchar2 {}
-impl SafeZero for Uint {}
+unsafe impl SafeZero for Uchar2 {}
+unsafe impl SafeZero for Uint {}
 
 pub(crate) struct OpenCLDetector {
 	core: OclCore,
@@ -148,12 +152,11 @@ fn find_device(mode: &AccelerationRequest) -> Result<(OclPlatform, OclDevice), D
 			continue;
 		}
 		let device = devs[idx % devs.len()];
-		#[cfg(feature="extra_debug")]
-		{
-			println!("OpenCL version: {:?}", device.version());
-			println!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
-			println!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
-			println!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
+		if debug_enabled() {
+			debugln!("OpenCL version: {:?}", device.version());
+			debugln!("OpenCL extensions: {:?}", device.info(ocl::enums::DeviceInfo::Extensions));
+			debugln!("OpenCL built in kernels: {:?}", device.info(ocl::enums::DeviceInfo::BuiltInKernels));
+			debugln!("OpenCL profile: {:?}", device.info(ocl::enums::DeviceInfo::Profile));
 		}
 		if let Ok(true) = device.is_available() {
 			return Ok((platform, device));
@@ -177,6 +180,25 @@ fn split_minmax(core: &OclCore, buf: &OclBufferState<Uchar2>) -> (ImageY8, Image
 }
 
 impl OpenCLDetector {
+	/// Get information about the OpenCL device being used.
+	pub(crate) fn device_info(&self) -> super::detector::GpuDeviceInfo {
+		let device = &self.core.device;
+		let name = device.name().unwrap_or_default();
+		let vendor = device.vendor().unwrap_or_default();
+		let version = device.version().map(|v| format!("{v:?}")).unwrap_or_default();
+		let driver = device.info(ocl::enums::DeviceInfo::DriverVersion)
+			.map(|v| format!("{v}"))
+			.unwrap_or_default();
+		super::detector::GpuDeviceInfo {
+			accelerator: "opencl".into(),
+			backend: "OpenCL".into(),
+			name,
+			device_type: version,
+			vendor,
+			driver,
+		}
+	}
+
 	pub(super) fn new(config: &DetectorConfig) -> Result<Self, DetectorBuildError> {
 		let (platform, device) = find_device(&config.acceleration)?;
 
@@ -188,13 +210,13 @@ impl OpenCLDetector {
 		let (queue_write, queue_kernel, queue_init, queue_read_debug) = {
 			let available_props = match device.info(ocl::enums::DeviceInfo::QueueProperties) {
 				Ok(DeviceInfoResult::QueueProperties(props)) => props,
-				Ok(_) => return Err(DetectorBuildError::OpenCLError("Unable to get queue props".into())),
-				Err(e) => return Err(DetectorBuildError::OpenCLError(e)),
+				Ok(_) => return Err(DetectorBuildError::OpenCLError(OclBuildError::Other("Unable to get queue props".to_string()))),
+				Err(e) => return Err(DetectorBuildError::OpenCLError(e.into())),
 			};
 			
 			let props = CommandQueueProperties::new();
-			#[cfg(feature="debug")]
-			let props = if !config.debug {
+			#[cfg(any(feature="debug", feature="bench"))]
+			let props = if !(config.debug || cfg!(feature="bench")) {
 				props
 			} else if !available_props.contains(CommandQueueProperties::PROFILING_ENABLE) {
 				eprintln!("OpenCL: Profiling unavailable");
@@ -315,7 +337,7 @@ impl OpenCLDetector {
 		host_img.write_pnm(file)
 	}
 
-	fn make_kernels(&self, config: &DetectorConfig, tp: &mut TimeProfile, img_src: &OclImageState) -> Result<Kernels, DetectError> {
+	fn make_kernels(&self, config: &DetectorConfig, tp: &mut TimeProfile, img_src: &OclImageState) -> Result<Kernels<'_>, DetectError> {
 		// Build kernels (relatively slow)
 		let mut kernel_quad_decimate = None;
 		let mut kernel_quad_sigma = None;
@@ -337,7 +359,7 @@ impl OpenCLDetector {
 		scope(|s| -> Result<(), OclError> {
 			let last_buf = img_src.buffer.clone();
 
-			fn spawn<'a>(s: Option<&Scope<'a>>, f: impl (FnOnce()) + Send + 'a) {
+			fn spawn<'a>(s: Option<&Scope<'a>>, f: impl FnOnce() + Send + 'a) {
 				s.unwrap().spawn(|_| f());
 			}
 
@@ -452,7 +474,7 @@ impl OpenCLDetector {
 			Ok(())
 		}).expect("Error building kernels");//TODO: forward error
 
-		println!("Made kernels");
+		// println!("Made kernels");
 
 		Ok(Kernels {
 			quad_decimate: kernel_quad_decimate.unwrap()?,
@@ -466,7 +488,7 @@ impl OpenCLDetector {
 		})
 	}
 
-	pub(crate) fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
+	pub(crate) fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters, Option<TimeProfile>), DetectError> {
 		// Upload source image (TODO: async?)
 		let img_src = {
 			let img_src = self.core.upload_image(self.download_src, tp, image)
@@ -497,7 +519,7 @@ impl OpenCLDetector {
 			*kb.buffer.event_mut() = Some(evt.clone());
 			Ok(kb.buffer.clone())
 		}
-		println!("Will enqueue");
+		// println!("Will enqueue");
 
 		// let mut last_event = img_src.event();
 		let last_buf = &img_src.buffer;
@@ -516,7 +538,7 @@ impl OpenCLDetector {
 		} else {
 			last_buf.clone()
 		};
-		println!("Enqueued quad_decimate");
+		// println!("Enqueued quad_decimate");
 		let qd_buf = last_buf.clone();
 
 		// Quad Sigma
@@ -528,7 +550,7 @@ impl OpenCLDetector {
 			last_buf
 		};
 		let qs_buf = last_buf.clone();
-		println!("Enqueued quad_sigma");
+		// println!("Enqueued quad_sigma");
 
 		#[cfg(feature="debug")]
 		config.debug_image(debug_images::PREPROCESS, |mut f| {
@@ -586,8 +608,8 @@ impl OpenCLDetector {
 		// UnionFind Init
 		let uf_buf = enqueue_kernel(&mut kernels.unionfind_init, None)?;
 		tp.stamp("ufi enq");
-		println!("Enqueued ufi");
-		#[cfg(feature="debug")]
+		// println!("Enqueued ufi");
+		#[cfg(any(feature="debug", feature="bench"))]
 		let uf0_buf = uf_buf.clone();
 
 		let (uf_buf, db_buf) = {
@@ -605,7 +627,7 @@ impl OpenCLDetector {
 			(uf_buf.with_event(evt.clone()), kernels.connected_components.buffer.with_event(evt))
 		};
 
-		#[cfg(feature="debug")]
+		#[cfg(any(feature="debug", feature="bench"))]
 		let uf1_buf = uf_buf.clone();
 
 		let uf_buf = {
@@ -627,7 +649,7 @@ impl OpenCLDetector {
 		uf_buf.event().unwrap().wait_for().unwrap();
 		tp.stamp("await event");
 
-		let (threshim, mut uf) = rayon::join(
+		let (threshim, uf) = rayon::join(
 			|| self.core.download_image(th_buf).unwrap(),
 			|| {
 				let uf_data = self.core.fetch_ocl_buffer(&uf_buf).unwrap();
@@ -637,7 +659,7 @@ impl OpenCLDetector {
 			}
 		);
 		tp.stamp("Download uf");
-		println!("Enqueued uf");
+		// println!("Enqueued uf");
 
 		// Debug images
 		#[cfg(feature="debug")]
@@ -651,9 +673,9 @@ impl OpenCLDetector {
 
 		let quad_im = self.core.download_image(&last_buf);
 		tp.stamp("download quad_im");
-		println!("Download quad_im");
+		// println!("Download quad_im");
 		let clusters = gradient_clusters(config, &threshim.as_ref(), uf);
-		println!("Grad clusters");
+		// println!("Grad clusters");
 		
 		// let (quad_im, clusters) = rayon::join(
 		//     || self.core.download_image(&last_buf),
@@ -672,39 +694,47 @@ impl OpenCLDetector {
 		// let threshim = self.download_image(th_buf).unwrap();
 		tp.stamp("Download threshim");
 
-		#[cfg(feature="debug")]
-		if config.debug {
-			let mut tp_gpu = TimeProfile::default();
-			let t0 = Instant::now();
-			let get_time = |event: &OclEvent, info: ProfilingInfo| -> Instant {
-				let time = event.profiling_info(info).unwrap().time().unwrap();
-				t0.checked_add(Duration::from_nanos(time*1000)).unwrap()
-			};
-			
-			tp_gpu.set_start(get_time(qd_buf.event.as_ref().unwrap(), ProfilingInfo::Queued));
-			let mut record_evt = |name, evt| {
-				tp_gpu.stamp_at(format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
-				tp_gpu.stamp_at(format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
-				tp_gpu.stamp_at(format!("{name} start"), get_time(evt, ProfilingInfo::Start));
-				tp_gpu.stamp_at(format!("{name} end"), get_time(evt, ProfilingInfo::End));
-			};
-			if self.quad_decimate.is_some() {
-				record_evt("qd", qd_buf.event().unwrap());
+		let gpu_tp = {
+			#[cfg(any(feature="debug", feature="bench"))]
+			{
+				if config.debug || cfg!(feature="bench") {
+					let mut tp_gpu = TimeProfile::default();
+					let t0 = Instant::now();
+					let get_time = |event: &OclEvent, info: ProfilingInfo| -> Instant {
+						let time = event.profiling_info(info).unwrap().time().unwrap();
+						t0.checked_add(Duration::from_nanos(time*1000)).unwrap()
+					};
+
+					tp_gpu.set_start(get_time(qd_buf.event.as_ref().unwrap(), ProfilingInfo::Queued));
+					let mut record_evt = |name, evt| {
+						tp_gpu.stamp_at(format!("{name} queued"), get_time(evt, ProfilingInfo::Queued));
+						tp_gpu.stamp_at(format!("{name} submit"), get_time(evt, ProfilingInfo::Submit));
+						tp_gpu.stamp_at(format!("{name} start"), get_time(evt, ProfilingInfo::Start));
+						tp_gpu.stamp_at(format!("{name} end"), get_time(evt, ProfilingInfo::End));
+					};
+					if self.quad_decimate.is_some() {
+						record_evt("qd", qd_buf.event().unwrap());
+					}
+					if self.quad_sigma.is_some() {
+						record_evt("qs", qs_buf.event().unwrap());
+					}
+					record_evt("tm", tm_buf.event().unwrap());
+					record_evt("tb", tb_buf.event().unwrap());
+					record_evt("th", th_buf.event().unwrap());
+					record_evt("ufi", uf0_buf.event().unwrap());
+					record_evt("cc", uf1_buf.event().unwrap());
+					record_evt("uf", uf_buf.event().unwrap());
+					Some(tp_gpu)
+				} else {
+					None
+				}
 			}
-			if self.quad_sigma.is_some() {
-				record_evt("qs", qs_buf.event().unwrap());
-			}
-			record_evt("tm", tm_buf.event().unwrap());
-			record_evt("tb", tb_buf.event().unwrap());
-			record_evt("th", th_buf.event().unwrap());
-			record_evt("ufi", uf0_buf.event().unwrap());
-			record_evt("cc", uf1_buf.event().unwrap());
-			record_evt("uf", uf_buf.event().unwrap());
-			println!("{tp_gpu}");
-		}
+			#[cfg(not(any(feature="debug", feature="bench")))]
+			{ None }
+		};
 
 		let quad_im = quad_im.expect("Unable to download quad_im");
 
-		Ok((quad_im, clusters))
+		Ok((quad_im, clusters, gpu_tp))
 	}
 }

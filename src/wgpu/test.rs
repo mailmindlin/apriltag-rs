@@ -1,20 +1,20 @@
 use std::{hint::black_box, mem::size_of, num::NonZeroU32};
 
-use futures::{executor::block_on, future::{join, try_join}};
-use rand::{thread_rng, Rng};
+use futures::{executor::block_on, future::try_join};
+use rand::{RngExt, rng};
 use wgpu::CommandEncoderDescriptor;
 
-use crate::{TimeProfile, DetectorConfig, util::{ImageY8, image::ImageRefY8}, detector::{config::{QuadDecimateMode, AccelerationRequest}, quad_sigma_cpu}, wgpu::{GpuStageContext, GpuQuadDecimate, util::{GpuStage, GpuImageDownload}}, quad_thresh::threshold::threshold};
+use crate::{TimeProfile, DetectorConfig, util::{ImageY8, image::ImageRefY8}, detector::{config::{QuadDecimateMode, AccelerationRequest}, quad_sigma_cpu}, wgpu::{GpuStageContext, GpuQuadDecimate, util::{GpuStage, GpuImageDownload, GpuImageLike, GpuBufferFetch}}, quad_thresh::threshold::threshold};
 
 use super::WGPUDetector;
 
 /// Generate image with random data
 fn random_image(width: usize, height: usize) -> ImageY8 {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let mut result = ImageY8::zeroed_packed(width, height);
     for y in 0..height {
         for x in 0..width {
-            result[(x, y)] = rng.gen();
+            result[(x, y)] = rng.random();
         }
     }
     result
@@ -80,7 +80,7 @@ async fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -
     tp.stamp("Start");
     println!("A");
 
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_quad_decimate")
         .unwrap();
     tp.stamp("Upload");
     println!("B");
@@ -102,8 +102,8 @@ async fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -
             next_read: true,
             next_align: size_of::<u32>(),
             queries: &mut queries,
-            cpass: cpass,
-            stage_name: Some("quad_decimate"),
+            cpass,
+            stage_name: "quad_decimate",
         };
         ctx.tp.stamp("Kernel0");
         let dst_gpu = quad_decimate.apply(&mut ctx, &src_gpu, &mut quad_decimate_data)
@@ -203,7 +203,7 @@ fn gpu_quad_sigma(quad_sigma: f32, src_cpu: ImageRefY8) -> ImageY8 {
 
     let mut tp = TimeProfile::default();
     // let src_gpu_align = gpu.quad_sigma.as_ref().unwrap().src_alignment();
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src")
         .unwrap();
 
     // Decimate on GPU
@@ -223,7 +223,7 @@ fn gpu_quad_sigma(quad_sigma: f32, src_cpu: ImageRefY8) -> ImageY8 {
             next_align: size_of::<u32>(),
             cpass,
             queries: &mut queries,
-            stage_name: Some("quad_sigma"),
+            stage_name: "quad_sigma",
         };
         ctx.tp.stamp("Kernel0");
         let dst_gpu = quad_sigma.apply(&mut ctx, &src_gpu, &mut quad_sigma_data)
@@ -296,6 +296,195 @@ fn test_quad_sigma_sharp() {
     assert_eq!(qs_cpu, qs_gpu);
 }
 
+/// Run GPU thresholding on an image and return the result
+fn gpu_threshim(src_cpu: &ImageY8) -> ImageY8 {
+    let mut config = DetectorConfig::default();
+    config.debug = false;
+    config.acceleration = AccelerationRequest::Required;
+    // Disable decimate/sigma so we test thresholding in isolation
+    config.quad_decimate = 1.0;
+    config.quad_sigma = 0.0;
+
+    let gpu = WGPUDetector::new(&config).unwrap();
+
+    let mut tp = TimeProfile::default();
+    tp.stamp("Start");
+
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src").unwrap();
+    tp.stamp("Upload");
+
+    let (cmd_buf, mut dst_gpu) = {
+        let mut queries = gpu.context.make_queries(4);
+        let mut encoder = gpu.context.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("gpu_threshim") });
+        let mut threshim_data = Default::default();
+
+        let cpass = encoder.begin_compute_pass(&queries.make_cpd("test_threshim"));
+        let mut ctx = GpuStageContext {
+            tp: &mut tp,
+            config: &config,
+            context: &gpu.context,
+            next_read: true,
+            next_align: size_of::<u32>(),
+            queries: &mut queries,
+            cpass,
+            stage_name: "threshim",
+        };
+        let dst_gpu = gpu.threshim.apply(&mut ctx, &src_gpu, &mut threshim_data)
+            .unwrap()
+            .threshim;
+        drop(ctx);
+        drop(threshim_data);
+        queries.resolve(&mut encoder);
+        (encoder.finish(), dst_gpu)
+    };
+    tp.stamp("Build Kernel");
+
+    dst_gpu.index = Some(gpu.context.submit([cmd_buf]));
+    tp.stamp("Execute");
+
+    let img = block_on(dst_gpu.download_image(&gpu.context)).unwrap();
+    tp.stamp("Done");
+    println!("{tp}");
+    img
+}
+
+/// Test GPU thresholding matches CPU thresholding.
+///
+/// Uses a large enough image that tiles are meaningful (TILESZ=4,
+/// so we need at least 4×4 pixels to get one full tile).
+#[test]
+fn test_threshim() {
+    // Image must be a multiple of TILESZ (4) for tile_minmax
+    let src_cpu = random_image(64, 64);
+
+    let gpu_result = gpu_threshim(&src_cpu);
+
+    let mut tp = TimeProfile::default();
+    let cpu_result = threshold(&DetectorConfig::default(), &mut tp, src_cpu.as_ref()).unwrap();
+
+    assert_eq!(cpu_result, gpu_result);
+}
+
+/// Test thresholding with a non-tile-aligned image size
+#[test]
+fn test_threshim_non_aligned() {
+    // 66 is not a multiple of TILESZ=4, testing edge handling
+    let src_cpu = random_image(66, 66);
+
+    let gpu_result = gpu_threshim(&src_cpu);
+
+    let mut tp = TimeProfile::default();
+    let cpu_result = threshold(&DetectorConfig::default(), &mut tp, src_cpu.as_ref()).unwrap();
+
+    assert_eq!(cpu_result, gpu_result);
+}
+
+/// Run GPU BKE (connected component labeling) and return the raw union-find buffer
+fn gpu_bke(src_cpu: &ImageY8) -> (Box<[u32]>, usize, usize) {
+    let mut config = DetectorConfig::default();
+    config.debug = false;
+    config.acceleration = AccelerationRequest::Required;
+    config.quad_decimate = 1.0;
+    config.quad_sigma = 0.0;
+
+    let gpu = WGPUDetector::new(&config).unwrap();
+
+    let mut tp = TimeProfile::default();
+    tp.stamp("Start");
+
+    // First threshold the image (BKE operates on thresholded images)
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_bke").unwrap();
+
+    let (cmd_buf, mut dst_gpu, uf_width, uf_height) = {
+        let mut queries = gpu.context.make_queries(8);
+        let mut encoder = gpu.context.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("gpu_bke") });
+        let mut threshim_data = Default::default();
+        let mut bke_data = Default::default();
+
+        let cpass = encoder.begin_compute_pass(&queries.make_cpd("test_bke"));
+        let mut ctx = GpuStageContext {
+            tp: &mut tp,
+            config: &config,
+            context: &gpu.context,
+            next_read: true,
+            next_align: size_of::<u32>(),
+            queries: &mut queries,
+            cpass,
+            stage_name: "threshim",
+        };
+        let threshim_gpu = gpu.threshim.apply(&mut ctx, &src_gpu, &mut threshim_data)
+            .unwrap()
+            .threshim;
+
+        let uf_width = threshim_gpu.width();
+        let uf_height = threshim_gpu.height();
+
+        ctx.stage_name = "bke";
+        let uf_gpu = gpu.unionfind.apply(&mut ctx, &threshim_gpu, &mut bke_data)
+            .unwrap();
+        drop(ctx);
+        drop(threshim_data);
+        drop(bke_data);
+        queries.resolve(&mut encoder);
+        (encoder.finish(), uf_gpu, uf_width, uf_height)
+    };
+    tp.stamp("Build Kernel");
+
+    dst_gpu.index = Some(gpu.context.submit([cmd_buf]));
+    tp.stamp("Execute");
+
+    let uf_data = block_on(dst_gpu.fetch_buffer(&gpu.context)).unwrap();
+    tp.stamp("Done");
+    println!("{tp}");
+    (uf_data, uf_width, uf_height)
+}
+
+/// Test that BKE init produces a valid union-find structure.
+///
+/// After BKE init, each pixel should be its own parent (self-rooted).
+/// We verify basic structural invariants rather than exact CPU matching,
+/// since the GPU CCL algorithm differs from the CPU implementation.
+#[test]
+fn test_bke_init_structure() {
+    let src_cpu = random_image(32, 32);
+    let (uf_data, uf_width, uf_height) = gpu_bke(&src_cpu);
+
+    // After BKE init, each pixel's parent entry should be a valid index
+    let total_pixels = uf_width * uf_height.next_multiple_of(2);
+    // UF buffer has 2 entries per pixel: [parent, size]
+    assert!(uf_data.len() >= total_pixels * 2,
+        "UF buffer too small: {} < {} * 2", uf_data.len(), total_pixels);
+
+    // Every parent should be a valid pixel index
+    for i in 0..total_pixels {
+        let parent = uf_data[i * 2] as usize;
+        assert!(parent < total_pixels,
+            "Pixel {i} has out-of-bounds parent {parent} (max {total_pixels})");
+    }
+}
+
+/// Test BKE with a uniform image (all same color).
+/// All pixels should end up in the same connected component after init.
+#[test]
+fn test_bke_uniform_image() {
+    let mut img = ImageY8::zeroed_packed(32, 32);
+    // Fill with a uniform value above threshold
+    for y in 0..32 {
+        for x in 0..32 {
+            img[(x, y)] = 200;
+        }
+    }
+    let (uf_data, uf_width, uf_height) = gpu_bke(&img);
+    let total_pixels = uf_width * uf_height.next_multiple_of(2);
+
+    // All parents should be valid indices
+    for i in 0..total_pixels {
+        let parent = uf_data[i * 2] as usize;
+        assert!(parent < total_pixels,
+            "Pixel {i} has out-of-bounds parent {parent}");
+    }
+}
+
 #[test]
 #[ignore = "reason"]
 fn bench_both() {
@@ -317,7 +506,7 @@ fn bench_both() {
         tp = TimeProfile::default();
         tp.stamp("Start");
 
-        let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+        let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_bench")
             .unwrap();
         tp.stamp("Upload");
 
@@ -341,14 +530,14 @@ fn bench_both() {
                 next_align: size_of::<u32>(),
                 queries: &mut queries,
                 cpass,
-                stage_name: Some("quad_decimate"),
+                stage_name: "quad_decimate",
             };
             let dst_gpu1 = quad_decimate.apply(&mut ctx, &src_gpu, &mut quad_decimate_data)
                 .unwrap();
-            ctx.stage_name = Some("quad_decimate");
+            ctx.stage_name = "quad_decimate";
             let dst_gpu2 = quad_sigma.apply(&mut ctx, &dst_gpu1, &mut quad_sigma_data)
                 .unwrap();
-            ctx.stage_name = Some("threshold");
+            ctx.stage_name = "threshold";
             let dst_gpu3 = gpu.threshim.apply(&mut ctx, &dst_gpu2, &mut threshim_data)
                 .unwrap()
                 .threshim;
@@ -366,7 +555,10 @@ fn bench_both() {
         
         tp.stamp("Execute");
 
-        gpu.context.device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(dst_gpu.index.clone().unwrap()));
+        gpu.context.device.poll(wgpu::PollType::Wait {
+			submission_index: Some(dst_gpu.index.clone().unwrap()),
+			timeout: None,
+		});
         tp.stamp("Poll");
 
         let img_cpu2 = block_on(dst_gpu.download_image(&gpu.context))

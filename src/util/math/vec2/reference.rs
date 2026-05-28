@@ -7,7 +7,7 @@ use super::{Vec2Builder, FMA};
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vec2(f64, f64);
 
-impl const Vec2Builder for Vec2 {
+impl Vec2Builder for Vec2 {
     #[inline]
     fn zero() -> Self {
         Self(0.,0.)
@@ -66,20 +66,20 @@ impl Vec2 {
     }
 
     #[inline]
-    pub fn gradient(&self) -> Vec3 {
+    pub fn gradient(self) -> Vec3 {
         let xx = self.x() * self.x();
         let xy = self.x() * self.y();
         let yy = self.y() * self.y();
         Vec3(xx, xy, yy)
     }
 
-    pub const fn squish32(&self) -> Self {
+    pub const fn squish32(self) -> Self {
         Self(self.x() as f32 as _, self.y() as f32 as _)
     }
 
     /// Vector magnitude
     #[inline]
-    pub fn mag(&self) -> f64 {
+    pub fn mag(self) -> f64 {
         f64::hypot(self.x(), self.y())
     }
 
@@ -107,24 +107,24 @@ impl Vec2 {
     }
 
     #[inline]
-    pub fn angle(&self) -> f64 {
+    pub fn angle(self) -> f64 {
         f64::atan2(self.y(), self.x())
     }
 
     /// Vector dot product
     #[inline]
-    pub fn dot(&self, other: Vec2) -> f64 {
+    pub fn dot(self, other: Vec2) -> f64 {
         self.0 * other.0 + self.1 * other.1
     }
 
     /// This vector, normalized
-    pub fn norm(&self) -> Vec2 {
+    pub fn norm(self) -> Vec2 {
         let mag = self.mag();
         self / mag
     }
 }
 
-impl Add<Vec2> for Vec2 {
+impl Add<Self> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2) -> Self::Output {
@@ -132,35 +132,11 @@ impl Add<Vec2> for Vec2 {
     }
 }
 
-impl AddAssign<Vec2> for Vec2 {
+impl AddAssign<Self> for Vec2 {
     #[inline(always)]
     fn add_assign(&mut self, rhs: Vec2) {
         self.0 += rhs.0;
         self.1 += rhs.1;
-    }
-}
-
-impl Add<&Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: &Vec2) -> Self::Output {
-        Self(self.0 + rhs.0, self.1 + rhs.1)
-    }
-}
-
-impl Add<&Vec2> for &Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: &Vec2) -> Self::Output {
-        Vec2(self.0 + rhs.0, self.1 + rhs.1)
-    }
-}
-
-impl Sub<&Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn sub(self, rhs: &Vec2) -> Self::Output {
-        Self(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
@@ -172,15 +148,15 @@ impl Sub<f64> for Vec2 {
     }
 }
 
-impl Sub<&Vec2> for &Vec2 {
+impl Sub<Self> for Vec2 {
     type Output = Vec2;
 
-    fn sub(self, rhs: &Vec2) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         Vec2(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
-impl SubAssign<Vec2> for Vec2 {
+impl SubAssign<Self> for Vec2 {
     #[inline(always)]
     fn sub_assign(&mut self, rhs: Vec2) {
         self.0 -= rhs.0;
@@ -196,24 +172,10 @@ impl Mul<f64> for Vec2 {
     }
 }
 
-impl Mul<f64> for &Vec2 {
-    type Output = Vec2;
-    fn mul(self, rhs: f64) -> Self::Output {
-        Vec2(self.0 * rhs, self.1 * rhs)
-    }
-}
-
 impl MulAssign<f64> for Vec2 {
     fn mul_assign(&mut self, rhs: f64) {
         self.0 *= rhs;
         self.1 *= rhs;
-    }
-}
-
-impl Div<f64> for &Vec2 {
-    type Output = Vec2;
-    fn div(self, rhs: f64) -> Self::Output {
-        Vec2(self.0 / rhs, self.1 / rhs)
     }
 }
 

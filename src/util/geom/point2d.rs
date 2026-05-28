@@ -23,43 +23,35 @@ impl float_cmp::ApproxEq for Point2D {
     }
 }
 
-impl Add<Vec2> for &Point2D {
-    type Output = Point2D;
+impl Add<Vec2> for Point2D {
+    type Output = Self;
 
     fn add(self, rhs: Vec2) -> Self::Output {
-        Point2D(self.0 + rhs)
+        Self(self.0 + rhs)
     }
 }
 
-impl Sub<&Point2D> for Point2D {
+impl Sub<Self> for Point2D {
     type Output = Vec2;
 
-    fn sub(self, rhs: &Point2D) -> Self::Output {
-        self.0 - &rhs.0
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.0 - rhs.0
     }
 }
 
-impl Sub<&Point2D> for &Point2D {
-    type Output = Vec2;
+impl Sub<Vec2> for Point2D {
+    type Output = Self;
 
-    fn sub(self, rhs: &Point2D) -> Self::Output {
-        &self.0 - &rhs.0
-    }
-}
-
-impl Sub<&Vec2> for Point2D {
-    type Output = Point2D;
-
-    fn sub(self, rhs: &Vec2) -> Self::Output {
-        Point2D(self.0 - rhs)
+    fn sub(self, rhs: Vec2) -> Self::Output {
+        Self(self.0 - rhs)
     }
 }
 
 impl Neg for Point2D {
-    type Output = Point2D;
+    type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Point2D(-self.0)
+        Self(-self.0)
     }
 }
 
@@ -90,8 +82,8 @@ impl Point2D {
     }
 
     #[inline(always)]
-    pub const fn vec(&self) -> &Vec2 {
-        &self.0
+    pub const fn vec(self) -> Vec2 {
+        self.0
     }
 
     #[inline(always)]
@@ -99,18 +91,18 @@ impl Point2D {
         &mut self.0
     }
 
-    pub fn distance_to(&self, other: &Point2D) -> f64 {
+    pub fn distance_to(self, other: Point2D) -> f64 {
         let delta = self - other;
         delta.mag()
     }
 
     #[inline]
-    pub fn angle_to(&self, other: &Point2D) -> f64 {
+    pub fn angle_to(self, other: Point2D) -> f64 {
         let delta = self - other;
         delta.angle()
     }
 
-    pub fn as_array(&self) -> [f64; 2] {
+    pub fn as_array(self) -> [f64; 2] {
         [self.x(), self.y()]
     }
 }

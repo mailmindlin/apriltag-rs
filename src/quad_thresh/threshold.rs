@@ -1,8 +1,8 @@
 use arrayvec::ArrayVec;
 
-use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::TimeProfile, DetectorConfig, DetectError};
+use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef}}, dbg::TimeProfile, DetectorConfig, DetectError};
 #[cfg(feature="debug")]
-use crate::dbg::debug_images;
+use crate::{dbg::debug_images, util::image::ImageWritePNM};
 
 use super::AprilTagQuadThreshParams;
 
@@ -211,6 +211,7 @@ pub(crate) fn threshold(config: &DetectorConfig, tp: &mut TimeProfile, im: Image
 	assert!(w < 32768);
 	assert!(h < 32768);
 
+	#[cfg(feature="debug")]
 	fn split_image(src: ImageRef<[u8; 2]>) -> (ImageY8, ImageY8) {
 		let mut img_min = ImageY8::zeroed_packed(src.width(), src.height());
 		let mut img_max = ImageY8::zeroed_packed(src.width(), src.height());

@@ -97,7 +97,7 @@ impl Rotation {
 	}
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct AprilTagFamily {
 	/// The codes in the family.
 	pub codes: Vec<u64>,
@@ -120,59 +120,48 @@ pub struct AprilTagFamily {
 
 impl PartialOrd for AprilTagFamily {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		match self.name.partial_cmp(&other.name) {
-			Some(core::cmp::Ordering::Equal) => {}
+		Some(self.cmp(other))
+	}
+}
+impl Ord for AprilTagFamily {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		use std::cmp::Ordering::Equal;
+		match self.name.cmp(&other.name) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.width_at_border.partial_cmp(&other.width_at_border) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.width_at_border.cmp(&other.width_at_border) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.total_width.partial_cmp(&other.total_width) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.total_width.cmp(&other.total_width) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.reversed_border.partial_cmp(&other.reversed_border) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.reversed_border.cmp(&other.reversed_border) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.min_hamming.partial_cmp(&other.min_hamming) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.min_hamming.cmp(&other.min_hamming) {
+			Equal => {}
 			ord => return ord,
 		}
-		match self.bits.partial_cmp(&other.bits) {
-			Some(core::cmp::Ordering::Equal) => {}
+		match self.bits.cmp(&other.bits) {
+			Equal => {}
 			ord => return ord,
 		}
-		self.codes.partial_cmp(&other.codes)
+		self.codes.cmp(&other.codes)
 	}
 }
 
 impl AprilTagFamily {
-	pub fn for_name(name: &str) -> Option<Arc<AprilTagFamily>> {
-		let res = match name {
-			"tag16h5" => tag16h5_create(),
-			"tag25h9" => tag25h9_create(),
-			"tag36h10" => tag36h10_create(),
-			"tag36h11" => tag36h11_create(),
-			"tagCircle21h7" => tagCircle21h7_create(),
-			_ => return None,
-		};
-		//TODO: cache references
-		Some(Arc::new(res))
-	}
-
-	pub fn names() -> impl IntoIterator<Item = &'static str> {
-		vec!["tag16h5", "tag25h9", "tag36h10", "tag36h11", "tagCircle21h7"]
-	}
-
 	#[cfg(any(feature="compare_reference", feature="cffi"))]
 	pub(crate) fn split_bits(&self) -> (Vec<u32>, Vec<u32>) {
 		let mut bit_x = Vec::with_capacity(self.bits.len());
 		let mut bit_y = Vec::with_capacity(self.bits.len());
 		for (x, y) in self.bits.iter() {
-			bit_x.push(*x);
-			bit_y.push(*y);
+			bit_x.push(*x as i32 as u32);
+			bit_y.push(*y as i32 as u32);
 		}
 		(bit_x, bit_y)
 	}

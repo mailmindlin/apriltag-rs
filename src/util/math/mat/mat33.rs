@@ -75,6 +75,21 @@ impl Mat33 {
         ])
     }
 
+	/// Self = Self::identity() - Self
+	/// 
+	/// Slightly faster, and suprisingly common
+	pub(crate) fn identity_minus(&mut self) {
+		self.0[0] = 1. - self.0[0];
+		self.0[1] = -self.0[1];
+		self.0[2] = -self.0[2];
+		self.0[3] = -self.0[3];
+		self.0[4] = 1. - self.0[4];
+		self.0[5] = -self.0[5];
+		self.0[6] = -self.0[6];
+		self.0[7] = -self.0[7];
+		self.0[8] = 1. - self.0[8];
+	}
+
     pub(crate) fn from_quaternion(q: [f64; 4]) -> Self {
         let w = q[3];
         let x = q[0];
@@ -597,6 +612,13 @@ impl Mul<&Vec3> for &Mat33 {
         )
     }
 }
+impl Mul<Vec3> for &Mat33 {
+    type Output = Vec3;
+
+    fn mul(self, rhs: Vec3) -> Self::Output {
+		self.mul(&rhs)
+	}
+}
 
 impl AddAssign<&Mat33> for Mat33 {
     fn add_assign(&mut self, rhs: &Mat33) {
@@ -612,6 +634,17 @@ impl AddAssign<&Mat33> for Mat33 {
     }
 }
 
+impl<'a> std::iter::Sum<&'a Self> for Mat33 {
+	fn sum<I: Iterator<Item = &'a Self>>(mut iter: I) -> Self {
+		// Adding zero is not an identity operation for floats. This lets the compiler elimitate it sometimes.
+		let Some(mut sum) = iter.next().copied() else { return Self::zeroes() };
+		for item in iter {
+			sum += item;
+		}
+		sum
+	}
+}
+
 impl MulAssign<f64> for Mat33 {
     fn mul_assign(&mut self, rhs: f64) {
         self.scale_inplace(rhs);
@@ -620,24 +653,194 @@ impl MulAssign<f64> for Mat33 {
 
 #[cfg(test)]
 mod test {
-    use rand::{RngExt, rng};
-
     use super::Mat33;
 
-    fn random() -> Mat33 {
-        let mut rng = rng();
-        let mut values = [0f64; 9];
-        for v in values.iter_mut() {
-            *v = rng.random();
+    const EPS: f64 = 1e-8;
+    const SVD_EPS: f64 = 1e-5;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} ≉ {b} (diff={})", (a - b).abs());
+    }
+
+    fn assert_close_eps(a: f64, b: f64, eps: f64) {
+        assert!((a - b).abs() < eps, "{a} ≉ {b} (diff={})", (a - b).abs());
+    }
+
+    fn assert_mat_close(a: &Mat33, b: &Mat33) {
+        for i in 0..9 {
+            assert_close(a.0[i], b.0[i]);
         }
-        Mat33::of(values)
+    }
+
+    fn assert_mat_close_eps(a: &Mat33, b: &Mat33, eps: f64) {
+        for i in 0..9 {
+            assert_close_eps(a.0[i], b.0[i], eps);
+        }
+    }
+
+    // Non-singular test matrix
+    fn test_mat() -> Mat33 {
+        Mat33::of([
+            1., 2., 3.,
+            0., 1., 4.,
+            5., 6., 0.,
+        ])
     }
 
     #[test]
     fn matmul_identity() {
-        let I3 = Mat33::identity();
-        let X = random();
-        let Y = X.matmul(&I3);
-        //TODO
+        let i = Mat33::identity();
+        let a = test_mat();
+        assert_mat_close(&a.matmul(&i), &a);
+        assert_mat_close(&i.matmul(&a), &a);
+    }
+
+    #[test]
+    fn transpose_roundtrip() {
+        let a = test_mat();
+        assert_mat_close(&a.transposed().transposed(), &a);
+    }
+
+    #[test]
+    fn transpose_mut_matches_transposed() {
+        let a = test_mat();
+        let mut b = a;
+        b.transpose_mut();
+        assert_mat_close(&b, &a.transposed());
+    }
+
+    #[test]
+    fn transpose_matmul_agrees() {
+        let a = test_mat();
+        let b = Mat33::of([2., 0., 1., 1., 3., 2., 0., 1., 4.]);
+        assert_mat_close(&a.transpose_matmul(&b), &a.transposed().matmul(&b));
+    }
+
+    #[test]
+    fn matmul_transpose_agrees() {
+        let a = test_mat();
+        let b = Mat33::of([2., 0., 1., 1., 3., 2., 0., 1., 4.]);
+        assert_mat_close(&a.matmul_transpose(&b), &a.matmul(&b.transposed()));
+    }
+
+    #[test]
+    fn inv_known() {
+        let a = test_mat();
+        let ai = a.inv().unwrap();
+        assert_mat_close(&a.matmul(&ai), &Mat33::identity());
+    }
+
+    #[test]
+    fn inv_right_inverse() {
+        // also check the other direction
+        let a = test_mat();
+        let ai = a.inv().unwrap();
+        assert_mat_close(&ai.matmul(&a), &Mat33::identity());
+    }
+
+    #[test]
+    fn inv_singular_returns_none() {
+        // row3 = row1 + row2 → singular
+        let a = Mat33::of([
+            1., 2., 3.,
+            4., 5., 6.,
+            5., 7., 9.,
+        ]);
+        assert!(a.inv().is_none());
+    }
+
+    #[test]
+    fn from_quaternion_identity() {
+        // w=1, x=y=z=0 → identity rotation matrix
+        let q = [0., 0., 0., 1.];
+        let m = Mat33::from_quaternion(q);
+        assert_mat_close(&m, &Mat33::identity());
+    }
+
+    #[test]
+    fn from_quaternion_90deg_z() {
+        // 90° rotation around z: q=[x=0, y=0, z=sin45°, w=cos45°]
+        let s = f64::sqrt(0.5);
+        let q = [0., 0., s, s];
+        let m = Mat33::from_quaternion(q);
+        let expected = Mat33::of([
+             0., -1.,  0.,
+             1.,  0.,  0.,
+             0.,  0.,  1.,
+        ]);
+        assert_mat_close(&m, &expected);
+    }
+
+    #[test]
+    fn from_quaternion_unit_length_preserving() {
+        // Any unit quaternion should give an orthogonal matrix: R^T*R = I
+        let s = f64::sqrt(0.5);
+        let q = [s, 0., s, 0.];  // 180° around x+z axis (normalized)
+        let m = Mat33::from_quaternion(q);
+        assert_mat_close(&m.transpose_matmul(&m), &Mat33::identity());
+    }
+
+    #[test]
+    fn sym_solve_basic() {
+        // SPD matrix [[4,2,2],[2,5,3],[2,3,6]]
+        let a = Mat33::of([4., 2., 2., 2., 5., 3., 2., 3., 6.]);
+        let b = [1., 2., 3.];
+        let x = a.sym_solve(&b);
+        // Verify A*x ≈ b
+        for row in 0..3 {
+            let ax_row: f64 = (0..3).map(|col| a.0[row * 3 + col] * x[col]).sum();
+            assert_close(ax_row, b[row]);
+        }
+    }
+
+    #[test]
+    fn svd_reconstruct() {
+        let a = test_mat();
+        let svd = a.svd();
+        let usvt = svd.U.matmul(&svd.S).matmul(&svd.V.transposed());
+        assert_mat_close_eps(&usvt, &a, SVD_EPS);
+    }
+
+    #[test]
+    fn svd_u_orthogonal() {
+        let a = test_mat();
+        let svd = a.svd();
+        assert_mat_close_eps(&svd.U.transpose_matmul(&svd.U), &Mat33::identity(), SVD_EPS);
+    }
+
+    #[test]
+    fn svd_v_orthogonal() {
+        let a = test_mat();
+        let svd = a.svd();
+        assert_mat_close_eps(&svd.V.transpose_matmul(&svd.V), &Mat33::identity(), SVD_EPS);
+    }
+
+    #[test]
+    fn identity_minus_cancels_identity() {
+        let mut m = Mat33::identity();
+        m.identity_minus();
+        // I - I = 0
+        for e in m.0 {
+            assert_close(e, 0.);
+        }
+    }
+
+    #[test]
+    fn identity_minus_diagonal() {
+        // [[2,0,0],[0,3,0],[0,0,4]] → I - A = [[-1,0,0],[0,-2,0],[0,0,-3]]
+        let mut m = Mat33::of([2., 0., 0., 0., 3., 0., 0., 0., 4.]);
+        m.identity_minus();
+        let expected = Mat33::of([-1., 0., 0., 0., -2., 0., 0., 0., -3.]);
+        assert_mat_close(&m, &expected);
+    }
+
+    #[test]
+    fn identity_minus_off_diagonal() {
+        // Off-diagonal elements should be negated
+        let mut m = Mat33::of([1., 5., 0., 0., 1., 3., 0., 0., 1.]);
+        m.identity_minus();
+        // I - m: diagonal = 1-1=0, off-diagonal = -5, -3
+        let expected = Mat33::of([0., -5., 0., 0., 0., -3., 0., 0., 0.]);
+        assert_mat_close(&m, &expected);
     }
 }

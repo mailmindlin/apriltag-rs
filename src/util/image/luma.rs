@@ -33,24 +33,24 @@ impl<T: Primitive> Pixel for Luma<T> {
 	}
 
 	#[inline(always)]
-	fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
+	fn from_slice(slice: &[Self::Subpixel]) -> &Self {
 		assert_eq!(slice.len(), Self::CHANNEL_COUNT);
 		unsafe { &*(slice.as_ptr() as *const Luma<T>) }
 	}
 
 	#[inline(always)]
-	fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
+	fn slice_to_value(slice: &[Self::Subpixel]) -> &Self::Value {
 		&slice[0]
 	}
 
 	#[inline(always)]
-	fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
+	fn from_slice_mut(slice: &mut [Self::Subpixel]) -> &mut Self {
 		assert_eq!(slice.len(), Self::CHANNEL_COUNT);
 		unsafe { &mut *(slice.as_mut_ptr() as *mut Luma<T>) }
 	}
 
 	#[inline(always)]
-	fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
+	fn slice_to_value_mut(slice: &mut [Self::Subpixel]) -> &mut Self::Value {
 		&mut slice[0]
 	}
 }
@@ -73,7 +73,7 @@ impl DefaultAlignment for Luma<u8> {
 	const DEFAULT_ALIGNMENT: usize = 96;
 }
 
-impl<T: SafeZero> SafeZero for Luma<T> {}
+unsafe impl<T: SafeZero> SafeZero for Luma<T> {}
 
 /// 1-d convolution
 fn convolve(src: &[u8], dst: &mut [u8], krn: &[u8], need_copy: bool) {
@@ -139,6 +139,7 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
 				}
 			}
 			super::pnm::PNMFormat::RGB => {
+				#[allow(clippy::identity_op)] // It's clearer this way
 				match pnm.max {
 					255 => {
 						// Gray conversion for RGB is gray = (r + g + g + b)/4
@@ -169,7 +170,7 @@ impl ImageBuffer<Luma<u8>, Box<SubpixelArray<Luma<u8>>>> {
 				// image is padded to be whole bytes on each row.
 
 				// how many bytes per row on the input?
-				let pbmstride = (im.width() + 7) / 8;
+				let pbmstride = im.width().div_ceil(8);
 
 				for ((x, y), dst) in im.enumerate_pixels_mut() {
 					let byteidx = y * pbmstride + x / 8;
@@ -197,6 +198,7 @@ impl<Container> ImageBuffer<Luma<u8>, Container> where Container: Deref<Target =
 		let mut y = 0;
 		for sy in (0..sheight).step_by(2) {
 			let mut x = 0;
+			#[allow(clippy::identity_op)] // It's clearer this way
 			for sx in (0..swidth).step_by(2) {
 				// a b c
 				// d e f

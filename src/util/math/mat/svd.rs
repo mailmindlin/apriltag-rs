@@ -1,11 +1,14 @@
+use std::marker::PhantomData;
+
 use crate::util::mem::calloc;
 
-use super::Mat;
+use super::{IdentityLike, Mat, MatLike, Matmul};
 
-pub(crate) struct MatSVD {
+pub(crate) struct MatSVD<M: MatLike> {
     pub(crate) U: Mat,
     pub(crate) S: Mat,
     pub(crate) V: Mat,
+	p: PhantomData<M>,
 }
 
 #[derive(Default)]
@@ -16,14 +19,13 @@ pub(crate) struct SvdOptions {
 const FIND_MAX_TOL: f64 = 1e-10;
 
 trait FindMax {
-    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)>;
+    fn iter(&mut self, B: &impl MatLike) -> Option<(usize, usize)>;
 }
 
-struct FindMaxReference {
-}
+struct FindMaxReference;
 
 impl FindMax for FindMaxReference {
-    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)> {
+    fn iter(&mut self, B: &impl MatLike) -> Option<(usize, usize)> {
         // brute-force (reference) version.
         let mut maxv = -1.;
 
@@ -66,7 +68,7 @@ struct FindMaxFast {
 }
 
 impl FindMaxFast {
-    fn new(B: &Mat) -> Self {
+    fn new(B: &impl MatLike) -> Self {
         // for each of the first B.cols() rows, which index has the
         // maximum absolute value? (used by method 1)
         let mut maxrowidx = calloc::<usize>(B.cols());
@@ -89,7 +91,7 @@ impl FindMaxFast {
 }
 
 impl FindMax for FindMaxFast {
-    fn iter(&mut self, B: &Mat) -> Option<(usize, usize)> {
+    fn iter(&mut self, B: &impl MatLike) -> Option<(usize, usize)> {
         let mut maxi: Option<usize> = None;
         let mut maxv = -1.;
 
@@ -359,12 +361,12 @@ fn svd22(A: [f64; 4]) -> ([f64; 4], [f64; 2], [f64; 4]) {
     (U, S, V)
 }
 
-impl MatSVD {
-    pub(super) fn new(A: &Mat) -> Self {
+impl<M: MatLike> MatSVD<M> {
+    pub(super) fn new(A: &M) -> Self {
         Self::new_with_flags(A, SvdOptions::default())
     }
 
-    pub(super) fn new_with_flags(A: &Mat, options: SvdOptions) -> Self {
+    pub(super) fn new_with_flags(A: &M, options: SvdOptions) -> Self {
         if A.cols() <= A.rows() {
             Self::tall(A, options)
         } else {
@@ -380,6 +382,7 @@ impl MatSVD {
                 U: tmp.V, //matd_transpose(tmp.V);
                 S: tmp.S.transpose(),
                 V: tmp.U, //matd_transpose(tmp.U);
+				p: PhantomData,
             }
         }
     }
@@ -389,7 +392,7 @@ impl MatSVD {
     // non-zero element too far to the right for us to rotate away.
     //
     // Caller is responsible for destroying U, S, and V.
-    fn tall(A: &Mat, options: SvdOptions) -> Self {
+    fn tall(A: &M, options: SvdOptions) -> Self {
         let mut B = A.clone();
 
         // Apply householder reflections on each side to reduce A to
@@ -562,7 +565,7 @@ impl MatSVD {
         // but this doesn't seem to happen any more with our more stable
         // svd22 implementation.
         const MAX_ITERS: u32 = 1u32 << 30;
-        assert!(MAX_ITERS > 0); // reassure clang
+        const { assert!(MAX_ITERS > 0) }; // reassure clang
 
         // let mut maxv: f64; // maximum non-zero value being reduced this iteration
 
@@ -575,7 +578,7 @@ impl MatSVD {
             find_max(&options, &mut B, &mut LS, &mut RS, FindMaxReference {});
         };
 
-        fn find_max(options: &SvdOptions, B: &mut Mat, LS: &mut Mat, RS: &mut Mat, mut find_max_method: impl FindMax) {
+        fn find_max<M: MatLike>(options: &SvdOptions, B: &mut M, LS: &mut Mat, RS: &mut Mat, mut find_max_method: impl FindMax) {
             for iter in 0..MAX_ITERS {
                 // No diagonalization required for 0x0 and 1x1 matrices.
                 if B.cols() < 2 {
@@ -667,7 +670,7 @@ impl MatSVD {
     
                 if !options.suppress_warnings && iter == MAX_ITERS {
                     //TODO: fixme
-                    println!("WARNING: maximum iters (maximum = {})", iter);
+                    log::warn!("maximum iters (maximum = {})", iter);
                     // println!("WARNING: maximum iters (maximum = {}, matrix {} x {}, max={:.15})", iter, A.rows(), A.cols(), maxv);
                     // matd_print(A, "%15f");
                 }
@@ -718,14 +721,14 @@ impl MatSVD {
 
         // solve for (something)
         // B = Mat::op("M'*F*M", &[&LP, &B, &RP]).unwrap();
-        let mut B = LP.transpose().matmul(&B).matmul(&RP);
+        let mut B = LP.transpose().matmul(&B).matmul_dyn(&RP);
 
         // update LS and RS, remembering that RS will be transposed.
         // let LS = Mat::op("F*M", &[&LS, &LP]).unwrap();
-        let LS = LS.matmul(&LP);
+        let LS = LS.matmul_dyn(&LP);
         drop(LP);
         // let RS = Mat::op("F*M", &[&RS, &RP]).unwrap();
-        let RS = RS.matmul(&RP);
+        let RS = RS.matmul_dyn(&RP);
         drop(RP);
 
         // make B exactly diagonal
@@ -741,6 +744,92 @@ impl MatSVD {
             U: LS,
             S: B,
             V: RS,
+			p: PhantomData,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Mat, svd22};
+
+    const EPS: f64 = 1e-8;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} != {b}");
+    }
+
+    fn assert_mat_close(a: &Mat, b: &Mat) {
+        assert_eq!(a.rows(), b.rows());
+        assert_eq!(a.cols(), b.cols());
+        for i in 0..a.rows() {
+            for j in 0..a.cols() {
+                assert_close(a[(i,j)], b[(i,j)]);
+            }
+        }
+    }
+
+    #[test]
+    fn svd22_reconstruct() {
+        let a = [3., 1., 1., 3.];
+        let (u, s, v) = svd22(a);
+        // Reconstruct: U * S * V^T
+        for i in 0..2 {
+            for j in 0..2 {
+                let mut val = 0.;
+                for k in 0..2 {
+                    val += u[i * 2 + k] * s[k] * v[j * 2 + k];
+                }
+                assert_close(val, a[i * 2 + j]);
+            }
+        }
+    }
+
+    #[test]
+    fn svd22_singular_values_positive() {
+        let a = [1., 2., 3., 4.];
+        let (_, s, _) = svd22(a);
+        assert!(s[0] >= 0.);
+        assert!(s[1] >= 0.);
+        assert!(s[0] >= s[1]);
+    }
+
+    #[test]
+    fn svd_reconstruct_3x3() {
+        let a = Mat::create(3, 3, &[
+            1., 2., 3.,
+            4., 5., 6.,
+            7., 8., 10.,
+        ]);
+        let svd = a.svd();
+        // A = U * S * V^T
+        let reconstructed = svd.U.matmul_dyn(&svd.S).matmul_dyn(&svd.V.transpose());
+        assert_mat_close(&reconstructed, &a);
+    }
+
+    #[test]
+    fn svd_identity() {
+        let a = Mat::identity(3);
+        let svd = a.svd();
+        // Singular values of identity are all 1
+        for i in 0..3 {
+            assert_close(svd.S[(i, i)], 1.);
+        }
+        // U * S * V^T = I
+        let reconstructed = svd.U.matmul_dyn(&svd.S).matmul_dyn(&svd.V.transpose());
+        assert_mat_close(&reconstructed, &a);
+    }
+
+    #[test]
+    fn svd_tall_matrix() {
+        let a = Mat::create(4, 2, &[
+            1., 2.,
+            3., 4.,
+            5., 6.,
+            7., 8.,
+        ]);
+        let svd = a.svd();
+        let reconstructed = svd.U.matmul_dyn(&svd.S).matmul_dyn(&svd.V.transpose());
+        assert_mat_close(&reconstructed, &a);
     }
 }

@@ -2,9 +2,9 @@ use std::{num::NonZeroU64, mem::size_of};
 
 use wgpu::{util::DeviceExt, BufferUsages, BindGroupEntry};
 
-use crate::{detector::quad_sigma_kernel, wgpu::util::GpuImageLike, DetectorBuildError};
+use crate::{DetectorBuildError, dbg::debugln, detector::quad_sigma_kernel, wgpu::util::GpuImageLike};
 
-use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
+use super::{util::{ComputePipelineDescriptor, DataStore, GpuTextureY8, ProgramBuilder, DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT}, GpuContext, GpuStage, GpuStageContext, WgpuDetectError};
 
 const PROG_QUAD_SIGMA: &str = include_str!("./shader/02_quad_sigma_img.wgsl");
 
@@ -17,7 +17,8 @@ pub(super) struct GpuQuadSigma {
 
 impl GpuQuadSigma {
 	pub async fn new(context: &GpuContext, quad_sigma: f32) -> Result<Option<Self>, DetectorBuildError> {
-		let local_dims = (64, 1);
+		let local_dims = (DEFAULT_WG_WIDTH, DEFAULT_WG_HEIGHT);
+		context.check_workgroup_dims(local_dims)?;
 		let filter_buf = {
 			let kernel_u8 = match quad_sigma_kernel(quad_sigma) {
 				Some(kernel) => kernel,
@@ -112,10 +113,10 @@ impl GpuQuadSigma {
 		let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: Some("quad_sigma pipeline_layout"),
 			bind_group_layouts: &[
-				&const_bgl,
-				&param_bgl,
+				Some(&const_bgl),
+				Some(&param_bgl),
 			],
-			push_constant_ranges: &[],
+			immediate_size: 0,
 		});
 
 		let compute_pipeline = cs_module.create_compute_pipeline(ComputePipelineDescriptor {
@@ -142,7 +143,7 @@ impl GpuStage for GpuQuadSigma {
         size_of::<u32>()
     }
 
-    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
+    fn apply<'a, 'b: 'a>(&'b self, ctx: &mut GpuStageContext<'_, 'a>, src: &Self::Source, temp: &'b mut DataStore<Self::Data>) -> Result<Self::Output, WgpuDetectError> {
 		// Create output buffer
 		let dst = ctx.dst_texture(src.width(), src.height());
 
@@ -170,8 +171,7 @@ impl GpuStage for GpuQuadSigma {
 
 		let wg_x = (src.width()).div_ceil(self.local_dims.0 as usize) as u32;
 		let wg_y = (src.height()).div_ceil(self.local_dims.1 as usize) as u32;
-		#[cfg(feature="extra_debug")]
-		println!("Dispatch wg=({wg_x}, {wg_y})");
+		debugln!("Dispatch wg=({wg_x}, {wg_y})");
 		ctx.cpass.dispatch_workgroups(wg_x, wg_y, 1);
 
 		#[cfg(feature="debug")]

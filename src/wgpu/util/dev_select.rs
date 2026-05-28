@@ -4,18 +4,18 @@ use crate::{detector::ImageDimensionError, wgpu::WgpuBuildError, DetectorConfig}
 
 #[derive(Clone, Debug)]
 pub enum InvalidAdapterReason {
-	/// Compute shaders aren't supported
-	NoComputeShaders,
-	MissingTextureFeature(TextureFormat, TextureUsages),
-	TextureSize(ImageDimensionError),
-	RequestMismatch,
+    /// Compute shaders aren't supported
+    NoComputeShaders,
+    MissingTextureFeature(TextureFormat, TextureUsages),
+    TextureSize(ImageDimensionError),
+    RequestMismatch,
 }
 
 #[derive(Clone, Debug)]
 pub struct InvalidAdapterError {
-	pub adapter_backend: &'static str,
-	pub adapter_name: String,
-	pub reason: InvalidAdapterReason,
+    pub adapter_backend: &'static str,
+    pub adapter_name: String,
+    pub reason: InvalidAdapterReason,
 }
 
 /// Evaluate each adapter, eather returning a weight (higher weight wins) or a reason why it can't be selected
@@ -24,14 +24,12 @@ fn evaluate_adapter(adapter: &wgpu::Adapter, config: &DetectorConfig) -> Result<
     if !caps.flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS) {
         return Err(InvalidAdapterReason::NoComputeShaders);
     }
-    drop(caps);
 
     let limits = adapter.limits();
     let max_dim = limits.max_texture_dimension_2d as usize;
     if let Err(e) = config.source_dimensions.check(..max_dim, ..max_dim) {
         return Err(InvalidAdapterReason::TextureSize(e));
     }
-    drop(limits);
 
     {
         // We need read/write/storage/texture for R8Uint
@@ -153,7 +151,7 @@ impl AdapterData {
 impl From<AdapterData> for Result<Adapter, WgpuBuildError> {
     fn from(value: AdapterData) -> Self {
         match value {
-            AdapterData::AllBad(reasons) if reasons.is_empty() => Err(WgpuBuildError::NoAdapters),
+            AdapterData::AllBad(reasons) if reasons.is_empty() => Err(WgpuBuildError::NoAdapters(None)),
             AdapterData::AllBad(mut reasons) => {
                 reasons.shrink_to_fit();
                 Err(WgpuBuildError::BadAdapters(reasons))
@@ -163,7 +161,7 @@ impl From<AdapterData> for Result<Adapter, WgpuBuildError> {
     }
 }
 
-fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions {
+fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions<'static, 'static> {
     let mut opts = RequestAdapterOptions::default();
     if config.acceleration.prefer_high_power() {
         opts.power_preference = PowerPreference::HighPerformance;
@@ -177,14 +175,14 @@ fn make_request_options(config: &DetectorConfig) -> RequestAdapterOptions {
 async fn request_adapter_async(instance: &wgpu::Instance, config: &DetectorConfig) -> Result<Adapter, WgpuBuildError> {
     let options = make_request_options(config);
     match instance.request_adapter(&options).await {
-        Some(adapter) => Ok(adapter),
-        None => Err(WgpuBuildError::NoAdapters)
+        Ok(adapter) => Ok(adapter),
+        Err(e) => Err(WgpuBuildError::NoAdapters(Some(e)))
     }
 }
 
 /// Get adapter compatible with config
 pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, WgpuBuildError> {
-    let mut desc = InstanceDescriptor::default();
+    let mut desc = InstanceDescriptor::new_without_display_handle();
     desc.backends = wgpu::Instance::enabled_backend_features();
     desc.backends -= wgpu::Backends::VULKAN;
 
@@ -195,7 +193,7 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
     let inst = wgpu::Instance::new(desc);
 
     let result = {
-        let adapters = inst.enumerate_adapters(wgpu::Backends::all());
+        let adapters = inst.enumerate_adapters(wgpu::Backends::all()).await;
         let mut accumulator = AdapterData::default();
         for adapter in adapters.into_iter() {
             accumulator.update(evaluate_adapter(&adapter, config), adapter);
@@ -203,7 +201,7 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
         accumulator.into()
     };
     
-    if let Err(WgpuBuildError::NoAdapters) = result {
+    if let Err(WgpuBuildError::NoAdapters(..)) = result {
         // On wasm, we won't get any values from enumerate_adapters
         // Try falling back on request_adapter
         request_adapter_async(&inst, config).await
@@ -213,15 +211,18 @@ pub(super) async fn select_adapter(config: &DetectorConfig) -> Result<Adapter, W
 }
 
 pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConfig) -> Result<(wgpu::Device, wgpu::Queue), WgpuBuildError> {
-    // println!("Adapter limits: {:?}", adapter.limits());
-	
-    let features = {
+    let required_features = {
         use wgpu::Features;
         let mut request_features = Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         
         // Debug features
-        if config.debug() || true {
-            request_features |= Features::TIMESTAMP_QUERY | Features::PIPELINE_STATISTICS_QUERY;
+        if config.debug() || cfg!(feature="bench") {
+            request_features |= Features::TIMESTAMP_QUERY
+                | Features::TIMESTAMP_QUERY_INSIDE_PASSES
+                | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+            // NOTE: PIPELINE_STATISTICS_QUERY intentionally excluded — never used.
+            // NOTE: TIMESTAMP_QUERY_INSIDE_PASSES is still included so we can test
+            // whether it's the cause of kIOGPUCommandBufferCallbackErrorOutOfMemory.
         }
 
         // Enable MAPPABLE_PRIMARY_BUFFERS for iGPUs
@@ -234,18 +235,28 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         adapter.features().intersection(request_features)
     };
 
-    let limits = {
-        let adapter_limits = adapter.limits();
+    let required_limits = {
+        let wgpu::Limits {
+            // TODO: reject if requested image is too big
+            max_texture_dimension_2d,
+            max_compute_workgroup_storage_size,
+            max_compute_invocations_per_workgroup,
+            max_compute_workgroup_size_x,
+            max_compute_workgroup_size_y,
+            max_compute_workgroups_per_dimension,
+            ..
+        } = adapter.limits();
         wgpu::Limits {
-            max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
             max_bind_groups: 2,
             max_bindings_per_bind_group: 4,
-            max_compute_workgroup_storage_size: adapter_limits.max_compute_invocations_per_workgroup,
-            max_compute_invocations_per_workgroup: adapter_limits.max_compute_invocations_per_workgroup,
-            max_compute_workgroup_size_x: adapter_limits.max_compute_workgroup_size_x,
-            max_compute_workgroup_size_y: adapter_limits.max_compute_workgroup_size_y,
+            // Copied from adapter limits
+            max_texture_dimension_2d,
+            max_compute_workgroup_storage_size,
+            max_compute_invocations_per_workgroup,
+            max_compute_workgroup_size_x,
+            max_compute_workgroup_size_y,
             max_compute_workgroup_size_z: 1,
-            max_compute_workgroups_per_dimension: adapter_limits.max_compute_workgroups_per_dimension,
+            max_compute_workgroups_per_dimension,
             ..wgpu::Limits::downlevel_defaults()
         }
     };
@@ -254,10 +265,12 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("AprilTag WebGPU"),
-                required_features: features,
-                required_limits: limits,
+                required_features,
+                required_limits,
+                trace: wgpu::Trace::Off,
+                memory_hints: wgpu::MemoryHints::Performance,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
             },
-            None,
         )
         .await?;
     Ok(res)

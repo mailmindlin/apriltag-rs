@@ -1,14 +1,14 @@
 #![allow(unused)]
 use crate::util::mem::calloc;
 
-use super::mat::Mat;
+use super::{MatLike, mat::Mat};
 
-// All square matrices (even singular ones) have a partially-pivoted
-// LU decomposition such that A = PLU, where P is a permutation
-// matrix, L is a lower triangular matrix, and U is an upper
-// triangular matrix.
-//
-pub(crate) struct MatPLU {
+/// All square matrices (even singular ones) have a partially-pivoted
+/// LU decomposition such that A = PLU, where P is a permutation
+/// matrix, L is a lower triangular matrix, and U is an upper
+/// triangular matrix.
+///
+pub(crate) struct MatPLU<M: MatLike> {
     // was the input matrix singular? When a zero pivot is found, this
     // flag is set to indicate that this has happened.
     pub(super) singular: bool,
@@ -23,11 +23,11 @@ pub(crate) struct MatPLU {
     // users: it contains the L and U information all smushed
     // together.
     /// combined L and U matrices, permuted so they can be triangular.
-    lu: Mat,
+    lu: M,
 }
 
-impl MatPLU {
-    pub(super) fn new(a: &Mat) -> Self {
+impl<M: MatLike> MatPLU<M> {
+    pub(super) fn new(a: &M) -> Self {
         let mut piv = calloc::<u32>(a.rows());
         let mut pivsign = 1;
         let mut singular = false;
@@ -35,7 +35,7 @@ impl MatPLU {
         let mut lu = a.clone();
     
         // only for square matrices.
-        assert!(a.dims.is_square());
+        assert!(a.is_square());
     
         for i in 0..a.rows() {
             piv[i] = i as u32;
@@ -70,7 +70,7 @@ impl MatPLU {
 
                 let (row_j, row_p) = {
                     let lu_cols = lu.cols();
-                    let (left, right) = lu.data.split_at_mut(p * lu_cols);
+                    let (left, right) = lu.data_mut().split_at_mut(p * lu_cols);
                     let j_start = j * lu_cols;
                     let row_j = &mut left[j_start..j_start + lu_cols];
                     let row_p = &mut right[0..lu_cols];
@@ -117,7 +117,7 @@ impl MatPLU {
     pub fn det(&self) -> f64 {
         let mut det = self.pivsign as f64;
 
-        if self.lu.dims.is_square() {
+        if self.lu.is_square() {
             for i in 0..self.lu.cols() {
                 det *= self.lu[(i,i)];
             }
@@ -127,7 +127,7 @@ impl MatPLU {
     }
 
     pub fn p(&self) -> Mat {
-        let ref lu = self.lu;
+        let lu = &self.lu;
         let mut P = Mat::zeroes(lu.rows(), lu.rows());
     
         for i in 0..lu.rows() {
@@ -140,7 +140,7 @@ impl MatPLU {
     pub fn lower(&self) -> Mat {
         let lu = &self.lu;
 
-        let mut L = Mat::zeroes_like(&lu);
+        let mut L = Mat::zeroes(lu.rows(), lu.cols());
         for i in 0..lu.rows() {
             L[(i,i)] = 1.;
             for j in 0..i {
@@ -172,10 +172,10 @@ impl MatPLU {
         // permute right hand side
         for i in 0..self.lu.rows() {
             let xstart = i * x.cols();
-            let bstart = self.piv[i] as usize;
+            let bstart = self.piv[i] as usize * b.cols();
             x.data[xstart..xstart+b.cols()].copy_from_slice(&b.data[bstart..bstart+b.cols()]);
         }
-    
+
         // solve Ly = b
         for k in 0..self.lu.rows() {
             for i in (k+1)..self.lu.rows() {
@@ -185,14 +185,14 @@ impl MatPLU {
                 }
             }
         }
-    
+
         // solve Ux = y
         for k in (0..self.lu.cols()).rev() {
             let LUkk = self.lu[(k,k)].recip();
             for t in 0..b.cols() {
                 x[(k,t)] *= LUkk;
             }
-    
+
             for i in 0..k {
                 let LUik = -self.lu[(i,k)];
                 for t in 0..b.cols() {
@@ -200,7 +200,66 @@ impl MatPLU {
                 }
             }
         }
-    
+
         x
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Mat;
+
+    const EPS: f64 = 1e-8;
+
+    fn assert_close(a: f64, b: f64) {
+        assert!((a - b).abs() < EPS, "{a} != {b}");
+    }
+
+    fn assert_mat_close(a: &Mat, b: &Mat) {
+        assert_eq!(a.rows(), b.rows());
+        assert_eq!(a.cols(), b.cols());
+        for i in 0..a.rows() {
+            for j in 0..a.cols() {
+                assert_close(a[(i,j)], b[(i,j)]);
+            }
+        }
+    }
+
+    fn test_matrix() -> Mat {
+        Mat::create(3, 3, &[
+            2., 1., 1.,
+            4., 3., 3.,
+            8., 7., 9.,
+        ])
+    }
+
+    #[test]
+    fn plu_factors() {
+        let a = test_matrix();
+        let plu = a.plu();
+        let p = plu.p();
+        let l = plu.lower();
+        let u = plu.upper();
+        // P * L * U = A
+        let lu = l.matmul_dyn(&u);
+        let plu_product = p.matmul_dyn(&lu);
+        assert_mat_close(&plu_product, &a);
+    }
+
+    #[test]
+    fn plu_det() {
+        let a = test_matrix();
+        let plu = a.plu();
+        assert_close(plu.det(), a.det());
+    }
+
+    #[test]
+    fn plu_solve() {
+        let a = test_matrix();
+        let b = Mat::create(3, 1, &[1., 2., 3.]);
+        let plu = a.plu();
+        let x = plu.solve(&b);
+        let ax = a.matmul_dyn(&x);
+        assert_mat_close(&ax, &b);
     }
 }

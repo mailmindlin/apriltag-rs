@@ -2,13 +2,10 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
-use apriltag_rs::util::image::ImageWritePNM;
-use apriltag_rs::util::image::Pixel;
+use apriltag_rs::{ImageWritePNM, Pixel, ImageRGB8};
 use clap::Parser;
-use clap::command;
 use image::Rgb;
-use image::{io::Reader as ImageReader, ImageBuffer as IImageBuffer};
-use apriltag_rs::util::ImageRGB8;
+use image::{ImageReader, ImageBuffer as IImageBuffer};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]

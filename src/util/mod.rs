@@ -1,7 +1,7 @@
 pub(crate) mod homography;
 pub mod image;
-pub(crate) mod geom;
-pub(crate) mod math;
+pub mod geom;
+pub mod math;
 pub(crate) mod mem;
 pub(crate) mod color;
 pub(crate) mod dims;

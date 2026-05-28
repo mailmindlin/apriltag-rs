@@ -6,7 +6,12 @@ pub(super) mod threshold;
 pub(super) use grad_cluster::{gradient_clusters, Clusters};
 use std::{f64::consts as f64c};
 
-use crate::{detector::AprilTagDetector, util::{image::{ImageY8, ImageRefY8}}, quad_decode::Quad, dbg::TimeProfile};
+use crate::{
+	detector::AprilTagDetector,
+	quad_decode::Quad,
+	dbg::{TimeProfile, debugln},
+	util::image::{ImageRefY8, ImageY8},
+};
 
 use self::{unionfind::connected_components, quadfit::fit_quads};
 
@@ -56,7 +61,7 @@ pub struct AprilTagQuadThreshParams {
 impl Default for AprilTagQuadThreshParams {
 	fn default() -> Self {
 		Self {
-			min_cluster_pixels: 5,
+			min_cluster_pixels: 24,
 			max_nmaxima: 10,
 			cos_critical_rad: (10. * f64c::PI / 180.).cos() as f32,
 			max_line_fit_mse: 10.,
@@ -187,7 +192,7 @@ fn debug_lines(mut f: File, im: ImageY8, quads: &[Quad]) -> std::io::Result<()> 
 
 	im.write_postscript(&mut ps)?;
 
-	let mut rng = rand::thread_rng();
+	let mut rng = rand::rng();
 
 	for q in quads.iter() {
 		ps.setrgbcolor(&rng.gen_color_rgb(100))?;
@@ -216,8 +221,7 @@ pub(crate) fn debug_unionfind(config: &DetectorConfig, tp: &mut TimeProfile, dim
 }
 
 pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, im: ImageRefY8, clusters: Clusters) -> Vec<Quad> {
-	#[cfg(feature="extra_debug")]
-	println!("{} gradient clusters", clusters.len());
+	debugln!("{} gradient clusters", clusters.len());
 	
 	#[cfg(feature="debug")]
 	td.params.debug_image(debug_images::CLUSTERS, |f| debug_clusters(f, im.width(), im.height(), &clusters));
@@ -227,9 +231,8 @@ pub(crate) fn quads_from_clusters(td: &AprilTagDetector, tp: &mut TimeProfile, i
 	// step 3. process each connected component.
 	let quads = fit_quads(td, clusters, &im);
 
-	#[cfg(feature="extra_debug")]
 	for quad in quads.iter() {
-		println!("Quad corner: {:?}", quad.corners);
+		debugln!("Quad corner: {:?}", quad.corners);
 	}
 
 	#[cfg(feature="debug_ps")]

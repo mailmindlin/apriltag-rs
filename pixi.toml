@@ -1,0 +1,30 @@
+[workspace]
+authors = ["mailmindlin <mailmindlin@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "apriltag-rs"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+build = "cargo build"
+check = "cargo check"
+clean = "cargo clean"
+cffi = "cbindgen"
+cbindgen = "cbindgen -c cbindgen.toml --crate apriltag-rs -o apriltag_rs.h"
+
+[dependencies]
+rust = ">=1.94.0,<1.95"
+
+[feature.benchmark.dependencies]
+python = ">=3.11"
+[feature.benchmark.pypi-dependencies]
+plotly = "*"
+pandas = "*"
+scipy = "*"
+numpy = "*"
+[feature.benchmark.tasks]
+analyze = "python scripts/analyze_benchmark.py"
+
+[environments]
+default = { features = [], solve-group = "default" }
+benchmark = { features = ["benchmark"], solve-group = "default" }

@@ -1,0 +1,28 @@
+# Light Gaussian blur (sigma=0.4) before quad detection.
+# Mild noise reduction with minimal edge softening.
+[benchmark]
+iterations = 100
+warmup_iterations = 10
+images_folder = "./examples"
+output_file = "benchmark_results.jsonl"
+label = "sigma-0.4"
+
+[detector]
+nthreads = 4
+quad_decimate = 2.0
+quad_sigma = 0.4
+refine_edges = true
+decode_sharpening = 0.25
+acceleration = "disabled"
+
+[detector.qtp]
+min_cluster_pixels = 5
+max_nmaxima = 10
+cos_critical_rad = 0.1736
+max_line_fit_mse = 10.0
+min_white_black_diff = 5
+deglitch = false
+
+[[families]]
+name = "tag36h11"
+hamming = 1

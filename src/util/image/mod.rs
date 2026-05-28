@@ -66,8 +66,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> Debug for ImageBuffer<P
 }
 
 /// Make [ImageRef] [Copy]
-impl<'a, P: Pixel> Copy for ImageBuffer<P, &'a SubpixelArray<P>> where P: Copy {
-}
+impl<P: Pixel> Copy for ImageBuffer<P, &SubpixelArray<P>> where P: Copy {}
 
 impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuffer<P, Container> where <P as Pixel>::Subpixel: PartialEq {
 	fn eq(&self, other: &Self) -> bool {
@@ -89,7 +88,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> PartialEq for ImageBuff
 
 /// Convert owned [ImageBuffer] to [ImageRef]
 impl<P: Pixel, Container: AsRef<SubpixelArray<P>>> ImageBuffer<P, Container> {
-	pub fn as_ref<'a>(&'a self) -> ImageBuffer<P,&'a SubpixelArray<P>> {
+	pub fn as_ref(&self) -> ImageBuffer<P,&SubpixelArray<P>> {
 		ImageBuffer { dims: self.dims, data: self.data.as_ref(), pix: self.pix }
 	}
 }
@@ -246,7 +245,7 @@ impl<P: Pixel> ImageBuffer<P, Box<[<P as Pixel>::Subpixel]>> where P::Subpixel: 
 			}
 		} else {
 			let mut res = Self::zeroed_packed(src.width(), src.height());
-			for ((_, mut dst), (_, src)) in res.rows_mut().into_iter().zip(src.rows().into_iter()) {
+			for ((_, mut dst), (_, src)) in res.rows_mut().into_iter().zip(src.rows()) {
 				dst.as_slice_mut().copy_from_slice(src.as_slice());
 			}
 			res
@@ -267,8 +266,6 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 	#[inline]
 	pub fn pixel(&self, x: usize, y: usize) -> &P {
 		let dims = self.dimensions();
-		let x = x;
-		let y = y;
 		let idx = match index::pixel_idxs_checked::<P>(dims, x, y) {
 			Some(value) => value,
 			None => {
@@ -291,7 +288,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 		<P as Pixel>::from_slice(&self.data[idx])
 	}
 
-	pub fn row(&self, row: usize) -> Row<P> {
+	pub fn row(&self, row: usize) -> Row<'_, P> {
 		let idxs = index::row_idxs::<P>(self.dimensions(), row);
 		Row(&self.data[idxs])
 	}
@@ -316,7 +313,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 	}
 
 	/// Iterate through rows
-	pub fn rows(&self) -> Rows<P> {
+	pub fn rows(&self) -> Rows<'_, P> {
 		Rows {
 			buf: &self.data,
 			dims: &self.dims,
@@ -324,7 +321,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 	}
 
 	/// Iterate through pixels
-	pub fn pixels(&self) -> Pixels<P> {
+	pub fn pixels(&self) -> Pixels<'_, P> {
 		Pixels {
 			buf: &self.data,
 			dims: &self.dims,
@@ -332,7 +329,7 @@ impl<P: Pixel, Container: Deref<Target = [P::Subpixel]>> ImageBuffer<P, Containe
 	}
 
 	/// Iterate through pixels, with indices
-	pub fn enumerate_pixels(&self) -> EnumeratePixels<P> {
+	pub fn enumerate_pixels(&self) -> EnumeratePixels<'_, P> {
 		EnumeratePixels::new(&self.data, &self.dims)
 	}
 
@@ -389,30 +386,30 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 		<P as Pixel>::from_slice_mut(&mut self.data[idx])
 	}
 
-	pub fn row_mut(&mut self, row: usize) -> RowMut<P> {
+	pub fn row_mut(&mut self, row: usize) -> RowMut<'_, P> {
 		let row_idxs = index::row_idxs::<P>(self.dimensions(), row);
 		RowMut(&mut self.data[row_idxs])
 	}
 
-	pub fn rows_mut(&mut self) -> RowsMut<P> {
+	pub fn rows_mut(&mut self) -> RowsMut<'_, P> {
 		RowsMut {
 			dims: &self.dims,
 			buf: &mut self.data,
 		}
 	}
 
-	pub fn pixels_mut(&mut self) -> PixelsMut<P> {
+	pub fn pixels_mut(&mut self) -> PixelsMut<'_, P> {
 		PixelsMut {
 			dims: &self.dims,
 			buf: &mut self.data,
 		}
 	}
 
-	pub fn enumerate_pixels_mut(&mut self) -> EnumeratePixelsMut<P> {
+	pub fn enumerate_pixels_mut(&mut self) -> EnumeratePixelsMut<'_, P> {
 		EnumeratePixelsMut::new(&mut self.data, &self.dims)
 	}
 
-	pub fn apply(&mut self, mut update: impl FnMut(&mut P) -> ()) {
+	pub fn apply(&mut self, mut update: impl FnMut(&mut P)) {
 		if self.is_packed() {
 			for slice in self.data.chunks_exact_mut(<P as Pixel>::CHANNEL_COUNT) {
 				update(<P as Pixel>::from_slice_mut(slice));
@@ -425,13 +422,13 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 	}
 
 	pub fn draw_line(&mut self, p0: Point2D, p1: Point2D, color: &P, width: usize) where P::Value: Copy {
-		let dist = p0.distance_to(&p1);
+		let dist = p0.distance_to(p1);
 		let delta = 0.5 / dist;
 		let num_steps = f64::ceil(dist * 2.) as usize;
 
 		let color = color.to_value();
 
-		let step = &p0 - &p1;
+		let step = p0 - p1;
 
 		let im_width = self.width();
 		let im_height = self.height();
@@ -439,7 +436,7 @@ impl<P: Pixel, Container: DerefMut<Target = [P::Subpixel]>> ImageBuffer<P, Conta
 		// terrible line drawing code
 		for i in 0..num_steps {
 			let f = (i as f64) * delta;
-			let c = &p1 + (step * f);
+			let c = p1 + (step * f);
 			let x = c.x() as isize;
 			let y = c.y() as isize;
 	

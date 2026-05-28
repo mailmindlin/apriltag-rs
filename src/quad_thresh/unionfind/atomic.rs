@@ -8,6 +8,8 @@ pub(super) struct UnionFindConcurrent {
 
 const ORDER: Ordering = Ordering::AcqRel;
 const ORDER_L: Ordering = Ordering::Acquire;
+// Path-halving writes are advisory (just shorten paths), so Relaxed suffices.
+const ORDER_RELAX: Ordering = Ordering::Relaxed;
 
 /// Single-element node in UnionFind
 #[derive(Debug)]
@@ -175,47 +177,35 @@ impl UnionFindConcurrent {
 		result
 	}
 
-    /// Get UnionFind group for id
-	fn get_representative(&self, mut element: UnionFindId) -> UnionFindId {
-		// chase down the root
+    fn get_representative(&self, mut element: UnionFindId) -> UnionFindId {
+		// Path halving: make every node point to its grandparent (single pass).
+		// Writes are Relaxed — they only shorten paths, never introduce cycles,
+		// so a stale read just costs extra hops, not incorrect results.
 		let mut parent = self.parent(element);
 		while element != parent {
 			let grandparent = self.parent(parent);
-			match self.get(element).parent.compare_exchange(parent, grandparent, ORDER, ORDER_L) {
-				Ok(_) => {
-					element = parent;
-					parent = grandparent;
-				},
-				Err(new_parent) => {
-					parent = new_parent;
-				}
-			}
+			// Ignore CAS failure: the path was already shortened by another thread.
+			let _ = self.get(element).parent.compare_exchange(parent, grandparent, ORDER_RELAX, ORDER_RELAX);
+			element = parent;
+			parent = grandparent;
 		}
 		element
 	}
 
     fn get_representative_mut(&mut self, mut element: UnionFindId) -> UnionFindId {
-        // chase down the root
-		let mut root = *self.parent_mut(element);
-        if root != element {
-            loop {
-                let grandparent = *self.parent_mut(root);
-                if grandparent == root {
-                    break;
-                }
-                root = grandparent;
-            }
-    
-            while element != root {
-                element = std::mem::replace(self.parent_mut(element), root);
-            }
-        }
-        root
+		// Path halving: make every node point to its grandparent (single pass).
+		while *self.parent_mut(element) != element {
+			let parent = *self.parent_mut(element);
+			let grandparent = *self.parent_mut(parent);
+			*self.parent_mut(element) = grandparent;
+			element = grandparent;
+		}
+		element
     }
 
 	#[inline]
 	fn parent(&self, id: UnionFindId) -> UnionFindId {
-		self.data[id as usize].parent.load(ORDER_L)
+		self.data[id as usize].parent.load(ORDER_RELAX)
 	}
 
     #[inline(always)]

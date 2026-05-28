@@ -58,7 +58,7 @@ impl Poly {
     /// @return roots
     pub fn solve_approx(&self) -> Vec<f64> {
         const MAX_ROOT: f64 = 1000.;
-        let ref p = self.coefs;
+        let p = &self.coefs;
         let mut roots = Vec::new();
         match self.degree() {
             0 => panic!("No roots of degree 0"),
@@ -79,7 +79,7 @@ impl Poly {
         let der_roots = p_der.solve_approx();
 
         // Go through all possibilities for roots of the polynomial.
-        for i in 0..der_roots.len() {
+        for i in 0..=der_roots.len() {
             let min = if i == 0 {
                 -MAX_ROOT
             } else {
@@ -124,7 +124,7 @@ impl Poly {
                     }
 
                     f = self.eval(root);
-                    df = self.eval(root);
+                    df = p_der.eval(root);
 
                     if f > 0. {
                         upper = root;
@@ -208,5 +208,33 @@ mod test {
         assert_eq!(deriv.degree(), 1);
         assert_close!(deriv.coefs[0], 2.);
         assert_close!(deriv.coefs[1], 6.);
+    }
+
+    #[test]
+    fn solve_linear() {
+        // 2x + 4 = 0 => x = -2
+        let p = Poly::new(&[4., 2.]);
+        let roots = p.solve_approx();
+        assert_eq!(roots.len(), 1);
+        assert_close!(roots[0], -2.);
+    }
+
+    #[test]
+    fn solve_quadratic() {
+        // x^2 - 5x + 6 = 0 => (x-2)(x-3) => x = 2, 3
+        let p = Poly::new(&[6., -5., 1.]);
+        let mut roots = p.solve_approx();
+        roots.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(roots.len(), 2);
+        assert_close!(roots[0], 2.);
+        assert_close!(roots[1], 3.);
+    }
+
+    #[test]
+    fn solve_no_real_roots() {
+        // x^2 + 1 = 0 => no real roots
+        let p = Poly::new(&[1., 0., 1.]);
+        let roots = p.solve_approx();
+        assert_eq!(roots.len(), 0);
     }
 }

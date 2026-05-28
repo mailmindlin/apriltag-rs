@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, borrow::Borrow};
+use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use bytemuck::Pod;
@@ -6,13 +6,13 @@ use wgpu::{SubmissionIndex, BufferUsages};
 
 use crate::{util::{image::{ImageDimensions, Pixel}, mem::SafeZero, ImageBuffer}, wgpu::{error::GpuBufferFetchError, GpuContext}};
 
-use super::{async_buffer::{read_mappable_buffer, MappedBufferGuard}, buffer_traits::{GpuAwaitable, GpuBuffer, GpuBufferFetch, GpuImageLike}, GpuImageDownload};
+use super::{async_buffer::read_mappable_buffer, buffer_traits::{GpuAwaitable, GpuBuffer, GpuBufferFetch, GpuImageLike}, GpuImageDownload};
 
 /// 1d buffer on GPU
 pub(crate) struct GpuBuffer1<E> {
     /// GPU buffer handle
     pub(super) buffer: wgpu::Buffer,
-    pub(super) index: Option<SubmissionIndex>,
+    pub(crate) index: Option<SubmissionIndex>,
     /// Number of elements
     len: usize,
     pixel: PhantomData<E>,
@@ -113,11 +113,11 @@ impl<E> GpuBuffer2<E> {
             pixel: PhantomData,
         }
     }
-    pub(super) fn as_image_copy(&self) -> wgpu::ImageCopyBuffer {
+    pub(super) fn as_image_copy(&self) -> wgpu::TexelCopyBufferInfo<'_> {
         let size_elem = std::mem::size_of::<E>();
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: self.buffer(),
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some((self.dims.stride * size_elem) as _),
                 rows_per_image: Some(self.dims.height as _),

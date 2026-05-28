@@ -1,9 +1,9 @@
 use std::{path::{PathBuf, Path}, time::Duration, io, panic::AssertUnwindSafe};
 
-use apriltag_rs::{AprilTagDetector, AprilTagFamily, util::{ImageY8, ImageRGB8, image::Pixel}, TimeProfileStatistics, Detections};
+use apriltag_rs::{AprilTagDetector, AprilTagFamily, ImageY8, ImageRGB8, Pixel, TimeProfileStatistics, Detections};
 use image::{ImageBuffer as IImageBuffer, Rgb};
 use rayon::prelude::*;
-use clap::{Parser, arg, command};
+use clap::Parser;
 
 const HAMM_HIST_MAX: usize = 10;
 
@@ -103,7 +103,7 @@ fn load_image(path: &Path) -> io::Result<ImageY8> {
         }
     }
 
-    use image::io::Reader as ImageReader;
+    use image::ImageReader;
     let reader = ImageReader::open(path)?;
     let image = reader.decode().unwrap().into_luma8();
 

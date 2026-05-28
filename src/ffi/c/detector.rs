@@ -5,7 +5,7 @@ use errno::{set_errno, Errno};
 use libc::{c_int, c_double};
 
 // use parking_lot::RwLock;
-use super::{family::apriltag_family_t, img_u8_t::image_u8_t, matd_ptr, shim::{cffi_wrapper, param, CFFIError, InPtr, ReadPtr}, timeprofile_t, zarray::ZArray, FFIConvertError};
+use super::{FFIConvertError, family::apriltag_family_t, img_u8_t::image_u8_t, matd_ptr, shim::{CFFIError, InPtr, ReadPtr, cffi_wrapper, param}, timeprofile_t, zarray::ZArray};
 use super::super::util::{drop_boxed_mut, ManagedPtr};
 
 enum LazyDetector {
@@ -66,7 +66,7 @@ impl ExtraData {
     }
 
     fn detector<'a, R>(&'a self, callback: impl FnOnce(&AprilTagDetector) -> R) -> Result<R, DetectorBuildError> {
-        let mut rlock = self.detector.upgradable_read();
+        /*let mut rlock = self.detector.upgradable_read();
         loop {
             if let LazyDetector::Detector(det) = rlock.deref() {
                 return Ok(callback(det));
@@ -76,7 +76,8 @@ impl ExtraData {
                 data.as_detector()?;
                 Ok(())
             })?;
-        }
+        }*/
+		todo!()
     }
 }
 
@@ -373,17 +374,17 @@ pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, 
                     e.insert(value).clone()
                 }
             };
-            let H = match matd_ptr::new(3, 3, detection.H.data()) {
-                Ok(H) => H,
+			let H: matd_ptr = match detection.H.try_into() {
+				Ok(H) => H,
                 Err(_) => return alloc_error(),
-            };
+			};
 
             let native = Box::new(apriltag_detection_t {
                 family: ManagedPtr::from(family),
                 id: detection.id as _,
                 hamming: detection.hamming as _,
                 decision_margin: detection.decision_margin,
-                H,
+                H: H,
                 c: detection.center.as_array(),
                 p: [
                     detection.corners[0].as_array(),
@@ -402,10 +403,67 @@ pub unsafe extern "C" fn apriltag_detector_detect(td: *mut apriltag_detector_t, 
 }
 
 /// Call this method on each of the tags returned by apriltag_detector_detect
-//TODO
 #[no_mangle]
 pub unsafe extern "C" fn apriltag_detection_destroy(mut detection: ManagedPtr<Box<apriltag_detection_t>>) {
     let _ = detection.take();
+}
+
+/// Performs a deep copy of an AprilTag detection structure from a source to a destination.
+#[no_mangle]
+pub unsafe extern "C" fn apriltag_detection_copy(src: *const apriltag_detection_t, dst: *mut apriltag_detection_t) {
+	if std::ptr::addr_eq(src, dst) {
+		// Check that the pointers don't alias (I think this can be a noop)
+		return;
+	}
+	let src = src.as_ref().expect("src is null");
+	let dst = dst.as_mut().expect("dst is null");
+
+	// if let Some(H) = dst.H.take() {
+	// 	matd_destroy(H);
+	// }
+    // dst->H = matd_copy(src->H);
+
+	dst.c.copy_from_slice(&src.c);
+
+	dst.p.copy_from_slice(&src.p);
+
+	dst.id = src.id;
+    // dst.family = src.family;
+    dst.hamming = src.hamming;
+    dst.decision_margin = src.decision_margin;
+}
+
+/// Creates a complete deep copy of a list of AprilTag detections.
+#[no_mangle]
+pub unsafe extern "C" fn apriltag_detections_copy(detections: *const ZArray<apriltag_detection_t>) -> *const ZArray<apriltag_detection_t>{
+	/*zarray_t* detections_copy = zarray_create(sizeof(apriltag_detection_t*));
+    for (int i = 0; i < zarray_size(detections); i++) {
+        apriltag_detection_t* det;
+        zarray_get(detections, i, &det);
+
+        apriltag_detection_t* det_copy = (apriltag_detection_t*)calloc(1, sizeof(apriltag_detection_t));
+        apriltag_detection_copy(det, det_copy);
+        zarray_add(detections_copy, &det_copy);
+    }
+
+    return detections_copy;*/
+	todo!()
+}
+
+/// Clones an AprilTag detector configuration into a new instance.
+#[no_mangle]
+pub unsafe extern "C" fn apriltag_detector_copy(src: *const apriltag_detector_t) -> *const apriltag_detector_t {
+    /*apriltag_detector_t *dst = (apriltag_detector_t *)malloc(sizeof(apriltag_detector_t));
+    // Shallow copy of all scalar fields
+    *dst = *src;
+
+    // Reinitialize pointer fields to independent default values to avoid shared ownership and double-free issues
+    dst->tag_families = zarray_create(sizeof(apriltag_family_t *));
+    dst->tp = timeprofile_create();
+    dst->wp = workerpool_create(src->nthreads);
+
+    return dst;*/
+	todo!()
 }
 
 // destroys the array AND the detections within it.

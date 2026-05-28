@@ -1,6 +1,4 @@
-use super::{UnionFind, UnionFindAtomic, atomic::UnionFindConcurrent, UnionFindStatic, reference::UnionFindReference};
-
-type UnionFindId = u32;
+use super::{UnionFind, UnionFindAtomic, UnionFindId, UnionFindStatic, atomic::UnionFindConcurrent, reference::UnionFindReference};
 
 pub(crate) struct UnionFind2D<U: UnionFind<UnionFindId, Id = u32>> {
 	width: u32,

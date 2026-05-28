@@ -19,10 +19,12 @@ impl GpuTimestampInner {
 				count: num_queries.try_into().unwrap(),
 				ty: wgpu::QueryType::Timestamp,
 			}),
+			// COPY_SRC only — STORAGE is irrelevant here and can conflict with
+			// Metal's counter-resolve buffer allocation.
 			buffer: ctx.temp_buffer1_usage(
 				num_queries,
-				ctx.buffer_usage(true) | wgpu::BufferUsages::QUERY_RESOLVE,
-				Some("timestamp query")
+				wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+				"timestamp query"
 			)?,
 			num_queries,
 			names: vec![],
@@ -41,7 +43,9 @@ impl GpuTimestampInner {
 		}
 	}
 
-	fn next<'a>(&'a mut self, name: &str) -> Option<wgpu::ComputePassTimestampWrites<'a>> {
+	/// Record a pass-level timestamp pair via `ComputePassTimestampWrites`.
+	/// Requires `TIMESTAMP_QUERY_INSIDE_PASSES`.
+	fn next_pass<'a>(&'a mut self, name: &str) -> Option<wgpu::ComputePassTimestampWrites<'a>> {
 		let beginning_of_pass_write_index = self.next_query_id(format!("{name}->start"));
 		let end_of_pass_write_index = self.next_query_id(format!("{name}->end"));
 		if beginning_of_pass_write_index.is_none() && end_of_pass_write_index.is_none() {
@@ -55,6 +59,8 @@ impl GpuTimestampInner {
 		}
 	}
 
+	/// Record a single encoder-level timestamp.
+	/// Requires `TIMESTAMP_QUERY_INSIDE_ENCODERS`.
 	fn write_timestamp(&mut self, encoder: &mut wgpu::CommandEncoder, name: String) {
 		if let Some(id) = self.next_query_id(name) {
 			encoder.write_timestamp(&self.set, id);
@@ -62,13 +68,12 @@ impl GpuTimestampInner {
 	}
 
 	fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
-		#[cfg(debug_assertions)]
-		if self.names.len() != self.num_queries {
-			println!("Queries: requested {} but used {}", self.num_queries, self.names.len());
+		if self.names.is_empty() {
+			return;
 		}
 		encoder.resolve_query_set(
 			&self.set,
-			// TODO(https://github.com/gfx-rs/wgpu/issues/3993): Musn't be larger than the number valid queries in the set.
+			// Only resolve the slots we actually wrote.
 			0..(self.names.len() as _),
 			&self.buffer.buffer,
 			0,
@@ -81,56 +86,93 @@ impl GpuTimestampInner {
 		let mut tp = TimeProfile::default();
 		let t0 = Instant::now();
 		tp.set_start(t0);
+
 		let gpu_t0 = match res.first() {
 			None => return Ok(tp),
 			Some(first) => *first,
 		};
 
-		for (name, item) in self.names.iter().zip(res.into_iter()) {
-			let offset_ticks = item - gpu_t0;
-			let offset_nanos = (offset_ticks as f32) * period;
+		// Discard results if all timestamps are zero — the resolve didn't fire.
+		if res.iter().all(|&v| v == 0) {
+			return Ok(tp);
+		}
+
+		for (name, item) in self.names.iter().zip(res.iter()) {
+			let offset_ticks = item.saturating_sub(gpu_t0);
+			let offset_nanos = (offset_ticks as f64) * (period as f64);
 			let tN = t0 + Duration::from_nanos(offset_nanos as u64);
 			tp.stamp_at(Cow::Owned(name.clone()), tN);
 		}
 		Ok(tp)
 	}
 }
-pub(in super::super) struct GpuTimestampQueries(Option<GpuTimestampInner>);
+
+/// Which GPU timestamp mechanism is in use.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TimestampMode {
+	/// No timestamp support available.
+	None,
+	/// `ComputePassTimestampWrites` — requires `TIMESTAMP_QUERY_INSIDE_PASSES`.
+	InsidePasses,
+	/// `CommandEncoder::write_timestamp` — requires `TIMESTAMP_QUERY_INSIDE_ENCODERS`.
+	/// Timestamps are written before/after each pass by the caller.
+	InsideEncoders,
+}
+
+pub(in super::super) struct GpuTimestampQueries {
+	inner: Option<GpuTimestampInner>,
+	mode: TimestampMode,
+}
 
 impl GpuTimestampQueries {
 	pub(crate) fn empty() -> Self {
-		Self(None)
-	}
-	pub(crate) fn new(context: &GpuContext, num_queries: usize) -> Result<Self, WgpuDetectError> {
-		let inner = GpuTimestampInner::new(context, num_queries)?;
-		Ok(Self(Some(inner)))
+		Self { inner: None, mode: TimestampMode::None }
 	}
 
-	pub(crate) fn next<'a>(&'a mut self, name: &str) -> Option<wgpu::ComputePassTimestampWrites<'a>> {
-		self.0.as_mut()
-			.and_then(|inner| inner.next(name))
+	pub(crate) fn new_inside_passes(context: &GpuContext, num_queries: usize) -> Result<Self, WgpuDetectError> {
+		Ok(Self {
+			inner: Some(GpuTimestampInner::new(context, num_queries)?),
+			mode: TimestampMode::InsidePasses,
+		})
 	}
 
+	pub(crate) fn new_inside_encoders(context: &GpuContext, num_queries: usize) -> Result<Self, WgpuDetectError> {
+		Ok(Self {
+			inner: Some(GpuTimestampInner::new(context, num_queries)?),
+			mode: TimestampMode::InsideEncoders,
+		})
+	}
+
+	/// Return a `ComputePassDescriptor` with timestamp writes embedded when in
+	/// `InsidePasses` mode; plain descriptor otherwise.
 	pub(crate) fn make_cpd<'a>(&'a mut self, name: &'a str) -> wgpu::ComputePassDescriptor<'a> {
-		wgpu::ComputePassDescriptor {
-			label: Some(name),
-			timestamp_writes: self.next(name),
+		let timestamp_writes = if self.mode == TimestampMode::InsidePasses {
+			self.inner.as_mut().and_then(|inner| inner.next_pass(name))
+		} else {
+			None
+		};
+		wgpu::ComputePassDescriptor { label: Some(name), timestamp_writes }
+	}
+
+	/// Write a single encoder-level timestamp. No-op unless in `InsideEncoders` mode.
+	/// Call this immediately before `begin_compute_pass` (for "start") and immediately
+	/// after the compute pass ends (for "end").
+	pub(crate) fn write_timestamp(&mut self, encoder: &mut wgpu::CommandEncoder, name: String) {
+		if self.mode == TimestampMode::InsideEncoders {
+			if let Some(inner) = &mut self.inner {
+				inner.write_timestamp(encoder, name);
+			}
 		}
 	}
 
 	pub(crate) fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
-		if let Some(inner) = &self.0 {
+		if let Some(inner) = &self.inner {
 			inner.resolve(encoder)
-		}
-	}
-	pub(crate) fn write_timestamp(&mut self, encoder: &mut wgpu::CommandEncoder, name: String) {
-		if let Some(inner) = &mut self.0 {
-			inner.write_timestamp(encoder, name);
 		}
 	}
 
 	pub(in super::super) async fn wait_for_results(&self, context: &GpuContext) -> Result<Option<TimeProfile>, GpuBufferFetchError> {
-		if let Some(inner) = &self.0 {
+		if let Some(inner) = &self.inner {
 			inner.wait_for_results(context).await.map(Some)
 		} else {
 			Ok(None)

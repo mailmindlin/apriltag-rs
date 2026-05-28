@@ -1,8 +1,7 @@
 use std::ops::Mul;
 
-use crate::util::{math::{mat::{Mat33, Mat, SvdOptions}, Vec3}, geom::Point2D};
+use crate::util::{geom::Point2D, math::{Vec3, mat::{Mat, Mat33, Mat99, SvdOptions}}};
 
-//void homography_project(const matd_t *H, double x, double y, double *ox, double *oy);
 #[inline]
 pub(super) fn homography_project(H: &Mat33, x: f64, y: f64) -> Point2D {
     let v = H.mul(&Vec3::of(x, y, 1.));
@@ -31,7 +30,7 @@ pub(super) fn homography_project(H: &Mat33, x: f64, y: f64) -> Point2D {
 }
 
 enum HomographyMode {
-    INVERSE,
+    Inverse,
     SVD,
 }
 
@@ -62,7 +61,7 @@ fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat
     // possibly make any difference given the dynamic range of IEEE
     // doubles.
 
-    let mut A = Mat::zeroes(9,9);
+    let mut A = Mat99::zeroes();
     for c in correspondences {
         // (below world is "x", and image is "y")
         let worldx = c[0] - x_cx;
@@ -168,7 +167,7 @@ fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat
     let mut H = Mat33::zeroes();
 
     match mode {
-        HomographyMode::INVERSE => {
+        HomographyMode::Inverse => {
             // compute singular vector by (carefully) inverting the rank-deficient matrix.
 
             if true {
@@ -187,7 +186,7 @@ fn homography_compute(correspondences: &[[f64; 4]], mode: HomographyMode) -> Mat
                     }
                 }
 
-                std::mem::drop(Ainv);
+                // std::mem::drop(Ainv);
             } else {
                 let b = Mat::create(9, 1, &[ 1., 0., 0., 0., 0., 0., 0., 0., 0. ]);
 

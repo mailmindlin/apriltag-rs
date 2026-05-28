@@ -71,8 +71,8 @@ impl Poly2D {
         let sz = self.len();
 
         for i in 0..=sz {
-            let p0 = &self[i % sz];
-            let p1 = &self[(i + 1) % sz];
+            let p0 = self[i % sz];
+            let p1 = self[(i + 1) % sz];
 
             let this_theta = p0.angle_to(p1);
 
@@ -130,11 +130,11 @@ impl Poly2D {
         // must have at least 2 points. (XXX need 3?)
         assert!(insz >= 2);
 
-        let pleft = self.0.iter()
+        let &pleft = self.0.iter()
             .min_by(|p, q| f64::total_cmp(&p.x(), &q.x()))
             .unwrap(); // cannot be None since there must be at least one point.
 
-        let mut hull = Poly2D::of(&[*pleft]);
+        let mut hull = Poly2D::of(&[pleft]);
 
         // step 2. gift wrap. Keep searching for points that make the
         // smallest-angle left-hand turn. This implementation is carefully
@@ -151,7 +151,7 @@ impl Poly2D {
             // the right of" the other points. (i.e., every time we find a
             // point that is to the right of our current line, we change
             // lines.)
-            for thisq in self.0.iter() {
+            for &thisq in &self.0 {
                 if thisq == p {
                     continue;
                 }
@@ -166,7 +166,7 @@ impl Poly2D {
                     );
                 } else {
                     // we already have a line (p,q). is point thisq RIGHT OF line (p, q)?
-                    let e = thisq - &p;
+                    let e = thisq - p;
                     let dot = e.dot(n);
 
                     if dot > 0. {
@@ -193,9 +193,9 @@ impl Poly2D {
 
             // is this new point colinear with the last two?
             if hull.len() > 1 {
-                let o = &hull[hull.len() - 2];
+                let o = hull[hull.len() - 2];
 
-                let e = o - &p;
+                let e = o - p;
 
                 if n.dot(e) == 0. {
                     colinear = true;
@@ -205,19 +205,19 @@ impl Poly2D {
             // if it is colinear, overwrite the last one.
             if colinear {
                 let len = hull.len();
-                hull.0[len - 1] = *q;
+                hull.0[len - 1] = q;
             } else {
-                hull.add(*q);
+                hull.add(q);
             }
 
             p = q;
         }
 
-        return hull;
+        hull
     }
 
     // Find point p on the boundary of poly that is closest to q.
-    pub fn closest_boundary_point(&self, q: &Point2D) -> Option<Point2D> {
+    pub fn closest_boundary_point(&self, q: Point2D) -> Option<Point2D> {
         let mut min_dist = f64::INFINITY;
         let mut result = None;
 
@@ -229,7 +229,7 @@ impl Poly2D {
 
             let thisp = seg.closest_point(q);
 
-            let dist = q.distance_to(&thisp);
+            let dist = q.distance_to(thisp);
             if dist < min_dist {
                 result = Some(thisp);
                 min_dist = dist;
@@ -239,7 +239,7 @@ impl Poly2D {
         result
     }
 
-    pub fn contains_point(&self, q: &Point2D) -> bool {
+    pub fn contains_point(&self, q: Point2D) -> bool {
         // use winding. If the point is inside the polygon, we'll wrap
         // around it (accumulating 6.28 radians). If we're outside the
         // polygon, we'll accumulate zero.
@@ -292,7 +292,7 @@ impl Poly2D {
                     0 => {},
                     -2 | 2 => {
                         // get the previous point.
-                        let p0 = &self[i-1];
+                        let p0 = self[i-1];
 
                         // Consider the points p0 and p (the points around the
                         //polygon that we are tracing) and the query point q.
@@ -307,7 +307,7 @@ impl Poly2D {
                             q.x() - p.x(),
                         );
 
-                        let dot = n.dot(p0 - &q);
+                        let dot = n.dot(p0 - q);
                         if dot < 0. {
                             quad_acc -= 2;
                         } else {
@@ -364,7 +364,7 @@ impl Poly2D {
 
         // if none of the edges cross, then the polygon is either fully
         // contained or fully outside.
-        self.contains_point(&other[0])
+        self.contains_point(other[0])
     }
 
     /// compute a point that is inside the polygon. (It may not be *far* inside though)
@@ -374,7 +374,7 @@ impl Poly2D {
         let b = self[1];
         let c = self[2];
 
-        Point2D::from_vec((*a.vec() + b.vec() + c.vec()) / 3.)
+        Point2D::from_vec((a.vec() + b.vec() + c.vec()) / 3.)
     }
 
     pub fn overlaps_polygon(&self, other: &Poly2D) -> bool {
@@ -386,17 +386,17 @@ impl Poly2D {
         // if none of the edges cross, then the polygon is either fully
         // contained or fully outside.
         let p = other.get_interior_point();
-        if self.contains_point(&p) {
+        if self.contains_point(p) {
             return true;
         }
 
         let p = self.get_interior_point();
 
-        if other.contains_point(&p) {
+        if other.contains_point(p) {
             return true;
         }
 
-        return false;
+        false
     }
     /// Returns the x intercepts
     pub fn rasterize(&self, y: f64) -> Vec<f64> {
@@ -425,6 +425,184 @@ impl Poly2D {
     }
 }
 
+
+#[cfg(test)]
+mod test {
+    use super::Poly2D;
+    use crate::util::geom::Point2D;
+
+    fn pt(x: f64, y: f64) -> Point2D { Point2D::of(x, y) }
+
+    // Shoelace signed area: positive = CCW
+    fn signed_area(poly: &Poly2D) -> f64 {
+        let n = poly.len();
+        let mut area = 0f64;
+        for i in 0..n {
+            let p0 = poly[i];
+            let p1 = poly[(i + 1) % n];
+            area += p0.x() * p1.y() - p1.x() * p0.y();
+        }
+        area / 2.
+    }
+
+    // Unit square in CCW order
+    fn ccw_square() -> Poly2D {
+        Poly2D::of(&[pt(0., 0.), pt(1., 0.), pt(1., 1.), pt(0., 1.)])
+    }
+
+    // Unit square in CW order
+    fn cw_square() -> Poly2D {
+        Poly2D::of(&[pt(0., 0.), pt(0., 1.), pt(1., 1.), pt(1., 0.)])
+    }
+
+    // --- contains_point ---
+
+    #[test]
+    fn contains_point_inside() {
+        let poly = ccw_square();
+        assert!(poly.contains_point(pt(0.5, 0.5)));
+    }
+
+    #[test]
+    fn contains_point_outside() {
+        let poly = ccw_square();
+        assert!(!poly.contains_point(pt(2., 0.5)));
+        assert!(!poly.contains_point(pt(0.5, 2.)));
+        assert!(!poly.contains_point(pt(-1., 0.5)));
+    }
+
+    #[test]
+    fn contains_point_triangle() {
+        // Triangle (0,0),(4,0),(2,3)
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        assert!(tri.contains_point(pt(2., 1.)));   // centroid
+        assert!(!tri.contains_point(pt(0., 3.)));   // outside
+    }
+
+    #[test]
+    fn contains_point_concave() {
+        // L-shaped polygon (CCW)
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(2., 0.), pt(2., 1.),
+            pt(1., 1.), pt(1., 2.), pt(0., 2.),
+        ]);
+        assert!(poly.contains_point(pt(0.5, 0.5)));  // bottom-left
+        assert!(poly.contains_point(pt(0.5, 1.5)));  // top-left
+        assert!(!poly.contains_point(pt(1.5, 1.5))); // notch
+    }
+
+    // --- make_ccw ---
+
+    #[test]
+    fn make_ccw_already_ccw_unchanged() {
+        let mut poly = ccw_square();
+        let area_before = signed_area(&poly);
+        poly.make_ccw();
+        let area_after = signed_area(&poly);
+        assert!(area_after > 0., "should stay CCW");
+        assert!((area_before - area_after).abs() < 1e-10, "area should not change");
+    }
+
+    #[test]
+    fn make_ccw_reverses_cw() {
+        let mut poly = cw_square();
+        assert!(signed_area(&poly) < 0., "should start CW");
+        poly.make_ccw();
+        assert!(signed_area(&poly) > 0., "should become CCW");
+    }
+
+    #[test]
+    fn make_ccw_idempotent() {
+        let mut poly = cw_square();
+        poly.make_ccw();
+        let first = (0..poly.len()).map(|i| (poly[i].x(), poly[i].y())).collect::<Vec<_>>();
+        poly.make_ccw();
+        let second = (0..poly.len()).map(|i| (poly[i].x(), poly[i].y())).collect::<Vec<_>>();
+        assert_eq!(first, second, "make_ccw applied twice should be a no-op");
+    }
+
+    // --- convex_hull ---
+
+    #[test]
+    fn convex_hull_triangle_is_itself() {
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        let hull = tri.convex_hull();
+        assert_eq!(hull.len(), 3);
+        // All hull points are from the original
+        let orig: Vec<_> = (0..tri.len()).map(|i| (tri[i].x(), tri[i].y())).collect();
+        for i in 0..hull.len() {
+            let hp = (hull[i].x(), hull[i].y());
+            assert!(orig.contains(&hp), "hull point {:?} not in original", hp);
+        }
+    }
+
+    #[test]
+    fn convex_hull_excludes_interior_point() {
+        // Square corners + interior point: hull should be 4 points
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(1., 0.), pt(1., 1.), pt(0., 1.), pt(0.5, 0.5),
+        ]);
+        let hull = poly.convex_hull();
+        // Interior point should not appear in hull
+        let hull_pts: Vec<_> = (0..hull.len()).map(|i| (hull[i].x(), hull[i].y())).collect();
+        assert!(!hull_pts.contains(&(0.5, 0.5)), "interior point should not be in hull");
+        assert_eq!(hull.len(), 4);
+    }
+
+    #[test]
+    fn convex_hull_all_points_inside_or_on_boundary() {
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(3., 0.), pt(3., 3.), pt(0., 3.),
+            pt(1., 1.), pt(2., 1.), pt(1., 2.), // interior points
+        ]);
+        let hull = poly.convex_hull();
+        for i in 0..poly.len() {
+            let q = poly[i];
+            // each point is either on the hull boundary or inside the hull
+            let on_boundary = hull.closest_boundary_point(q)
+                .map(|p| q.distance_to(p) < 1e-9)
+                .unwrap_or(false);
+            assert!(on_boundary || hull.contains_point(q),
+                "point {:?} is neither inside nor on boundary of hull", q);
+        }
+    }
+
+    #[test]
+    fn convex_hull_is_ccw() {
+        let poly = Poly2D::of(&[
+            pt(0., 0.), pt(3., 0.), pt(3., 3.), pt(0., 3.), pt(1.5, 1.5),
+        ]);
+        let hull = poly.convex_hull();
+        assert!(signed_area(&hull) > 0., "convex hull should be CCW");
+    }
+
+    // --- rasterize ---
+
+    #[test]
+    fn rasterize_unit_square() {
+        let poly = ccw_square();
+        let xs = poly.rasterize(0.5);
+        assert_eq!(xs.len(), 2);
+        assert!((xs[0] - 0.).abs() < 1e-9);
+        assert!((xs[1] - 1.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rasterize_above_polygon_empty() {
+        let poly = ccw_square();
+        let xs = poly.rasterize(2.0);
+        assert!(xs.is_empty());
+    }
+
+    #[test]
+    fn rasterize_sorted() {
+        // Triangle: (0,0),(4,0),(2,3). At y=1 should give two crossings in sorted order.
+        let tri = Poly2D::of(&[pt(0., 0.), pt(4., 0.), pt(2., 3.)]);
+        let xs = tri.rasterize(1.0);
+        assert_eq!(xs.len(), 2);
+        assert!(xs[0] <= xs[1], "x values should be sorted");
+    }
+}
 
 // Compute the crossings of the polygon along line y, storing them in
 // the array x. X must be allocated to be at least as long as

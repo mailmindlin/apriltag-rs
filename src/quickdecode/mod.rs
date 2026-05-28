@@ -17,13 +17,13 @@ pub(crate) struct QuickDecodeResult {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum AddFamilyError {
 	/// Too many codes in an AprilTag family
-	#[error("Too many codes in AprilTag family to create QuickDecode (actual: {0}, max: {})", QuickDecode::NUM_CODES_MAX)]
+	#[error("Too many codes in AprilTag family to create QuickDecode (actual: {0}, max: {max})", max=QuickDecode::NUM_CODES_MAX)]
 	TooManyCodes(usize),
 	/// Error allocating QD table
 	#[error("Error allocating QuickDecode table")]
 	QuickDecodeAllocation,
 	/// Hamming value was too big
-	#[error("Hamming too big for QuickDecode: (actual: {0}, max: {})", QuickDecode::HAMMING_MAX)]
+	#[error("Hamming too big for QuickDecode: (actual: {0}, max: {max})", max=QuickDecode::HAMMING_MAX)]
 	BigHamming(usize),
 }
 
@@ -197,10 +197,12 @@ impl QuickDecode {
 		#[cfg(feature = "extra_debug")]
 		{
 			use datasize::data_size;
-			eprintln!("quick decode: capacity {}, size {:.1} kB", capacity, data_size(&qd) as f64 / 1024.0);
+			use crate::dbg::debugln;
+
+			debugln!("quick decode: capacity {}, size {:.1} kB", capacity, data_size(&qd) as f64 / 1024.0);
 
 			let (run_min, run_mean, run_max) = qd.stats();
-			println!("quick decode: shortest run: {}, average run {:.3}, longest run: {}", run_min, run_mean, run_max);
+			debugln!("quick decode: shortest run: {}, average run {:.3}, longest run: {}", run_min, run_mean, run_max);
 		}
 
 		Ok(qd)

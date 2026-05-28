@@ -29,7 +29,7 @@ pub(crate) struct GpuTexture<P: GpuPixel> {
 pub(crate) type GpuTextureY8 = GpuTexture<Luma<u8>>;
 
 impl<P: GpuPixel> GpuTexture<P> {
-    pub(crate) fn new(buffer: wgpu::Texture) -> Self {
+    pub(crate) fn new(buffer: wgpu::Texture, label: &'static str) -> Self {
         debug_assert_eq!(P::GPU_FORMAT, buffer.format(), "Format mismatch");
 
         Self {
@@ -54,6 +54,7 @@ impl<P: GpuPixel> GpuTexture<P> {
             mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
+			usage: None,
         })
     }
 
@@ -72,7 +73,7 @@ impl<P: GpuPixel> GpuTexture<P> {
             };
             let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: ((dims.stride * self.height())) as u64,
+                size: (dims.stride * self.height()) as u64,
                 usage,
                 mapped_at_creation: false,
             });

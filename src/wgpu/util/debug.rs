@@ -1,13 +1,11 @@
-#![cfg(feature="debug")]
-
 use std::io::ErrorKind;
 
 use futures::executor::block_on;
 use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
-use crate::{util::{image::ImageWritePNM, ImageBuffer, ImageY8}, wgpu::{error::GpuBufferFetchError, util::{buffer_traits::GpuImageLike, texture::GpuTexture, GpuBufferFetch}, GpuContext}, DetectorConfig};
+use crate::{util::{ImageBuffer, ImageY8}, wgpu::{error::GpuBufferFetchError, util::{buffer_traits::GpuImageLike, texture::GpuTexture, GpuBufferFetch}, GpuContext}, DetectorConfig};
 
-use super::{GpuTextureY8, GpuImageDownload};
+use super::GpuTextureY8;
 
 /// Calculate which targets should be downloaded from the GPU for debugging
 pub(in super::super) struct DebugTargets {
@@ -41,6 +39,7 @@ impl DebugTargets {
 	}
 }
 
+#[cfg(feature="debug")]
 enum DebugEntry {
 	Y8 {
 		path: &'static str,
@@ -59,8 +58,10 @@ pub(in super::super) struct DebugImageGenerator {
 	values: Vec<DebugEntry>,
 }
 
+#[cfg_attr(not(feature="debug"), expect(unused))]
 impl DebugImageGenerator {
 	pub(in super::super) const fn new(debug: bool) -> Self {
+		let _ = debug;
 		Self {
 			#[cfg(feature="debug")]
 			debug,
@@ -69,18 +70,21 @@ impl DebugImageGenerator {
 		}
 	}
 	pub(in super::super) fn register(&mut self, image: &GpuTextureY8, path: &'static str) {
+		#[cfg(feature="debug")]
 		if self.debug {
 			self.values.push(DebugEntry::Y8 { path, image: image.clone() });
 		}
 	}
 
 	pub(in super::super) fn register_minmax(&mut self, image: &GpuTexture<[u8; 2]>, min_path: &'static str, max_path: &'static str) {
+		#[cfg(feature="debug")]
 		if self.debug {
 			self.values.push(DebugEntry::MinMax { min_path, max_path, image: image.clone() });
 		}
 	}
 
 	pub(in super::super) fn write_debug_images(self, context: &GpuContext, config: &DetectorConfig) {
+		#[cfg(feature="debug")]
 		for entry in self.values.into_iter() {
 			match entry {
 				DebugEntry::Y8 { path, image } => {

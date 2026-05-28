@@ -68,11 +68,12 @@ impl Display for TimeProfileStatistics {
 }
 
 /// Records 
-#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs"))]
+#[cfg_attr(feature="python", pyo3::pyclass(module="apriltag_rs", skip_from_py_object))]
 #[derive(Clone, Debug)]
 pub struct TimeProfile {
     /// Start timestamp
     now: Instant,
+	#[cfg(any(feature = "debug", feature = "bench"))]
 	now_proc: Option<cpu_time::ProcessTime>,
     /// Named timestamps
     stamps: Vec<TimeProfileEntry>,
@@ -82,6 +83,7 @@ impl Default for TimeProfile {
     fn default() -> Self {
         Self {
             now: Instant::now(),
+			#[cfg(any(feature = "debug", feature = "bench"))]
 			now_proc: cpu_time::ProcessTime::try_now().ok(),
             stamps: Default::default(),
         }
@@ -94,6 +96,7 @@ pub(crate) struct TimeProfileEntry {
     name: Cow<'static, str>,
     /// Entry timestamp
     wall: Instant,
+	#[cfg(any(feature = "debug", feature = "bench"))]
 	proc: Option<cpu_time::ProcessTime>,
 }
 
@@ -129,33 +132,28 @@ impl TimeProfile {
     /// Record a timestamp right now
     #[inline]
     pub fn stamp(&mut self, name: impl Into<Cow<'static, str>>) {
-        let name = name.into();
-        let timestamp = Instant::now();
-		let proc = cpu_time::ProcessTime::try_now().ok();
-        self.stamp_at_inner(name, timestamp, proc)
+        self.stamps.push(TimeProfileEntry {
+            name: name.into(),
+            wall: Instant::now(),
+            #[cfg(any(feature = "debug", feature = "bench"))]
+            proc: cpu_time::ProcessTime::try_now().ok(),
+        });
     }
 
     /// Mark a specific time
     pub fn stamp_at(&mut self, name: impl Into<Cow<'static, str>>, timestamp: Instant) {
-        let name = name.into();
-        self.stamp_at_inner(name, timestamp, None);
-    }
-
-    #[inline]
-    fn stamp_at_inner(&mut self, name: Cow<'static, str>, timestamp: Instant, proc: Option<cpu_time::ProcessTime>) {
-        let entry = TimeProfileEntry {
-            name,
+        self.stamps.push(TimeProfileEntry {
+            name: name.into(),
             wall: timestamp,
-			proc,
-        };
-
-        self.stamps.push(entry);
+            #[cfg(any(feature = "debug", feature = "bench"))]
+            proc: None,
+        });
     }
 
     /// Get duration from [start] to last recorded timestamp
     pub fn total_duration(&self) -> Duration {
         let stamps = &self.stamps;
-        if stamps.len() == 0 {
+        if stamps.is_empty() {
             return Duration::ZERO;
         }
 
@@ -167,6 +165,66 @@ impl TimeProfile {
 
     pub(crate) fn entries(&self) -> &[TimeProfileEntry] {
         &self.stamps
+    }
+
+    /// Get the duration of a named stage.
+    ///
+    /// Each stage's duration is the time between its stamp and the previous stamp
+    /// (or the profile start time for the first stamp).
+    pub fn stage_duration(&self, name: &str) -> Option<Duration> {
+        let mut last_time = self.now;
+        for stamp in &self.stamps {
+            if stamp.name == name {
+                return Some(stamp.wall - last_time);
+            }
+            last_time = stamp.wall;
+        }
+        None
+    }
+
+    /// Get all stage names in order.
+    pub fn stage_names(&self) -> Vec<&str> {
+        self.stamps.iter().map(|s| s.name.as_ref()).collect()
+    }
+
+    /// Get the CPU (process) time duration of a named stage.
+    ///
+    /// Returns `None` if the feature is not enabled, CPU time is unavailable,
+    /// or the named stage does not exist.
+    #[cfg(any(feature = "debug", feature = "bench"))]
+    pub fn stage_cpu_duration(&self, name: &str) -> Option<Duration> {
+        let mut last_proc = self.now_proc;
+        for stamp in &self.stamps {
+            if stamp.name == name {
+                let proc = stamp.proc?;
+                let prev = last_proc?;
+                return Some(proc.duration_since(prev));
+            }
+            if stamp.proc.is_some() {
+                last_proc = stamp.proc;
+            }
+        }
+        None
+    }
+
+    /// Get the CPU (process) time duration of a named stage (stub when feature disabled).
+    #[cfg(not(any(feature = "debug", feature = "bench")))]
+    pub fn stage_cpu_duration(&self, _name: &str) -> Option<Duration> {
+        None
+    }
+
+    /// Get total CPU (process) time from first to last stamp.
+    #[cfg(any(feature = "debug", feature = "bench"))]
+    pub fn total_cpu_duration(&self) -> Option<Duration> {
+        let first_proc = self.now_proc?;
+        let last_proc = self.stamps.iter().rev().find_map(|s| s.proc)?;
+        Some(last_proc.duration_since(first_proc))
+    }
+
+    /// Get total CPU (process) time (stub when feature disabled).
+    #[cfg(not(any(feature = "debug", feature = "bench")))]
+    pub fn total_cpu_duration(&self) -> Option<Duration> {
+        None
     }
 }
 
@@ -186,18 +244,21 @@ impl Display for TimeProfile {
             None => Duration::ZERO,
         };
 
+		#[cfg(any(feature = "debug", feature = "bench"))]
 		let total_proc =  stamps.iter().rev()
 			.find_map(|stamp| stamp.proc)
 			;
 
 		if f.alternate() {
 			write!(f, "{:>2} {:width$} {:>12} ms {:>12} ms {:>4}", "#", "Name", "Wall", "Wall (cum)", "%", width=max_name_length)?;
+			#[cfg(any(feature = "debug", feature = "bench"))]
 			if total_proc.is_some() {
 				write!(f, " {:>12} ms {:>4}", "Proc", "P%")?;
 			}
 			writeln!(f)?;
 		}
         let mut last_time = self.now;
+		#[cfg(any(feature = "debug", feature = "bench"))]
 		let mut last_proc = self.now_proc;
         for (i, stamp) in stamps.iter().enumerate() {
             let cumtime = stamp.wall - self.now;
@@ -213,6 +274,7 @@ impl Display for TimeProfile {
                 width=max_name_length
             )?;
 			
+			#[cfg(any(feature = "debug", feature = "bench"))]
 			if let Some(proc) = stamp.proc {
 				if let Some(last_proc_) = last_proc {
 					let proc_part = proc.duration_since(last_proc_);

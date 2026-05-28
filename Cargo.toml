@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "bench-tool"]
+
 [package]
 name = "apriltag-rs"
 version = "0.1.0"
@@ -9,18 +12,24 @@ edition = "2021"
 [features]
 # Python FFI bindings
 python = ["dep:pyo3"]
+# python = ["dep:pyo3", "dep:parking_lot"]
 # JNI FFI bindings
 jni = ["dep:jni"]
 # C FFI Bindings (we try to match libapriltag)
-cffi = ["dep:libc", "dep:nix", "dep:errno"]
-debug = []
+cffi = ["dep:libc", "dep:nix", "dep:errno", "dep:parking_lot"]
+cbindgen = ["cffi"]
+debug = ["dep:cpu-time"]
 debug_ps = ["debug"]
 opencl = ["dep:ocl"]
-wgpu = ["dep:wgpu"]
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:async-trait", "dep:futures"]
 extra_debug = ["debug", "debug_ps"]
+wgpu_validate = ["wgpu"]
 # Compare to apriltag-sys
 compare_reference = ["apriltag-sys/deep", "dep:float-cmp", "dep:libc"]
 opencv=["dep:opencv"]
+# Benchmarking support
+bench = ["tag36h11", "dep:cpu-time"]
+uf_blackonly = []
 
 # Enable specific tag families
 tag16h5 = []
@@ -67,51 +76,51 @@ default = ["python", "jni", "cffi"]
 
 
 [dependencies]
-arrayvec = "0.7.4"
+arrayvec = "0.7.6"
 rand = "0.10.1"
-rayon = "1.10.0"
+rayon = "1.12.0"
 datasize = "0.2.15"
-clap = { version = "4.5.4", features=["derive"] }
-parking_lot = "0.12.2"
-raw-parts = "2.0.0"
-hashbrown = { version = "0.14.5", features = ["rayon"] }
-futures = "0.3.30"
-proc-macro2 = "1.0.66"
-bytemuck = "1.15.0"
-concurrent-queue = "2.5.0"
+hashbrown = { version = "0.17.1", features = ["rayon"] }
 # vulkano-shaders = { version = "0.33.0", optional = true }
-async-trait = "0.1.80"
-thiserror = "1.0.49"
-cpu-time = "1.0.0"
+thiserror = "2.0.18"
+
+# Optional: behind feature flags
+parking_lot = { version = "0.12.5", optional = true }
+futures = { version = "0.3.32", optional = true }
+bytemuck = { version = "1.24.0", optional = true }
+async-trait = { version = "0.1.89", optional = true }
+cpu-time = { version = "1.0.0", optional = true }
+log = "0.4.29"
 
 # Feature: Python FFI (pyo3)
 [dependencies.pyo3]
-version = "0.28.2"
+version = "0.28.3"
 optional = true
 features=["extension-module", "experimental-inspect"]
 
 # Feature: Java FFI (jni)
 [dependencies.jni]
-version = "0.21.1"
+version = "0.22.4"
 optional = true
 
 # Feature: C FFI (cffi)
 [dependencies.libc]
-version = "0.2.154"
+version = "0.2.186"
 optional = true
 [dependencies.nix]
 version = "0.31.3"
 optional = true
 [dependencies.errno]
-version = "0.3.8"
+version = "0.3.14"
 optional = true
 
 # Feature: compare_reference
 [dependencies.apriltag-sys]
 path="../apriltag-rust-deep/apriltag-sys"
 optional = true
+
 [dependencies.float-cmp]
-version = "0.9.0"
+version = "0.10.0"
 optional = true
 
 # Feature: OpenCL
@@ -122,15 +131,17 @@ optional = true
 # version = "0.9.3"
 # optional = true
 [dependencies.wgpu]
-version = "0.20.0"
+version = "29.0.3"
 optional = true
 features = ["vulkan-portability"]
 
 [dev-dependencies]
-image = "0.25.1"
+image = "0.25.10"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+clap = { version = "4.6.1", features = ["derive"] }
 
 [dependencies.opencv]
-version = "0.91.2"
+version = "0.98.2"
 features = ["clang-runtime"]
 optional = true
 
@@ -141,3 +152,11 @@ optional = true
 [[example]]
 name = "opencv_demo"
 required-features = ["opencv"]
+
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["bench"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }

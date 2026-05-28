@@ -7,11 +7,36 @@ pub use config::{DetectorConfig, AccelerationRequest};
 pub use builder::DetectorBuilder;
 pub use error::{DetectError, DetectorBuildError, ImageDimensionError};
 
-use std::sync::{Mutex, Arc};
+/// Information about the GPU device used for hardware acceleration.
+#[derive(Debug, Clone)]
+pub struct GpuDeviceInfo {
+	/// Which apriltag-rs accelerator is in use: "wgpu" or "opencl"
+	pub accelerator: String,
+	/// Backend API (e.g. "Metal", "Vulkan", "OpenCL")
+	pub backend: String,
+	/// Device name (e.g. "Apple M1 Pro")
+	pub name: String,
+	/// Device type (e.g. "IntegratedGpu", "DiscreteGpu", "Cpu")
+	pub device_type: String,
+	/// Vendor identifier
+	pub vendor: String,
+	/// Driver description (if available)
+	pub driver: String,
+}
+
+use std::sync::Arc;
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections};
+use crate::{
+	Detections,
+	dbg::{TimeProfile, debugln},
+	detection::reconcile_detections,
+	quad_decode::QuadDecodeInfo,
+	quickdecode::QuickDecode,
+	util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer},
+	quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters},
+};
 #[cfg(feature="debug")]
 use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 #[cfg(feature="wgpu")]
@@ -19,9 +44,12 @@ use crate::wgpu::WGPUDetector;
 
 use self::config::QuadDecimateMode;
 
+/// Result of GPU-accelerated clustering, including optional GPU-side timing.
+pub(crate) type ClusterResult = (ImageY8, Clusters, Option<TimeProfile>);
+
 pub(crate) trait Preprocessor {
 	fn preprocess(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, ImageY8), DetectError>;
-	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError>;
+	fn cluster(&self, config: &DetectorConfig, tp: &mut TimeProfile, image: ImageRefY8) -> Result<ClusterResult, DetectError>;
 }
 
 enum HardwareAccelerator {
@@ -62,7 +90,7 @@ pub(crate) fn quad_sigma_kernel(quad_sigma: f32) -> Option<Vec<u8>> {
 	let sigma = f32::abs(quad_sigma);
 
 	let kernel_size = (4. * sigma) as usize; // 2 std devs in each direction
-	let kernel_size = if (kernel_size % 2) == 0 {
+	let kernel_size = if kernel_size.is_multiple_of(2) {
 		kernel_size + 1
 	} else {
 		kernel_size
@@ -109,7 +137,7 @@ fn quad_sigma(img: &mut ImageY8, quad_sigma: f32) {
 				// Prevent overflow
 				let v = ((vorig.to_value() as i16) * 2).saturating_sub(vblur as i16);
 
-				img[(x, y)] = (v.clamp(0, 255) as u8).into();
+				img[(x, y)] = v.clamp(0, 255) as u8;
 			}
 		}
 	}
@@ -177,6 +205,17 @@ impl AprilTagDetector {
 
 	pub fn has_gpu(&self) -> bool {
 		!matches!(self.gpu, HardwareAccelerator::None)
+	}
+
+	/// Get information about the GPU device being used for acceleration, if any.
+	pub fn gpu_device_info(&self) -> Option<GpuDeviceInfo> {
+		match &self.gpu {
+			HardwareAccelerator::None => None,
+			#[cfg(feature = "opencl")]
+			HardwareAccelerator::OpenCL(ocl) => Some(ocl.device_info()),
+			#[cfg(feature = "wgpu")]
+			HardwareAccelerator::WebGPU(wgpu) => Some(wgpu.device_info()),
+		}
 	}
 
 	fn new(params: DetectorConfig, tag_families: Vec<Arc<QuickDecode>>) -> Result<AprilTagDetector, DetectorBuildError> {
@@ -257,7 +296,7 @@ impl AprilTagDetector {
 	/// Preprocess and segment image
 	/// 
 	/// Returns preprocessed image & ccl
-	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<(ImageY8, Clusters), DetectError> {
+	fn segment_image(&self, tp: &mut TimeProfile, im_orig: ImageRefY8) -> Result<ClusterResult, DetectError> {
 		match &self.gpu {
 			#[cfg(feature="opencl")]
 			HardwareAccelerator::OpenCL(ocl) => {
@@ -266,7 +305,7 @@ impl AprilTagDetector {
 						return Ok(res);
 					},
 					Err(e) => {
-						if self.params.gpu.is_required() {
+						if self.params.acceleration.is_required() {
 							return Err(e);
 						} else {
 							// Swallow
@@ -278,8 +317,8 @@ impl AprilTagDetector {
 			#[cfg(feature="wgpu")]
 			HardwareAccelerator::WebGPU(wgpu) => {
 				match wgpu.cluster(&self.params, tp, im_orig) {
-					Ok((quad_im, clusters)) => {
-						return Ok((quad_im, clusters));
+					Ok(res) => {
+						return Ok(res);
 					},
 					Err(e) => {
 						if self.params.acceleration.is_required() {
@@ -299,16 +338,18 @@ impl AprilTagDetector {
 
 		// CPU
 		let (quad_im, threshim) = self.preprocess_image(tp, im_orig)?;
-		let mut uf = connected_components(&self.params, &threshim);
+		let uf = connected_components(&self.params, &threshim);
 		tp.stamp("unionfind");
 
 		// make segmentation image.
 		#[cfg(feature="debug")]
-		debug_unionfind(&self.params, tp, threshim.dimensions(), &mut uf);
+		debug_unionfind(&self.params, tp, threshim.dimensions(), &uf);
 
 		let clusters = gradient_clusters(&self.params, &threshim.as_ref(), uf);
 
-		Ok((quad_im, clusters))
+		tp.stamp("gradient_clusters");
+
+		Ok((quad_im, clusters, None))
 	}
 
 	pub fn detect<Container: AsRef<[u8]>>(&self, im: &ImageBuffer<Luma<u8>, Container>) -> Result<Detections, DetectError> {
@@ -334,8 +375,12 @@ impl AprilTagDetector {
 	/// ### 3. Threshold
 	/// 
 	fn detect_inner(&self, im_orig: &ImageRefY8) -> Result<Detections, DetectError> {
-		if self.tag_families.len() == 0 {
+		if self.tag_families.is_empty() {
 			println!("AprilTag: No tag families enabled.");
+			return Ok(Detections::default());
+		}
+
+		if im_orig.width() < 8 || im_orig.height() < 8 {
 			return Ok(Detections::default());
 		}
 
@@ -343,14 +388,13 @@ impl AprilTagDetector {
 		let mut tp = TimeProfile::default();
 		tp.stamp("init");
 
-		let mut quads = {
-			let (quad_im, clusters) = self.segment_image(&mut tp, im_orig.as_ref())?;
+		let (mut quads, gpu_tp) = {
+			let (quad_im, clusters, gpu_tp) = self.segment_image(&mut tp, im_orig.as_ref())?;
 
-			quads_from_clusters(self, &mut tp, quad_im.as_ref(), clusters)
+			(quads_from_clusters(self, &mut tp, quad_im.as_ref(), clusters), gpu_tp)
 		};
 
-		#[cfg(feature="extra_debug")]
-		println!("Found {} quads", quads.len());
+		debugln!("Found {} quads", quads.len());
 
 		// adjust centers of pixels so that they correspond to the
 		// original full-resolution image.
@@ -416,8 +460,7 @@ impl AprilTagDetector {
 				dets
 			};
 
-			#[cfg(feature="extra_debug")]
-			println!("Found {} detections", detections.len());
+			debugln!("Found {} detections", detections.len());
 
 			#[cfg(feature="debug")]
 			if let Some(im_samples) = im_samples {
@@ -434,14 +477,15 @@ impl AprilTagDetector {
 		tp.stamp("decode+refinement");
 
 		#[cfg(feature="debug")]
-		if self.params.generate_debug_image() {
-			self.params.debug_image(debug_images::QUADS_FIXED, |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
-			#[cfg(feature="debug_ps")]
-			self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
-			tp.stamp("decode+refinement (output)");
+		{
+			if self.params.generate_debug_image() {
+				self.params.debug_image(debug_images::QUADS_FIXED, |f| debug::debug_quads_fixed(f, ImageY8::clone_packed(im_orig), &quads));
+				#[cfg(feature="debug_ps")]
+				self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
+				tp.stamp("decode+refinement (output)");
+			}
+			drop(quads);
 		}
-		#[cfg(feature="debug")]
-		drop(quads);
 
 		let mut detections = reconcile_detections(detections);
 
@@ -476,6 +520,7 @@ impl AprilTagDetector {
 
 		Ok(Detections {
 			tp,
+			gpu_tp,
 			nquads,
 			detections,
 		})

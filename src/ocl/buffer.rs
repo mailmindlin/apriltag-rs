@@ -266,7 +266,7 @@ impl<E: OclPrm> OclBufferState<E> {
 	pub(super) fn with_event(&self, event: OclEvent) -> Self {
 		Self {
 			buf: self.buf.clone(),
-			dims: self.dims.clone(),
+			dims: self.dims,
 			event: Some(event),
 		}
 	}

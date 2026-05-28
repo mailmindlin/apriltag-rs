@@ -81,8 +81,8 @@ pub struct apriltag_pose_t {
 impl TryFrom<AprilTagPose> for apriltag_pose_t {
     type Error = FFIConvertError;
     fn try_from(value: AprilTagPose) -> Result<Self, Self::Error> {
-        let R = matd_ptr::new(3, 3, value.R.data())?;
-        let t = matd_ptr::new(1, 3, &[value.t.0, value.t.1, value.t.2])?;
+        let R: matd_ptr = value.R.try_into()?;
+        let t: matd_ptr = value.t.try_into()?;
         Ok(Self { R, t })
     }
 }

@@ -103,7 +103,7 @@ impl Deref for DetectionRef {
 
 impl core::fmt::Debug for DetectionRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let v: &AprilTagDetection = &*self;
+        let v: &AprilTagDetection = self;
         f.debug_struct("Detection")
             .field("tag_family", &v.family.name)
             .field("tag_id", &v.id)
