@@ -440,6 +440,43 @@ impl Preprocessor for WGPUDetector {
 
 		#[cfg(feature="debug")]
 		debug_unionfind(config, tp, &uf_dims, &uf2);
+
+		#[cfg(feature = "wgpu_validate")]
+		{
+			use std::collections::HashMap;
+			use crate::quad_thresh::unionfind::connected_components;
+
+			let cpu_uf = connected_components(config, &threshim);
+			let mut gpu_to_cpu: HashMap<u32, u32> = HashMap::new();
+			let mut cpu_to_gpu: HashMap<u32, u32> = HashMap::new();
+			let mut max_gpu_hops: usize = 0;
+
+			for y in 0..(uf_dims.height as u32) {
+				for x in 0..(uf_dims.width as u32) {
+					let (g_rep, _) = uf2.get_set_static((x, y));
+					let (c_rep, _) = cpu_uf.get_set_static((x, y));
+
+					if let Some(&expected_cpu) = gpu_to_cpu.get(&g_rep) {
+						assert_eq!(expected_cpu, c_rep,
+							"GPU CCL partition mismatch at ({x},{y}): GPU component {g_rep} maps to CPU component {expected_cpu}, but this pixel has CPU component {c_rep}");
+					} else {
+						gpu_to_cpu.insert(g_rep, c_rep);
+					}
+
+					if let Some(&expected_gpu) = cpu_to_gpu.get(&c_rep) {
+						assert_eq!(expected_gpu, g_rep,
+							"GPU CCL partition mismatch at ({x},{y}): CPU component {c_rep} maps to GPU component {expected_gpu}, but this pixel has GPU component {g_rep}");
+					} else {
+						cpu_to_gpu.insert(c_rep, g_rep);
+					}
+
+					max_gpu_hops = max_gpu_hops.max(uf2.get_set_hops((x, y)));
+				}
+			}
+			assert!(max_gpu_hops <= 2,
+				"GPU CCL: union-find chain depth is {max_gpu_hops} (expected ≤ 2 after BKE compression)");
+		}
+
 		let clusters = gradient_clusters(config, &threshim.as_ref(), uf2);
 		Ok((quad_im, clusters, gpu_tp))
 	}
