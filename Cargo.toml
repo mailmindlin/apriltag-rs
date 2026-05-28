@@ -11,8 +11,7 @@ edition = "2021"
 
 [features]
 # Python FFI bindings
-python = ["dep:pyo3"]
-# python = ["dep:pyo3", "dep:parking_lot"]
+python = ["dep:pyo3", "dep:parking_lot"]
 # JNI FFI bindings
 jni = ["dep:jni"]
 # C FFI Bindings (we try to match libapriltag)
