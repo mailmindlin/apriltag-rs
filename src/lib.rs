@@ -2,10 +2,15 @@
     int_roundings,
     const_trait_impl,
     allocator_api,
+	maybe_uninit_array_assume_init,
+	array_try_from_fn,
+	array_try_map,
 )]
 #![cfg_attr(feature="cffi", feature(ptr_as_uninit))]
 #![allow(non_snake_case)]
+// #![allow(unused)]
 #![allow(clippy::collapsible_if)]
+// #![forbid(clippy::print_stdout)]
 
 pub mod families;
 mod detector;
@@ -43,8 +48,8 @@ pub use pose::{
 // Image types
 pub use util::Image;
 pub use util::image::{ImageBuffer, ImageRGB8, ImageWritePNM, Luma, ImageY8, Pixel};
-pub use util::math::{Vec2, Vec3, Mat33};
-pub use util::geom::{Point2D, quad::Quadrilateral};
+pub(crate) use util::math::Vec3;
+pub use util::math::Mat33;
 
 // Profiling
 pub use dbg::{TimeProfile, TimeProfileStatistics};
