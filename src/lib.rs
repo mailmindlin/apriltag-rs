@@ -1,11 +1,10 @@
 #![feature(
-    int_roundings,
-    const_trait_impl,
-    allocator_api,
-    ptr_as_uninit,
-	maybe_uninit_array_assume_init,
 	array_try_from_fn,
 	array_try_map,
+	maybe_uninit_array_assume_init,
+    allocator_api,
+    const_trait_impl,
+    int_roundings,
 )]
 #![cfg_attr(feature="cffi", feature(ptr_as_uninit))]
 #![allow(non_snake_case)]
