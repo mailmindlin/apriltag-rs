@@ -177,7 +177,7 @@ impl Mat33 {
                 (sh, ch)
             };
             let w = f64::hypot(ch, sh);
-            (ch * w, sh * w)
+            (ch / w, sh / w)
         }
 
         let [b11, b12, b13, b21, b22, b23, b31, b32, b33] = self.0;
@@ -265,7 +265,7 @@ impl Mat33 {
                 // Given givens angle computed by approximateGivensAngles,
                 // compute the corresponding rotation quaternion.
                 let ch = 2. * (s.0[0] - s.0[4]);
-                let sh = s.0[5];
+                let sh = s.0[3];
                 let b = GAMMA * sh * sh < ch * ch;
                 // fast rsqrt function suffices
                 // rsqrt2 (https://code.google.com/p/lppython/source/browse/algorithm/HDcode/newCode/rsqrt.c?r=26)
