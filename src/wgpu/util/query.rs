@@ -24,7 +24,7 @@ impl GpuTimestampInner {
 			buffer: ctx.temp_buffer1_usage(
 				num_queries,
 				wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-				Some("timestamp query")
+				"timestamp query"
 			)?,
 			num_queries,
 			names: vec![],

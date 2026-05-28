@@ -260,8 +260,8 @@ impl GpuStage for GpuThreshim {
 
 		let tw = src.width() / TILESZ;
 		let th = src.height() / TILESZ;
-		let tiles0 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, Some("minmax_tiles"));
-		let tiles1 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, Some("blur_tiles"));
+		let tiles0 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, "minmax_tiles");
+		let tiles1 = ctx.context.temp_texture::<[u8; 2]>(tw, th, true, "blur_tiles");
 
 		ctx.cpass.set_bind_group(0, &self.const_bg, &[]);
 

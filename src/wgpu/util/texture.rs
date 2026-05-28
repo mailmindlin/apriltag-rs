@@ -29,7 +29,7 @@ pub(crate) struct GpuTexture<P: GpuPixel> {
 pub(crate) type GpuTextureY8 = GpuTexture<Luma<u8>>;
 
 impl<P: GpuPixel> GpuTexture<P> {
-    pub(crate) fn new(buffer: wgpu::Texture) -> Self {
+    pub(crate) fn new(buffer: wgpu::Texture, label: &'static str) -> Self {
         debug_assert_eq!(P::GPU_FORMAT, buffer.format(), "Format mismatch");
 
         Self {

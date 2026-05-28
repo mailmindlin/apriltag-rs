@@ -80,7 +80,7 @@ async fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -
     tp.stamp("Start");
     println!("A");
 
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_quad_decimate")
         .unwrap();
     tp.stamp("Upload");
     println!("B");
@@ -103,7 +103,7 @@ async fn gpu_quad_decimate(quad_decimate: QuadDecimateMode, src_cpu: &ImageY8) -
             next_align: size_of::<u32>(),
             queries: &mut queries,
             cpass,
-            stage_name: Some("quad_decimate"),
+            stage_name: "quad_decimate",
         };
         ctx.tp.stamp("Kernel0");
         let dst_gpu = quad_decimate.apply(&mut ctx, &src_gpu, &mut quad_decimate_data)
@@ -203,7 +203,7 @@ fn gpu_quad_sigma(quad_sigma: f32, src_cpu: ImageRefY8) -> ImageY8 {
 
     let mut tp = TimeProfile::default();
     // let src_gpu_align = gpu.quad_sigma.as_ref().unwrap().src_alignment();
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src")
         .unwrap();
 
     // Decimate on GPU
@@ -223,7 +223,7 @@ fn gpu_quad_sigma(quad_sigma: f32, src_cpu: ImageRefY8) -> ImageY8 {
             next_align: size_of::<u32>(),
             cpass,
             queries: &mut queries,
-            stage_name: Some("quad_sigma"),
+            stage_name: "quad_sigma",
         };
         ctx.tp.stamp("Kernel0");
         let dst_gpu = quad_sigma.apply(&mut ctx, &src_gpu, &mut quad_sigma_data)
@@ -310,7 +310,7 @@ fn gpu_threshim(src_cpu: &ImageY8) -> ImageY8 {
     let mut tp = TimeProfile::default();
     tp.stamp("Start");
 
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref()).unwrap();
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src").unwrap();
     tp.stamp("Upload");
 
     let (cmd_buf, mut dst_gpu) = {
@@ -327,7 +327,7 @@ fn gpu_threshim(src_cpu: &ImageY8) -> ImageY8 {
             next_align: size_of::<u32>(),
             queries: &mut queries,
             cpass,
-            stage_name: Some("threshim"),
+            stage_name: "threshim",
         };
         let dst_gpu = gpu.threshim.apply(&mut ctx, &src_gpu, &mut threshim_data)
             .unwrap()
@@ -393,7 +393,7 @@ fn gpu_bke(src_cpu: &ImageY8) -> (Box<[u32]>, usize, usize) {
     tp.stamp("Start");
 
     // First threshold the image (BKE operates on thresholded images)
-    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref()).unwrap();
+    let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_bke").unwrap();
 
     let (cmd_buf, mut dst_gpu, uf_width, uf_height) = {
         let mut queries = gpu.context.make_queries(8);
@@ -410,7 +410,7 @@ fn gpu_bke(src_cpu: &ImageY8) -> (Box<[u32]>, usize, usize) {
             next_align: size_of::<u32>(),
             queries: &mut queries,
             cpass,
-            stage_name: Some("threshim"),
+            stage_name: "threshim",
         };
         let threshim_gpu = gpu.threshim.apply(&mut ctx, &src_gpu, &mut threshim_data)
             .unwrap()
@@ -419,7 +419,7 @@ fn gpu_bke(src_cpu: &ImageY8) -> (Box<[u32]>, usize, usize) {
         let uf_width = threshim_gpu.width();
         let uf_height = threshim_gpu.height();
 
-        ctx.stage_name = Some("bke");
+        ctx.stage_name = "bke";
         let uf_gpu = gpu.unionfind.apply(&mut ctx, &threshim_gpu, &mut bke_data)
             .unwrap();
         drop(ctx);
@@ -506,7 +506,7 @@ fn bench_both() {
         tp = TimeProfile::default();
         tp.stamp("Start");
 
-        let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref())
+        let src_gpu = gpu.upload_texture(false, &src_cpu.as_ref(), "src_gpu_bench")
             .unwrap();
         tp.stamp("Upload");
 
@@ -530,14 +530,14 @@ fn bench_both() {
                 next_align: size_of::<u32>(),
                 queries: &mut queries,
                 cpass,
-                stage_name: Some("quad_decimate"),
+                stage_name: "quad_decimate",
             };
             let dst_gpu1 = quad_decimate.apply(&mut ctx, &src_gpu, &mut quad_decimate_data)
                 .unwrap();
-            ctx.stage_name = Some("quad_decimate");
+            ctx.stage_name = "quad_decimate";
             let dst_gpu2 = quad_sigma.apply(&mut ctx, &dst_gpu1, &mut quad_sigma_data)
                 .unwrap();
-            ctx.stage_name = Some("threshold");
+            ctx.stage_name = "threshold";
             let dst_gpu3 = gpu.threshim.apply(&mut ctx, &dst_gpu2, &mut threshim_data)
                 .unwrap()
                 .threshim;

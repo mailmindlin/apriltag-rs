@@ -137,15 +137,15 @@ impl GpuContext {
 		}
     }
 
-	pub(super) fn temp_buffer1<E>(&self, length: usize, read: bool, label: Option<&'static str>) -> Result<GpuBuffer1<E>, WgpuDetectError> {
+	pub(super) fn temp_buffer1<E>(&self, length: usize, read: bool, label: &'static str) -> Result<GpuBuffer1<E>, WgpuDetectError> {
 		let usage  = self.buffer_usage(read);
 
 		self.temp_buffer1_usage(length, usage, label)
 	}
 
-	fn temp_buffer1_usage<E>(&self, length: usize, usage: BufferUsages, label: Option<&'static str>) -> Result<GpuBuffer1<E>, WgpuDetectError> {
+	fn temp_buffer1_usage<E>(&self, length: usize, usage: BufferUsages, label: &'static str) -> Result<GpuBuffer1<E>, WgpuDetectError> {
 		let buffer = self.device.create_buffer(&BufferDescriptor {
-			label,
+			label: Some(label),
 			size: (length * std::mem::size_of::<E>()) as u64,
 			usage,
 			mapped_at_creation: false,
@@ -153,7 +153,7 @@ impl GpuContext {
 		Ok(GpuBuffer1::new(buffer, length))
 	}
 
-    pub(super) fn temp_buffer2<P>(&self, width: usize, height: usize, align: usize, read: bool, label: Option<&'static str>) -> Result<GpuBuffer2<P>, WgpuDetectError> {
+    pub(super) fn temp_buffer2<P>(&self, width: usize, height: usize, align: usize, read: bool, label: &'static str) -> Result<GpuBuffer2<P>, WgpuDetectError> {
 		let usage  = self.buffer_usage(read);
 
 		debug_assert_ne!(align, 0);
@@ -166,7 +166,7 @@ impl GpuContext {
 			stride: (width * size_of::<P>()).next_multiple_of(align),
 		};
 		let buffer = self.device.create_buffer(&BufferDescriptor {
-			label,
+			label: Some(label),
 			size: (dims.stride * height) as u64,
 			usage,
 			mapped_at_creation: false,
@@ -174,7 +174,7 @@ impl GpuContext {
 		Ok(GpuBuffer2::new(dims, buffer))
 	}
 
-	pub(super) fn temp_texture<P: GpuPixel>(&self, width: usize, height: usize, read: bool, label: Option<&'static str>) -> GpuTexture<P> {
+	pub(super) fn temp_texture<P: GpuPixel>(&self, width: usize, height: usize, read: bool, label: &'static str) -> GpuTexture<P> {
 		let usage  = if read {
 			TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC
 		} else {
@@ -184,7 +184,7 @@ impl GpuContext {
 		let format = <P as GpuPixel>::GPU_FORMAT;
 
 		let tex = self.device.create_texture(&TextureDescriptor {
-			label,
+			label: Some(label),
 			size: wgpu::Extent3d { width: width as u32, height: height as u32, depth_or_array_layers: 1 },
 			mip_level_count: 1,
 			sample_count: 1,
@@ -193,14 +193,14 @@ impl GpuContext {
 			usage,
 			view_formats: &[format],
 		});
-		let res = GpuTexture::new(tex);
+		let res = GpuTexture::new(tex, label);
 		debug_assert_eq!(res.width(), width);
 		debug_assert_eq!(res.height(), height);
 		res
 	}
 
 	/// Upload a CPU image to GPU as a texture
-	pub(super) fn upload_texture(&self, downloadable: bool, image: &ImageRefY8) -> Result<GpuTextureY8, ImageDimensionError> {
+	pub(super) fn upload_texture(&self, downloadable: bool, image: &ImageRefY8, label: &'static str) -> Result<GpuTextureY8, ImageDimensionError> {
 		let usage = if downloadable {
 			TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST
 		} else {
@@ -216,7 +216,7 @@ impl GpuContext {
 		};
 
 		let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-			label: None,
+			label: Some(label),
 			size,
 			mip_level_count: 1,
 			sample_count: 1,
@@ -238,7 +238,7 @@ impl GpuContext {
 			size
 		);
 
-		let res = GpuTexture::new(tex);
+		let res = GpuTexture::new(tex, label);
 		debug_assert_eq!(res.width(), image.width());
 		debug_assert_eq!(res.height(), image.height());
 

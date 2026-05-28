@@ -13,6 +13,7 @@ mod error;
 use futures::executor::block_on;
 use futures::future::{join, join4, try_join4};
 use wgpu::util::DeviceExt;
+use wgpu::wgc::api::Metal;
 use wgpu::{BufferUsages, ComputePass};
 
 use self::util::debug::{DebugTargets, DebugImageGenerator};
@@ -28,7 +29,7 @@ use self::stage1_img::GpuQuadDecimate;
 use self::stage2_img::GpuQuadSigma;
 use self::stage3::GpuThreshim;
 use self::stage4_bke::GpuBke;
-use self::util::{GpuPixel, GpuTexture, GpuBuffer2, GpuTextureY8, GpuImageDownload, GpuStage, GpuBuffer1, GpuBufferFetch, GpuImageLike, GpuTimestampQueries, GpuContext};
+use self::util::{DataStore, GpuBuffer1, GpuBuffer2, GpuBufferFetch, GpuContext, GpuImageDownload, GpuImageLike, GpuPixel, GpuStage, GpuTexture, GpuTextureY8, GpuTimestampQueries};
 pub use self::error::{WgpuDetectError, WgpuBuildError};
 
 struct GpuStageContext<'params, 'pass> {
@@ -38,7 +39,7 @@ struct GpuStageContext<'params, 'pass> {
 	pub(super) next_read: bool,
 	pub(super) next_align: usize,
 	pub(super) cpass: ComputePass<'pass>,
-	pub(super) stage_name: Option<&'static str>,
+	pub(super) stage_name: &'static str,
 	pub(super) queries: &'params mut GpuTimestampQueries,
 }
 
@@ -57,7 +58,7 @@ impl<'params, 'pass> GpuStageContext<'params, 'pass> {
 	}
 
 	/// Create intermediate (temporary) 2D GPU buffer
-	fn tmp_buffer2<P>(&self, width: usize, height: usize, align: usize, label: Option<&'static str>) -> Result<GpuBuffer2<P>, WgpuDetectError> {
+	fn tmp_buffer2<P>(&self, width: usize, height: usize, align: usize, label: &'static str) -> Result<GpuBuffer2<P>, WgpuDetectError> {
 		self.context.temp_buffer2(width, height, align, false, label)
 	}
 
@@ -134,8 +135,8 @@ impl WGPUDetector {
 	}
 
 	/// Upload source image to GPU
-	fn upload_texture(&self, downloadable: bool, image: &ImageRefY8) -> Result<GpuTextureY8, ImageDimensionError> {
-		self.context.upload_texture(downloadable, image)
+	fn upload_texture(&self, downloadable: bool, image: &ImageRefY8, label: &'static str) -> Result<GpuTextureY8, ImageDimensionError> {
+		self.context.upload_texture(downloadable, image, label)
 	}
 
 	/// Upload source image to GPU
@@ -161,7 +162,7 @@ impl WGPUDetector {
 			next_align: 4,
 			next_read: downloads.download_decimate,
 			queries,
-			stage_name: Some("quad_decimate"),
+			stage_name: "quad_decimate",
 		};
 
 		let gpu_last = match &self.quad_decimate {
@@ -205,7 +206,7 @@ impl WGPUDetector {
 			next_align: 4,
 			cpass,
 			queries,
-			stage_name: Some("UnionFind"),
+			stage_name: "UnionFind",
 		};
 
 		let gpu_uf = self.unionfind.apply(&mut ctx, &gpu_threshim, &mut data_unionfind)
@@ -222,7 +223,7 @@ impl Preprocessor for WGPUDetector {
 		let mut debug = DebugImageGenerator::new(config.generate_debug_image());
 
 		// Upload source image to GPU
-		let gpu_src = self.upload_texture(downloads.download_src, &image.as_ref())
+		let gpu_src = self.upload_texture(downloads.download_src, &image.as_ref(), "preprocess_src")
 			.map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
@@ -275,7 +276,7 @@ impl Preprocessor for WGPUDetector {
 		#[cfg(feature = "wgpu_validate")]
 		{
 			let cpu_src = block_on(gpu_src.download_image(&self.context)).unwrap();
-			assert_eq!(image.as_ref(), cpu_src.as_ref());
+			assert_eq!(image.as_ref(), cpu_src.as_ref(), "GPU source upload/download round-trip mismatch");
 			drop(cpu_src);
 		}
 
@@ -384,8 +385,7 @@ impl Preprocessor for WGPUDetector {
 					// 	return (index, self.0[index as usize * 2 + 1]);
 					// }
 					if parent == index {
-						// return (index, self.0[index as usize * 2 + 1]);
-						return (index, 10);
+						return (index, self.0[index as usize * 2 + 1]);
 					}
 					index = parent;
 				}
