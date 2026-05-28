@@ -2,6 +2,8 @@
 
 A pure Rust implementation of [AprilTag](https://april.eecs.umich.edu/software/apriltag), a visual fiducial system for robotics, augmented reality, and camera calibration. This library detects AprilTag markers in images and estimates their 3D pose.
 
+This package tries to be generally compatible with [libapriltag](https://github.com/AprilRobotics/apriltag).
+
 ## Features
 
 - **Pure Rust** — no C dependencies required (though C FFI bindings are available)
@@ -11,9 +13,11 @@ A pure Rust implementation of [AprilTag](https://april.eecs.umich.edu/software/a
 - **Language bindings** — Python, C, and Java (JNI) FFI support
 - **Parallel processing** — uses [Rayon](https://github.com/rayon-rs/rayon) for multithreaded detection
 
-## Installation
-
-Add to your `Cargo.toml`:
+This package isn't (yet) on crates.io, but you can use it yourself with a git reference in `Cargo.toml`:
+```
+[dependencies]
+apriltag_rs = { git = "https://github.com/mailmindlin/apriltag-rs" }
+```
 
 ```toml
 [dependencies]

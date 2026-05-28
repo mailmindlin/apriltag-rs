@@ -28,9 +28,17 @@ use std::sync::Arc;
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{Detections, dbg::{TimeProfile, debugln}, detection::reconcile_detections, quad_decode::QuadDecodeInfo, quad_thresh::{Clusters, gradient_clusters, quads_from_clusters, unionfind::connected_components}, quickdecode::QuickDecode, util::{ImageBuffer, image::{ImageRefY8, ImageWritePNM, ImageY8, Luma, Pixel}, math::{Vec2, Vec2Builder}}};
+use crate::{
+	Detections,
+	dbg::{TimeProfile, debugln},
+	detection::reconcile_detections,
+	quad_decode::QuadDecodeInfo,
+	quickdecode::QuickDecode,
+	util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer},
+	quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters},
+};
 #[cfg(feature="debug")]
-use crate::{quad_thresh::debug_unionfind, dbg::debug_images};
+use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 #[cfg(feature="wgpu")]
 use crate::wgpu::WGPUDetector;
 

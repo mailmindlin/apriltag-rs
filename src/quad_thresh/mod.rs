@@ -4,18 +4,22 @@ mod quadfit;
 mod grad_cluster;
 pub(super) mod threshold;
 pub(super) use grad_cluster::{gradient_clusters, Clusters};
-#[cfg(feature="debug")]
-use std::fs::File;
-use std::f64::consts as f64c;
+use std::{f64::consts as f64c};
 
-use crate::{DetectorConfig, dbg::{TimeProfile, debugln}, detector::AprilTagDetector, quad_decode::Quad, util::{color::RandomColor, image::{ImageBuffer, ImageDimensions, ImageRefY8, ImageWritePNM, ImageY8, Rgb}, mem::calloc}};
-#[cfg(feature="debug")]
-use crate::dbg::debug_images;
+use crate::{
+	DetectorConfig,
+	detector::AprilTagDetector,
+	quad_decode::Quad,
+	dbg::{TimeProfile, debugln},
+	util::{color::RandomColor, image::{ImageBuffer, ImageDimensions, ImageRefY8, ImageWritePNM, ImageY8, Rgb}, mem::calloc},
+};
 
 use self::{unionfind::connected_components, quadfit::fit_quads};
 
 #[cfg(feature="debug")]
-use self::unionfind::UnionFindStatic;
+use std::fs::File;
+#[cfg(feature="debug")]
+use self::{unionfind::UnionFindStatic, dbg::debug_images};
 
 /// Minimum size for blobs
 const MIN_CLUSTER_SIZE: usize = 24;

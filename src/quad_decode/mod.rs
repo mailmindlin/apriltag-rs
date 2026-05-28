@@ -154,7 +154,7 @@ impl Quad {
     /// coordinates are given in bit coordinates. ([0, fam.d]).
     ///
     /// { initial x, initial y, delta x, delta y, WHITE=1 }
-    fn sample_threshold(H: &Mat33, family: &AprilTagFamily, im: &ImageRefY8, im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
+    fn sample_threshold(H: &Mat33, family: &AprilTagFamily, im: &ImageRefY8, #[cfg_attr(not(feature="debug"), expect(unused))] im_samples: Option<&Mutex<ImageY8>>) -> (SolvedGraymodel, SolvedGraymodel) {
         struct Pattern {
             initial: Vec2,
             delta: Vec2,
