@@ -153,6 +153,7 @@ fn make_accelerator(params: &DetectorConfig) -> Result<HardwareAccelerator, Dete
 		return Ok(HardwareAccelerator::None);
 	}
 
+	#[cfg_attr(not(any(feature="wgpu", feature="opencl")), expect(unused_mut))]
 	let mut gpu_err = None;
 
 	// Try using WGPU
@@ -454,6 +455,7 @@ impl AprilTagDetector {
 				let quad_iter = quads.into_iter();
 				let mut dets = Vec::new();
 
+				#[cfg_attr(feature="debug", expect(unused_mut))]
 				for mut quad in quad_iter {
 					dets.extend(quad.decode_task(info));
 				}
