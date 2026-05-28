@@ -8,10 +8,8 @@
 // Because v_max is stored inverted (255 - v_max), a single min() operation
 // on both channels simultaneously tightens the min and widens the max.
 
-// Input: tile min/max from step 03a
-@group(1) @binding(1) var img_tiles0 : texture_2d<u32>;
-// Output: blurred tile min/max
-@group(1) @binding(2) var img_tiles1 : texture_storage_2d<rg8uint, write>;
+@group(1) @binding(1) var img_tiles0 : texture_2d<u32>;                    // Input: tile min/max from step 03a
+@group(1) @binding(2) var img_tiles1 : texture_storage_2d<rg8uint, write>; // Output: blurred tile min/max
 
 /// Saturating subtraction: returns max(x - y, 0)
 fn sub_sat(x: u32, y: u32) -> u32 {
