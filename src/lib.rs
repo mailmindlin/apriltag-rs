@@ -1,6 +1,5 @@
 #![feature(
     int_roundings,
-    new_uninit,
     // unwrap_infallible,
     // vec_into_raw_parts,
     const_trait_impl,
