@@ -327,4 +327,29 @@ mod test {
 		let result = qd.decode_codeword(code ^ 1).unwrap();
 		assert_eq!(result, QuickDecodeResult { id: 0, hamming: 1, rotation: Rotation::Identity });
 	}
+
+	#[test]
+	fn decode_all_tag25h9() {
+		let family = AprilTagFamily::for_name("tag25h9").unwrap();
+		let nbits = family.bits.len() as u64;
+		let qd = QuickDecode::new(family.clone(), 3).unwrap();
+		for (id, code) in family.codes.iter().copied().enumerate() {
+			let id = id as u16;
+			// Exact match
+			assert_eq!(qd.decode_codeword(code), Some(QuickDecodeResult { id, hamming: 0, rotation: Rotation::Identity }));
+
+			for i in 0..nbits {
+				let code_1 = code ^ (1 << i);
+				assert_eq!(qd.decode_codeword(code_1), Some(QuickDecodeResult { id, hamming: 1, rotation: Rotation::Identity }));
+				for j in (i+1)..nbits {
+					let code_2 = code_1 ^ (1 << j);
+					assert_eq!(qd.decode_codeword(code_2), Some(QuickDecodeResult { id, hamming: 2, rotation: Rotation::Identity }));
+					for k in (j+1)..nbits {
+						let code_3 = code_2 ^ (1 << k);
+						assert_eq!(qd.decode_codeword(code_3), Some(QuickDecodeResult { id, hamming: 3, rotation: Rotation::Identity }));
+					}
+				}
+			}
+		}
+	}
 }
