@@ -219,8 +219,10 @@ pub(super) async fn request_device(adapter: wgpu::Adapter, config: &DetectorConf
         if config.debug() || cfg!(feature="bench") {
             request_features |= Features::TIMESTAMP_QUERY
                 | Features::TIMESTAMP_QUERY_INSIDE_PASSES
-                | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
-                | Features::PIPELINE_STATISTICS_QUERY;
+                | Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+            // NOTE: PIPELINE_STATISTICS_QUERY intentionally excluded — never used.
+            // NOTE: TIMESTAMP_QUERY_INSIDE_PASSES is still included so we can test
+            // whether it's the cause of kIOGPUCommandBufferCallbackErrorOutOfMemory.
         }
 
         // Enable MAPPABLE_PRIMARY_BUFFERS for iGPUs

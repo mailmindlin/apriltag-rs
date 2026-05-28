@@ -165,21 +165,25 @@ impl WGPUDetector {
 			stage_name: "quad_decimate",
 		};
 
-		let gpu_last = match &self.quad_decimate {
-			None => gpu_last,
-			Some(qd) =>
-				qd.apply(&mut ctx, &gpu_last, &mut quad_decimate_bg)
-					.expect("Error in quad_decimate"),
-		};
+		/// Apply a [GpuStage] if present
+		fn opt_stage<'s: 'c, 'c, S: GpuStage<Source = D, Output = D>, D>(stage: &'s Option<S>, gpu_last: D, ctx: &mut GpuStageContext<'_, 'c>, temp: &'s mut DataStore<S::Data>) -> Result<D, WgpuDetectError> {
+			match stage.as_ref() {
+				Some(stage) => stage.apply(ctx, &gpu_last, temp),
+				// Identity
+				None => Ok(gpu_last),
+			}
+		}
+
+		let gpu_last = opt_stage(&self.quad_decimate, gpu_last, &mut ctx, &mut quad_decimate_bg)
+			.expect("Error in quad_decimate");
+
 		#[cfg(feature="debug")]
 		debug.register(&gpu_last, debug_images::DECIMATE);
 
 		ctx.next_read = downloads.download_sigma;
-		let gpu_last = match &self.quad_sigma {
-			None => gpu_last,
-			Some(qd) => qd.apply(&mut ctx, &gpu_last, &mut quad_sigma_bg)
-				.expect("quad_simga"),
-		};
+		let gpu_last = opt_stage(&self.quad_sigma, gpu_last, &mut ctx, &mut quad_sigma_bg)
+			.expect("Error in quad_simga");
+
 		#[cfg(feature="debug")]
 		debug.register(&gpu_last, debug_images::PREPROCESS);
 
@@ -269,8 +273,11 @@ impl Preprocessor for WGPUDetector {
 
 		let mut debug = DebugImageGenerator::new(config.generate_debug_image());
 
-		let gpu_src = self.upload_texture(downloads.download_src, &image.as_ref())
-			.map_err(DetectError::BadSourceImageDimensions)?;
+		let gpu_src = self.upload_texture(
+			downloads.download_src || cfg!(feature = "wgpu_validate"),
+			&image.as_ref(),
+			"cluster_src"
+		).map_err(DetectError::BadSourceImageDimensions)?;
 
 		// Check that our image wasn't modified
 		#[cfg(feature = "wgpu_validate")]
@@ -284,22 +291,26 @@ impl Preprocessor for WGPUDetector {
 		// config.debug_image(debug_images::SOURCE, |mut f| self.debug_image(&mut f, &gpu_src));
 
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-		let mut queries = self.context.make_queries(32);
+		let mut queries = self.context.make_queries(4);
 
+		queries.write_timestamp(&mut encoder, "preprocess->start".into());
 		let (gpu_quad, gpu_threshim) = {
 			let cpass = encoder.begin_compute_pass(&queries.make_cpd("apriltag preprocess"));
 			self.apply_preprocess(config, tp, gpu_src, &mut debug, cpass, &mut queries)?
 		};
+		queries.write_timestamp(&mut encoder, "preprocess->end".into());
 		let uf_dims = ImageDimensions {
 			width: gpu_threshim.width() as _,
 			height: gpu_threshim.height() as _,
 			stride: 0,
 		};
 		tp.stamp("GPU submit preprocess");
+		queries.write_timestamp(&mut encoder, "CCL->start".into());
 		let gpu_uf = {
 			let cpass = encoder.begin_compute_pass(&queries.make_cpd("apriltag CCL"));
 			self.apply_ccl(config, tp, &mut debug, gpu_threshim.clone(), cpass, &mut queries)?
 		};
+		queries.write_timestamp(&mut encoder, "CCL->end".into());
 		queries.resolve(&mut encoder);
 
 		self.context.submit([encoder.finish()]);
@@ -329,6 +340,22 @@ impl Preprocessor for WGPUDetector {
 		}
 		let (quad_im, threshim, unionfind, gpu_tp) = block_on(download_results(&self.context, gpu_quad, gpu_threshim, gpu_uf, queries))?;
 		tp.stamp("GPU fetch results");
+
+		#[cfg(feature = "wgpu_validate")]
+		{
+			use crate::quad_thresh::threshold::threshold;
+
+			// Compare GPU threshim against CPU reference applied to the same (GPU-decimated+sigma) image.
+			let cpu_threshim = threshold(config, &mut TimeProfile::default(), quad_im.as_ref()).unwrap();
+			assert_eq!(cpu_threshim.as_ref(), threshim.as_ref(),
+				"GPU threshim does not match CPU reference (threshold stage bug)");
+
+			// Assert the CCL count pass ran: if every size field is 0 the count
+			// shader was never dispatched (incomplete CCL implementation).
+			let all_zero_sizes = unionfind.chunks_exact(2).all(|c| c[1] == 0);
+			assert!(!all_zero_sizes,
+				"GPU CCL: all component sizes are 0 — count pass is not running (dispatch_count is commented out)");
+		}
 		
 		if debug_enabled() {
 			debugln!("Uf width: {}", uf_dims.width);
