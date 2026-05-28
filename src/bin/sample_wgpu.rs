@@ -9,7 +9,7 @@ async fn run() {
 	let adapter = inst.request_adapter(&opts).await
 		.unwrap();
 	println!("{adapter:?} {:?} {:?}", adapter.features(), adapter.get_info());
-	let (device, queue) = adapter
+	let (device, _queue) = adapter
 		.request_device(
 			&wgpu::DeviceDescriptor {
 				label: None,
