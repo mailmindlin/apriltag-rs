@@ -2,7 +2,6 @@
     int_roundings,
     const_trait_impl,
     allocator_api,
-    maybe_uninit_slice,
     ptr_as_uninit,
 	maybe_uninit_array_assume_init,
 	array_try_from_fn,
