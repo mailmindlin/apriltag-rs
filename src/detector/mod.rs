@@ -11,7 +11,9 @@ use std::sync::{Mutex, Arc};
 
 use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
-use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, debug_unionfind, quads_from_clusters}, dbg::{TimeProfile, debug_images}, Detections, detection::reconcile_detections};
+use crate::{util::{math::{Vec2, Vec2Builder}, image::{ImageWritePNM, Pixel, ImageY8, ImageRefY8, Luma}, ImageBuffer}, quickdecode::QuickDecode, quad_decode::QuadDecodeInfo, quad_thresh::{unionfind::connected_components, Clusters, gradient_clusters, quads_from_clusters}, dbg::TimeProfile, Detections, detection::reconcile_detections};
+#[cfg(feature="debug")]
+use crate::{dbg::debug_images, quad_thresh::debug_unionfind};
 #[cfg(feature="wgpu")]
 use crate::wgpu::WGPUDetector;
 
@@ -408,7 +410,7 @@ impl AprilTagDetector {
 				let quad_iter = quads.into_iter();
 				let mut dets = Vec::new();
 
-				for quad in quad_iter {
+				for mut quad in quad_iter {
 					dets.extend(quad.decode_task(info));
 				}
 				dets
@@ -438,6 +440,7 @@ impl AprilTagDetector {
 			self.params.debug_image(debug_images::QUADS_PS, |f| debug::debug_quads_ps(f, ImageY8::clone_packed(im_orig), &quads));
 			tp.stamp("decode+refinement (output)");
 		}
+		#[cfg(feature="debug")]
 		drop(quads);
 
 		let mut detections = reconcile_detections(detections);

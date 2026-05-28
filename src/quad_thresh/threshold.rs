@@ -1,6 +1,8 @@
 use arrayvec::ArrayVec;
 
-use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::{TimeProfile, debug_images}, DetectorConfig, DetectError};
+use crate::{util::{Image, mem::calloc, image::{Luma, ImageBuffer, ImageY8, Pixel, ImageRefY8, ImageRef, ImageWritePNM}}, dbg::TimeProfile, DetectorConfig, DetectError};
+#[cfg(feature="debug")]
+use crate::dbg::debug_images;
 
 use super::AprilTagQuadThreshParams;
 
