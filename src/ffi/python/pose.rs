@@ -88,7 +88,7 @@ impl PoseEstimator {
 #[pymethods]
 impl OrthogonalIterationResult {
 	fn __len__(&self) -> usize {
-		if self.solution2.is_some() { 2 } else { 1 }
+		if self.solution2.is_ok() { 2 } else { 1 }
 	}
 
 	//TODO: iter
