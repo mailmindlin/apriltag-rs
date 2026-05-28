@@ -96,6 +96,16 @@ impl OrthogonalIterationResult {
 	fn __repr__(&self) -> String {
 		format!("{self:?}")
 	}
+
+	#[getter]
+	fn solution1(&self) -> AprilTagPoseWithError {
+		self.solution1
+	}
+
+	#[getter]
+	fn solution2(&self) -> Option<AprilTagPoseWithError> {
+		self.solution2.ok()
+	}
 }
 
 #[pymethods]

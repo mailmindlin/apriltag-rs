@@ -473,7 +473,7 @@ pub fn estimate_pose_for_tag_homography(detection: &AprilTagDetection, params: &
 	AprilTagPose { R, t }
 }
 
-#[cfg_attr(feature="python", pyo3::pyclass(frozen, get_all, module="apriltag_rs", skip_from_py_object))]
+#[cfg_attr(feature="python", pyo3::pyclass(frozen, module="apriltag_rs", skip_from_py_object))]
 #[derive(Copy, Clone, Debug)]
 pub struct OrthogonalIterationResult {
 	/// Best pose solution
