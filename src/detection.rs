@@ -1,6 +1,6 @@
 use std::{sync::Arc, cmp::Ordering};
 
-use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, quad::Quadrilateral}, math::Mat33}, TimeProfile};
+use crate::{AprilTagFamily, util::{geom::{Poly2D, Point2D, Quadrilateral}, math::Mat33}, TimeProfile};
 
 /// Represents the detection of a tag.
 #[derive(Debug, Clone, PartialEq)]

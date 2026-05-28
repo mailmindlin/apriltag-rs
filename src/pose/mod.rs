@@ -1,8 +1,8 @@
 mod homography;
 
-use std::{iter::Sum, mem::MaybeUninit, ops::{Add, AddAssign, DivAssign, Mul, MulAssign, Sub}};
+use std::{iter::Sum, mem::MaybeUninit, ops::{Add, AddAssign, Mul, MulAssign, Sub}};
 
-use crate::{AprilTagDetection, util::math::{Vec3, mat::Mat33, matrix_op, TransposedMatmul, MatmulTranspose, Matmul2, poly::Poly}};
+use crate::{AprilTagDetection, util::math::{Vec3, mat::Mat33, matrix_op, TransposedMatmul, poly::Poly}};
 
 use self::homography::homography_to_pose;
 

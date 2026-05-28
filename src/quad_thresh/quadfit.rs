@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use arrayvec::ArrayVec;
 use rayon::prelude::*;
 
-use crate::{AprilTagDetector, dbg::debugln, quad_decode::Quad, quad_thresh::{MIN_CLUSTER_SIZE, linefit::fit_line_error}, util::{geom::{Point2D, quad::Quadrilateral}, image::ImageRefY8, mem::calloc}};
+use crate::{AprilTagDetector, dbg::debugln, quad_decode::Quad, quad_thresh::{MIN_CLUSTER_SIZE, linefit::fit_line_error}, util::{geom::{Point2D, Quadrilateral}, image::ImageRefY8, mem::calloc}};
 
 use super::{linefit::{Pt, LineFitPoint, fit_line, ptsort, self}, AprilTagQuadThreshParams, grad_cluster::{Clusters, ClusterId}};
 

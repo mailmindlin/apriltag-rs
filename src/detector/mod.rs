@@ -429,7 +429,7 @@ impl AprilTagDetector {
 		// Step 2. Decode tags from each quad.
 		let detections = if true {
 			#[cfg(feature="debug")]
-			let im_samples = if self.params.generate_debug_image() { Some(Mutex::new(ImageY8::clone_packed(im_orig))) } else { None };
+			let im_samples = if self.params.generate_debug_image() { Some(std::sync::Mutex::new(ImageY8::clone_packed(im_orig))) } else { None };
 			
 			let info = QuadDecodeInfo {
 				det_params: &self.params,

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::util::mem::calloc;
 
-use super::{IdentityLike, Mat, MatLike, Matmul};
+use super::{Mat, MatLike, Matmul};
 
 pub(crate) struct MatSVD<M: MatLike> {
     pub(crate) U: Mat,
