@@ -140,25 +140,25 @@ impl<P: Pixel> Pixel for MaybeUninit<P> where P::Subpixel: SafeZero {
     // }
 
     fn from_slice<'a>(slice: &'a [Self::Subpixel]) -> &'a Self {
-        let slice = unsafe { MaybeUninit::slice_assume_init_ref(slice) };
+        let slice = unsafe { slice.assume_init_ref() };
         let inner = P::from_slice(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
     fn slice_to_value<'a>(slice: &'a [Self::Subpixel]) -> &'a Self::Value {
-        let slice = unsafe { MaybeUninit::slice_assume_init_ref(slice) };
+        let slice = unsafe { slice.assume_init_ref() };
         let inner = P::slice_to_value(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
     fn from_slice_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self {
-        let slice = unsafe { MaybeUninit::slice_assume_init_mut(slice) };
+        let slice = unsafe { slice.assume_init_mut() };
         let inner = P::from_slice_mut(slice);
         unsafe { std::mem::transmute(inner) }
     }
 
     fn slice_to_value_mut<'a>(slice: &'a mut [Self::Subpixel]) -> &'a mut Self::Value {
-        let slice = unsafe { MaybeUninit::slice_assume_init_mut(slice) };
+        let slice = unsafe { slice.assume_init_mut() };
         let inner = P::slice_to_value_mut(slice);
         unsafe { std::mem::transmute(inner) }
     }

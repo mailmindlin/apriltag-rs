@@ -302,7 +302,7 @@ impl DetectorConfig {
 
 	#[cfg(not(feature="debug"))]
 	#[inline(always)]
-	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(File) -> std::io::Result<()>) {
+	pub(crate) fn debug_image(&self, name: &str, callback: impl FnOnce(std::fs::File) -> std::io::Result<()>) {
 		
 	}
 

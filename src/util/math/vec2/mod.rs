@@ -4,8 +4,7 @@ mod reference;
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 mod arm;
 
-#[const_trait]
-pub(crate) trait Vec2Builder: Sized {
+pub(crate) const trait Vec2Builder: Sized {
     /// Create new zero vector
     fn zero() -> Self;
     //     Self::dup(0.)
@@ -20,8 +19,7 @@ pub(crate) trait Vec2Builder: Sized {
     fn of(x: f64, y: f64) -> Self;
 }
 
-#[const_trait]
-pub(crate) trait FMA: Sized {
+pub(crate) const trait FMA: Sized {
     /// Compute self + (u * v)
     fn fma(self, u: Self, v: Self) -> Self;
 }
