@@ -55,11 +55,7 @@ fn get_filter(x: u32) -> u32 {
 
 /// Saturating subtraction: returns max(x - y, 0)
 fn sub_sat(x: u32, y: u32) -> u32 {
-    if (y >= x) {
-        return 0u;
-    } else {
-        return x - y;
-    }
+    return select(x - y, 0u, y >= x);
 }
 
 /// Pack a vec4 of blurred values back into a single u32 (clamp to [0,255] after >>16)
